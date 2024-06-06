@@ -34,12 +34,12 @@
 #include <sys/resource.h>
 #include <sys/time.h>
 
-#ifndef kroundup32
-#define kroundup32(x) (--(x), (x)|=(x)>>1, (x)|=(x)>>2, (x)|=(x)>>4, (x)|=(x)>>8, (x)|=(x)>>16, ++(x))
+#ifndef LCD_kroundup32
+#define LCD_kroundup32(x) (--(x), (x)|=(x)>>1, (x)|=(x)>>2, (x)|=(x)>>4, (x)|=(x)>>8, (x)|=(x)>>16, ++(x))
 #endif
 
-#ifndef kroundup64
-#define kroundup64(x) (--(x), (x)|=(x)>>1, (x)|=(x)>>2, (x)|=(x)>>4, (x)|=(x)>>8, (x)|=(x)>>16, (x)|=(x)>>32, ++(x))
+#ifndef LCD_kroundup64
+#define LCD_kroundup64(x) (--(x), (x)|=(x)>>1, (x)|=(x)>>2, (x)|=(x)>>4, (x)|=(x)>>8, (x)|=(x)>>16, (x)|=(x)>>32, ++(x))
 #endif
  
 #ifdef __GNUC__
@@ -53,6 +53,7 @@
 // #define _err_fatal_simple_core(msg) err_fatal_simple_core(__func__, msg)
 #define _err_fatal(fmt, ...) err_fatal(__func__, fmt, ##__VA_ARGS__)
 #define _err_fatal_core(fmt, ...) err_fatal_core(__func__, fmt, ##__VA_ARGS__)
+#define _err_func_printf(fmt, ...) err_func_format_printf(__func__, fmt, ##__VA_ARGS__)
 
 #define xopen(fn, mode) err_xopen_core(__func__, fn, mode)
 #define xreopen(fn, mode, fp) err_xreopen_core(__func__, fn, mode, fp)

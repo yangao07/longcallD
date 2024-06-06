@@ -1,7 +1,7 @@
 #ifndef LONGCALLD_COLLECT_SNPS_H
 #define LONGCALLD_COLLECT_SNPS_H
 
-#include "phase_bam.h"
+#include "call_var.h"
 #include "utils.h"
 
 #ifdef __cplusplus
@@ -21,7 +21,7 @@ extern "C" {
 //     uint8_t **read_to_snp_map; // size: n_snps * n_reads
 // } cand_snps_t;
 
-int collect_snps_main(const phase_bam_pl_t *pl, bam_chunk_t *bam_chunk);
+int collect_snps_main(const call_var_pl_t *pl, bam_chunk_t *bam_chunk);
 
 #ifdef __cplusplus
 }

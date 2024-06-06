@@ -1,5 +1,5 @@
-#ifndef LONGCALLD_ASSIGN_ALN_HAP_H
-#define LONGCALLD_ASSIGN_ALN_HAP_H
+#ifndef LONGCALLD_ASSIGN_HAP_H
+#define LONGCALLD_ASSIGN_HAP_H
 
 #include "bam_utils.h"
 
@@ -16,7 +16,7 @@ extern "C" {
 //     int *HPs; // size: m_reads
 // } bam_chunk_t;
 
-int assign_aln_hap(read_snp_profile_t *p, int n_cand_snps, cand_snp_t *cand_snps, bam_chunk_t *bam_chunk);
+int assign_hap(read_snp_profile_t *p, int n_cand_snps, cand_snp_t *cand_snps, bam_chunk_t *bam_chunk);
 
 #ifdef __cplusplus
 }

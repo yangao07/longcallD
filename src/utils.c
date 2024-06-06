@@ -399,7 +399,7 @@ int err_func_format_printf(const char *func, const char *format, ...)
 	int done;
 	va_start(arg, format);
 	done = vfprintf(stderr, format, arg);
-    fprintf(stderr, "\n");
+    // fprintf(stderr, "\n");
 	int saveErrno = errno;
 	va_end(arg);
 	if (done < 0) err_fatal_simple("vfprintf(stderr)", strerror(saveErrno));

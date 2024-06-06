@@ -1,1 +1,1 @@
-# Vincent: small and structural variant calling, genotyping, and phasing using long reads
+# LongcallD: small and structural variant calling, genotyping, and phasing using genomic DNA long reads

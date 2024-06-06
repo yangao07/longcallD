@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <getopt.h>
 #include <string.h>
-#include "phase_bam.h"
+#include "call_var.h"
 #include "htslib/kstring.h"
 // #include "collect_snps.h"
 
@@ -10,6 +10,7 @@ const char PROG[20] = "longcallD";
 const char DESCRIP[100] = "";
 const char VERSION[20] = "0.0.1";
 const char CONTACT[30] = "gaoy1@chop.edu";
+int LONGCALLD_VERBOSE = 0;
 char *CMD;
 
 static int usage(void)	//main usage
@@ -21,7 +22,7 @@ static int usage(void)	//main usage
 	fprintf(stderr, "Usage:   %s <command> [options]\n\n", PROG);
 
 	fprintf(stderr, "Command: \n");
-    fprintf(stderr, "         phase-bam (pb)     phase long-read BAM without variant calling\n");
+    fprintf(stderr, "         call          call variants from long-read BAM\n");
 	// fprintf(stderr, "         index              index reference graph based on GFA file\n");
 
 	fprintf(stderr, "\n");
@@ -40,7 +41,7 @@ int main(int argc, char *argv[])
 	if (argc < 2) {
 		ret = 1; usage();
 	} else {
-		if (strcmp(argv[1], "phase-bam") == 0 || strcmp(argv[1], "pb") == 0) ret = phase_bam_main(argc-1, argv+1);
+		if (strcmp(argv[1], "call") == 0) ret = call_var_main(argc-1, argv+1);
 		// else if (strcmp(argv[1], "index") == 0)   return index_main(argc, argv);
 		// else if (strcmp(argv[1], "map") == 0)   return map_main(argc, argv);
 		else {

@@ -58,15 +58,18 @@ $(BIN): $(OBJS)
 	if [ ! -d $(BIN_DIR) ]; then mkdir $(BIN_DIR); fi
 	$(CC) $(OBJS) -o $@ $(LIB) $(PG_FLAG)
 
+$(SRC_DIR)/assign_aln_hap.o: $(SRC_DIR)/assign_aln_hap.c $(SRC_DIR)/assign_aln_hap.h $(SRC_DIR)/utils.h $(SRC_DIR)/bam_utils.h
 $(SRC_DIR)/bam_utils.o: $(SRC_DIR)/bam_utils.c $(SRC_DIR)/bam_utils.h $(SRC_DIR)/utils.h
+$(SRC_DIR)/cgranges.o: $(SRC_DIR)/cgranges.c $(SRC_DIR)/cgranges.h $(SRC_DIR)/khash.h
 $(SRC_DIR)/collect_snps.o: $(SRC_DIR)/collect_snps.c $(SRC_DIR)/collect_snps.h $(SRC_DIR)/bam_utils.h
 $(SRC_DIR)/kalloc.o: $(SRC_DIR)/kalloc.c $(SRC_DIR)/kalloc.h
 $(SRC_DIR)/kthread.o: $(SRC_DIR)/kthread.c
-$(SRC_DIR)/main.o: $(SRC_DIR)/main.c $(SRC_DIR)/phase_bam.h
-$(SRC_DIR)/phase_bam.o: $(SRC_DIR)/phase_bam.c $(SRC_DIR)/phase_bam.h $(SRC_DIR)/main.h $(SRC_DIR)/utils.h $(SRC_DIR)/seq.h \
+$(SRC_DIR)/main.o: $(SRC_DIR)/main.c $(SRC_DIR)/call_var.h
+$(SRC_DIR)/call_var.o: $(SRC_DIR)/call_var.c $(SRC_DIR)/call_var.h $(SRC_DIR)/main.h $(SRC_DIR)/utils.h $(SRC_DIR)/seq.h \
                         $(SRC_DIR)/collect_snps.h
 $(SRC_DIR)/seq.o: $(SRC_DIR)/seq.c $(SRC_DIR)/seq.h $(SRC_DIR)/utils.h
 $(SRC_DIR)/utils.o: $(SRC_DIR)/utils.c $(SRC_DIR)/utils.h $(SRC_DIR)/ksort.h $(SRC_DIR)/kseq.h
+$(SRC_DIR)/vcf_utils.o: $(SRC_DIR)/vcf_utils.c $(SRC_DIR)/vcf_utils.h $(SRC_DIR)/utils.h
 
 .PHONY: clean
 

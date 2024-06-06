@@ -100,6 +100,7 @@ void cr_destroy(cgranges_t *cr)
 {
 	int32_t i;
 	if (cr == 0) return;
+	free(cr->r); // why this is not freed?
 	for (i = 0; i < cr->n_ctg; ++i)
 		free(cr->ctg[i].name);
 	free(cr->ctg);
