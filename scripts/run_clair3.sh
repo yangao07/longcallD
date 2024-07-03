@@ -7,8 +7,20 @@ PLATFORM=hifi
 
 in_bam=~/hg002/chr1/tmp.bam # chr22/chr22.bam
 ref_fa=~/hg002/chr1/chr1.fa #chr22/chr22.fa
-INPUT_DIR=~/hg002/chr1 #22
-OUTPUT_DIR=~/hg002/chr1/clair3_output #22/clair3_output
+INPUT_DIR=~/hg002/chr11 #22
+OUTPUT_DIR=~/hg002/chr11/clair3_output #22/clair3_output
+
+if [[ $# -ne 0 ]]; then
+  if [[ $# -ne 2 ]]; then
+    echo "Usage: $0 <in_bam> <ref_fa>"
+    exit 1
+  fi
+  in_bam=$1
+  ref_fa=$2
+  # OUTPUT_DIR=$3
+  # INPUT_DIR=$(dirname ${in_bam})
+fi
+
 
 mkdir -p ${OUTPUT_DIR}
 singularity exec \

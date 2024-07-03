@@ -4,7 +4,7 @@
 #include "call_var.h"
 
 extern int LONGCALLD_VERBOSE;
-// 1st round operations
+// 1st round operations: update base_to_hap -> {1/2/0}
 // assign haplotype to a SNP, when no other information avaliable
 // most common base -> 1, sedond common base -> 2, others -> 0
 // potential start of a PhaseSet, could be merged with others (intra- or inter-blocks)
@@ -12,6 +12,8 @@ hts_pos_t assign_snp_init_hap(cand_snp_t *snp) {
     if (LONGCALLD_VERBOSE >= 2)
         fprintf(stderr, "Init SNP hap: %ld\n", snp->pos);
     snp->phase_set = snp->pos; // potential start of a PhaseSet
+    // if (snp->pos == 10737188)
+        // printf("ok");
     int hap1_base_i = -1, hap2_base_i = -1, hap1_cov = 0, hap2_cov = 0;
     for (int i = 0; i < snp->n_uniq_bases; ++i) {
         snp->base_to_hap[i] = 0;
@@ -23,7 +25,7 @@ hts_pos_t assign_snp_init_hap(cand_snp_t *snp) {
             hap2_base_i = i; hap2_cov = snp->base_covs[i];
         }
     }
-    if (hap2_base_i == -1) _err_fatal("Only one base in SNP: %ld\n", snp->pos);
+    if (hap2_base_i == -1) _err_error_exit("Only one base in SNP: %ld\n", snp->pos);
     if (snp->bases[hap2_base_i] == LONGCALLD_BAM_REF_BASE_IDX) {
         snp->base_to_hap[hap1_base_i] = 2; snp->base_to_hap[hap2_base_i] = 1;
     } else {
@@ -50,7 +52,7 @@ hts_pos_t assign_snp_hap_based_on_pre_reads1(cand_snp_t *snp) {
             }
         }
     }
-    if (first_hap == 0) _err_fatal("major haplotype is not set yet\n"); 
+    if (first_hap == 0) _err_error_exit("major haplotype is not set yet\n"); 
     if (sec_hap == 0) {
         if (first_hap == 1) sec_hap = 2; else sec_hap = 1;
         // set the most common bases other than first_hap_base to sec_hap
@@ -62,9 +64,9 @@ hts_pos_t assign_snp_hap_based_on_pre_reads1(cand_snp_t *snp) {
             }
         }
     }
-    if (first_hap == sec_hap) {
+    if (first_hap == sec_hap || first_hap_base_i == sec_hap_base_i) {
         if (LONGCALLD_VERBOSE >= 2)
-            fprintf(stderr, "SNP: %ld, first_hap: %d, sec_hap: %d\n", snp->pos, first_hap, sec_hap);
+            _err_func_printf("SNP: %ld, first_hap: %d (%c: %d), sec_hap: %d (%c: %d)\n", snp->pos, first_hap, LONGCALLD_BAM_BASE_STR[snp->bases[first_hap_base_i]], first_hap_cnt, sec_hap, LONGCALLD_BAM_BASE_STR[snp->bases[sec_hap_base_i]], sec_hap_cnt);
         assign_snp_init_hap(snp);
     } else {
         for (int i = 0; i < snp->n_uniq_bases; ++i) {
@@ -100,8 +102,13 @@ void snp_init_hap_cons_base(cand_snp_t *snps, int n_cand_snps) {
                     max_cov = snp->hap_to_base_profile[j][i]; max_cov_base_i = i;
                 }
             }
-            if (max_cov_base_i == -1) _err_func_printf("No HAP %d base in SNP: %ld\n", j, snp->pos);
-            snp->hap_to_cons_base[j] = max_cov_base_i;
+            if (max_cov_base_i == -1) {
+                _err_func_printf("No HAP %d base in SNP: %ld\n", j, snp->pos);
+                snp->is_skipped = 1;
+            } else {
+                snp->is_skipped = 0;
+                snp->hap_to_cons_base[j] = max_cov_base_i;
+            }
         }
     }
 }
@@ -117,8 +124,13 @@ void snp_init_hap_cons_base0(cand_snp_t *snp) {
                 max_cov_base_i = i;
             }
         }
-        if (max_cov_base_i == -1) _err_func_printf("No HAP %d base in SNP: %ld\n", hap, snp->pos);
-        snp->hap_to_cons_base[hap] = max_cov_base_i;
+        if (max_cov_base_i == -1) {
+            _err_func_printf("No HAP %d base in SNP: %ld\n", hap, snp->pos);
+            snp->is_skipped = 1;
+        } else {
+            snp->hap_to_cons_base[hap] = max_cov_base_i;
+            snp->is_skipped = 0;
+        }
     }
 }
 
@@ -173,7 +185,8 @@ void update_snp_hap_profile_based_on_aln_hap(int hap, hts_pos_t ps, cand_snp_t *
         uint8_t snp_base = p[read_i].snp_bases[read_snp_idx];
         int snp_base_i = snp[snp_i].base_to_i[snp_base];
         snp[snp_i].hap_to_base_profile[hap][snp_base_i] += 1;
-        snp[snp_i].phase_set = ps;
+        if (snp[snp_i].phase_set == 0 || ps <= snp[snp_i].pos)
+            snp[snp_i].phase_set = ps;
     }
 }
 
@@ -237,6 +250,7 @@ int update_aln_hap1(int target_read_i, int cur_hap,  bam_chunk_t *bam_chunk, rea
     for (int snp_i = start_snp_idx; snp_i <= end_snp_idx; ++snp_i) {
         int read_snp_idx = snp_i - start_snp_idx;
         if (p[target_read_i].snp_is_used[read_snp_idx] == 0) continue;
+
         cand_snp_t *snp = cand_snps+snp_i;
         int snp_base_i = snp->base_to_i[p[target_read_i].snp_bases[read_snp_idx]];
         collect_tmp_hap_cons_by_deduct_read(snp, cur_hap, snp_base_i, tmp_hap_to_cons_base);
@@ -258,11 +272,11 @@ int update_aln_hap1(int target_read_i, int cur_hap,  bam_chunk_t *bam_chunk, rea
     free(hap_match_cnt); free(tmp_hap_to_cons_base);
     if (max_cnt == 0) {
         if (LONGCALLD_VERBOSE >= 2)
-            err_fprintf(stderr, "Read %s max_cnt == 0 (pos: %ld)\n", bam_get_qname(bam_chunk->reads[target_read_i]), bam_chunk->reads[target_read_i]->core.pos);
+            _err_func_printf("Read %s max_cnt == 0 (pos: %ld)\n", bam_get_qname(bam_chunk->reads[target_read_i]), bam_chunk->reads[target_read_i]->core.pos);
         return 0; // unknown
     } else if (max_cnt == sec_cnt) {
         if (LONGCALLD_VERBOSE >= 2)
-            err_fprintf(stderr, "Read %s max_cnt == sec_cnt (%ld)\n", bam_get_qname(bam_chunk->reads[target_read_i]), bam_chunk->reads[target_read_i]->core.pos);
+            _err_func_printf("Read %s max_cnt == sec_cnt (%ld)\n", bam_get_qname(bam_chunk->reads[target_read_i]), bam_chunk->reads[target_read_i]->core.pos);
         max_hap = cur_hap;
     }
     return max_hap;
@@ -326,7 +340,7 @@ int assign_hap(read_snp_profile_t *p, int n_cand_snps, cand_snp_t *cand_snps, ba
         cr_add(read_snp_cr, "cr", p[i].start_snp_idx, p[i].end_snp_idx+1, i); // [start, end): 0-based
     } cr_index(read_snp_cr);
 
-    // SNP wise loop
+    // 1st loop: SNP wise loop
     snp_init_hap_profile(cand_snps, n_cand_snps);
     for (int snp_i = 0; snp_i < n_cand_snps; ++snp_i) {
         cand_snp_t *snp = cand_snps+snp_i;
@@ -338,6 +352,7 @@ int assign_hap(read_snp_profile_t *p, int n_cand_snps, cand_snp_t *cand_snps, ba
             if (bam_chunk->haps[read_i] == 0 && bam_chunk->is_skipped[read_i] != 1 && p[read_i].snp_is_used[read_snp_idx] == 1) {
                 int snp_base_i = cand_snps[snp_i].base_to_i[p[read_i].snp_bases[read_snp_idx]];
                 int hap = cand_snps[snp_i].base_to_hap[snp_base_i];
+                // XXX for hap == 0, due to base_to_hap was not updated yet
                 if (hap != 0) {
                     // first time assign hap to the read (update bam_haps)
                     bam_chunk->haps[read_i] = hap;
@@ -350,8 +365,10 @@ int assign_hap(read_snp_profile_t *p, int n_cand_snps, cand_snp_t *cand_snps, ba
             }
         }
         snp_init_hap_cons_base0(snp); // update hap_to_cons_base
-    } // after first round, bam_haps/hap_to_base_profile/hap_to_cons_base are upToDate and will be used in the following rounds
-      //                    base_to_hap will not be used (may be NOT upToDate)
+    } // after first round, 
+      // bam_haps/hap_to_base_profile/hap_to_cons_base are upToDate and will be used in the following rounds
+      // base_to_hap will not be used (may be NOT upToDate)
+    // 2nd loop: read-wise iterative loop
     int changed_hap, max_iter = 10, i_iter=0;
     while (i_iter++ < max_iter) {
         if (LONGCALLD_VERBOSE >= 2)
@@ -373,7 +390,7 @@ int assign_hap(read_snp_profile_t *p, int n_cand_snps, cand_snp_t *cand_snps, ba
                 }
                 changed_hap = 1;
                 bam_chunk->haps[read_i] = new_hap; // update intermediately
-                bam_aux_append(bam_chunk->reads[read_i], "XT", 'i', 4, (uint8_t*)&(bam_chunk->haps[read_i]));
+                // bam_aux_append(bam_chunk->reads[read_i], "XT", 'i', 4, (uint8_t*)&(bam_chunk->haps[read_i]));
                 update_snp_hap_profile_based_on_changed_hap(new_hap, cur_hap, cand_snps, p, read_i);
             }
         } if (changed_hap == 0) break;
@@ -383,87 +400,3 @@ int assign_hap(read_snp_profile_t *p, int n_cand_snps, cand_snp_t *cand_snps, ba
     free(ovlp_b); cr_destroy(read_snp_cr);
     return 0;
 }
-
-// int old_assign_hap(read_snp_profile_t *p, int n_cand_snps, cand_snp_t *cand_snps, bam_chunk_t *bam_chunk) {
-//     // init read_snp_cr for read overlapping query
-//     cgranges_t *read_snp_cr = cr_init(); int64_t ovlp_i, ovlp_n, *ovlp_b = 0, max_b = 0;
-//     for (int i = 0; i < bam_chunk->n_reads; ++i) {
-//         if (bam_chunk->is_skipped[i]) continue;
-//         if (p[i].start_snp_idx < 0 || p[i].end_snp_idx < 0) continue;
-//         cr_add(read_snp_cr, "cr", p[i].start_snp_idx, p[i].end_snp_idx+1, i); // [start, end): 0-based
-//         // fprintf(stderr, "read_snp_cr: %d %d %d\n", p[i].start_snp_idx, p[i].end_snp_idx+1, i);
-//     }
-//     cr_index(read_snp_cr);
-
-//     // 1st round: assign hap to SNPs, then assign hap to reads based on SNP haplotypes
-//     int cur_snp_i = 0;
-//     // init base_to_hap & hap_to_base_profile
-//     snp_init_hap_profile(cand_snps, n_cand_snps);
-//     while (cur_snp_i < n_cand_snps) {
-//         // 1st time using this snp, assign hap to ref/alt bases of this SNP
-//         // if (cur_snp_i == 806)
-//             // fprintf(stderr, "ok\n");
-//         assign_snp_hap_based_on_pre_reads(cand_snps+cur_snp_i);
-//         // printf(_YELLOW("SNP: %ld (%d)\n"), cand_snps[cur_snp_i].pos, cur_snp_i);
-//         fprintf(stderr, "SNP: %ld (%d)\n", cand_snps[cur_snp_i].pos, cur_snp_i);
-//         // retrieve reads overlapping with current SNP
-//         ovlp_n = cr_overlap(read_snp_cr, "cr", cur_snp_i, cur_snp_i+1, &ovlp_b, &max_b);
-//         for (ovlp_i = 0; ovlp_i < ovlp_n; ++ovlp_i) {
-//             int read_i = cr_label(read_snp_cr, ovlp_b[ovlp_i]);
-//             // if (strcmp(read_name, bam_get_qname(bam_chunk->reads[read_i])) == 0) 
-//                 // fprintf(stderr, "ok\n");
-//             if (bam_chunk->haps[read_i] == 0 && bam_chunk->is_skipped[read_i] != 1) { // hap is not set yet
-//                 // assign read haplotype based on SNP haplotype
-//                 uint8_t snp_base = p[read_i].snp_bases[cur_snp_i-p[read_i].start_snp_idx];
-//                 int snp_base_i = cand_snps[cur_snp_i].base_to_i[snp_base];
-//                 int hap = cand_snps[cur_snp_i].base_to_hap[snp_base_i];
-//                 fprintf(stderr, "read: %s, cur_snp_i:%d, base: %d(%c), hap: %d\n", bam_get_qname(bam_chunk->reads[read_i]), cur_snp_i, p[read_i].snp_bases[cur_snp_i-p[read_i].start_snp_idx], LONGCALLD_BAM_BASE_STR[p[read_i].snp_bases[cur_snp_i-p[read_i].start_snp_idx]], hap);
-//                 if (hap != 0) {
-//                     bam_chunk->haps[read_i] = hap; // first time assign hap to the read
-//                     // update hap profile for all SNPs covered by this read, based on its assigned haplotype, for following SNPs (L)
-//                     update_snp_hap_profile_based_on_aln_hap(hap, cand_snps, p, read_i);
-//                 }
-//             }
-//         }
-//         cur_snp_i++;
-//     } // after 1st round: all reads covering SNPs are assigned with haplotype
-//       //                  all SNPs' hap_to_base_profile are upToDate (base -> hap -> count), base_to_hap will not be used (may be NOT upToDate)
-//     // 2~N rounds: iteratively updating haplotypes for each read and SNP simultaneously
-//     int changed_hap = 0, max_iter = 100, i_iter=0;
-//     // set hap_to_cons_base for the first time, then hap_to_cons_base will be updated after each change
-//     snp_init_hap_cons_base(cand_snps, n_cand_snps);
-//     while (i_iter++ < max_iter) {
-//         for (int read_i = 0; read_i < bam_chunk->n_reads; ++read_i) {
-//             int cur_hap = bam_chunk->haps[read_i];
-//             int new_hap = update_aln_hap1(read_i, cur_hap, bam_chunk, p, cand_snps);
-//             if (new_hap != cur_hap) {
-//                 bam_chunk->haps[read_i] = new_hap; // update intermediately
-//                 changed_hap = 1;
-//             }
-//             // as current read's hap was deducted from hap_to_cons_base during update_aln_hap, always update hap_to_cons_base afterwards
-//             update_snp_hap_cons_base1(read_i, new_hap, bam_chunk, p, cand_snps);
-//         }
-//         if (changed_hap == 0) break;
-//     }
-//     // update hap after each round
-//     // int *new_haps = (int *)malloc(bam_chunk->n_reads * sizeof(int));
-//     // while (i_iter++ < max_iter) {
-//     //     changed_hap = 0;
-//     //     for (int ordered_read_i = 0; ordered_read_i < assigned_reads; ++ordered_read_i) {
-//     //         int read_i = ordered_reads[ordered_read_i];
-//     //         int cur_hap = bam_chunk->haps[read_i];
-//     //         int new_hap = update_aln_hap(bam_chunk, read_i, p, read_snp_cr, &ovlp_b, &max_b, n_cand_snps, cand_snps);
-//     //         new_haps[read_i] = new_hap;
-//     //         if (new_hap != cur_hap) {
-//     //             changed_hap = 1;
-//     //         }
-//     //     }
-//     //     if (changed_hap == 0) break;
-//     //     else {
-//     //         for (int i = 0; i < bam_chunk->n_reads; ++i) bam_chunk->haps[i] = new_haps[i];
-//     //     }
-//     // } free(new_haps);
-//     fprintf(stderr, "iter: %d\n", i_iter);
-//     free(ovlp_b); cr_destroy(read_snp_cr);
-//     return 0;
-// }

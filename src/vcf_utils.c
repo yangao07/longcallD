@@ -37,27 +37,41 @@ int write_snp_to_vcf(cand_snp_t *cand_snps, int n_cand_snps, FILE *out_vcf, char
     int i;
     int ret = 0;
     // Write each SNP to VCF
+    // XXX correct phase set if needed: set it as leftmost SNP position within the same phase block
     for (i = 0; i < n_cand_snps; i++) {
         cand_snp_t snp = cand_snps[i];
-
+        if (snp.is_skipped) continue;
         // Determine the genotype based on hap_to_cons_base
         char gt[4] = "0|0"; uint8_t allele_bases[2];
         char ref_base='.', alt_bases[4]; int n_alt_bases=0;
         
+        if (snp.ref_base != -1) ref_base = LONGCALLD_BAM_BASE_STR[snp.ref_base];
+
         for (int i = 0; i < 2; ++i) {
-            allele_bases[i] = snp.bases[snp.hap_to_cons_base[i+1]];
+            int base_i = snp.hap_to_cons_base[i+1];
+            if (base_i < 0 || base_i >= snp.n_uniq_bases) {
+                fprintf(stderr, "Error: hap_to_cons_base[%d] = %d, out of range [0, %d)\n", i, base_i, snp.n_uniq_bases);
+                ret = 1; break;
+            }
+            allele_bases[i] = snp.bases[base_i];
             if (allele_bases[i] == LONGCALLD_BAM_REF_BASE_IDX) {
                 gt[i*2] = '0';
-                ref_base = LONGCALLD_BAM_BASE_STR[allele_bases[i]];
             } else {
                 alt_bases[n_alt_bases*2] = LONGCALLD_BAM_BASE_STR[allele_bases[i]];
                 if (n_alt_bases > 0) alt_bases[n_alt_bases*2-1] = ',';
-                n_alt_bases++;
+                // check if alt_bases is already in the list
+                int j, add_alt_base = 1;
+                for (j = 0; j < n_alt_bases; j++) {
+                    if (allele_bases[i] == allele_bases[j]) {
+                        add_alt_base = 0;
+                        break;
+                    }
+                }
+                n_alt_bases += add_alt_base;
                 gt[i*2] = n_alt_bases + '0';
             }
         }
         if (n_alt_bases == 0) continue;
-
         alt_bases[n_alt_bases*2-1] = '\0'; gt[3] = '\0';
 
         // Write SNP information to VCF

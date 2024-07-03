@@ -116,7 +116,7 @@ ref_seq_t *ref_seq_realloc(ref_seq_t *r) {
 }
 
 ref_seq_t *read_ref_seq(const char *ref_fa_fn) {
-    if (!ref_fa_fn) _err_fatal("No reference FASTA file.");
+    if (!ref_fa_fn) _err_error_exit("No reference FASTA file.");
     ref_seq_t *ref_seq = ref_seq_init(); gzFile ref_fp; kseq_t *ks; int absent;
     ref_fp = xzopen(ref_fa_fn, "r");
     ks = kseq_init(ref_fp); gzrewind(ref_fp); kseq_rewind(ks);
@@ -126,7 +126,7 @@ ref_seq_t *read_ref_seq(const char *ref_fa_fn) {
         kputsn(ks->name.s, ks->name.l, ref_seq->name+ref_seq->n);
         khint_t pos = kh_put(str, ref_seq->h, ref_seq->name[ref_seq->n].s, &absent);
         if (absent) kh_val(ref_seq->h, pos) = ref_seq->n;
-        else err_fatal(__func__, "Duplicated chromosome: \"%s\".", ks->name.s);
+        else _err_error_exit(__func__, "Duplicated chromosome: \"%s\".", ks->name.s);
         ++ref_seq->n;
     }
     kseq_destroy(ks); err_gzclose(ref_fp);
@@ -147,7 +147,7 @@ void ref_seq_free(ref_seq_t *r) {
 }
 
 int ref_seq_name2id(ref_seq_t *r, const char *name) {
-    if (!r || !r->h) _err_fatal("No reference sequence.");
+    if (!r || !r->h) _err_error_exit("No reference sequence.");
     khint_t pos = kh_get(str, r->h, name);
     return pos == kh_end(r->h) ? -1 : kh_val(r->h, pos);
 }

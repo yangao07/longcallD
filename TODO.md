@@ -9,6 +9,9 @@ TODO:
 - [ ] Local optima
 - [ ] Hom. SNPs
 - [ ] Germline indels
+- [ ] MSA for noisy regions
+- [ ] Phasing using both SNPs and indels
+- [ ] Rescue SNPs near gaps, they were considered as low-qual and ignored in the first round
 
 - [ ] Only phase bam with/without input VCF
 
@@ -32,3 +35,10 @@ TODO:
 * VCF + variant.fa: no long insertion seq. in VCF
 
 * Joint alignment phasing and variant calling
+
+
+
+* DEBUG sites
+  * 18925699 PhaseSet
+  * 18923692 No HAP
+  * 18923837 No HAP

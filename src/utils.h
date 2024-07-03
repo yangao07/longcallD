@@ -49,11 +49,15 @@
 #define ATTRIBUTE(list)
 #endif
 
-// #define _err_fatal_simple(msg) err_fatal_simple(__func__, msg)
-// #define _err_fatal_simple_core(msg) err_fatal_simple_core(__func__, msg)
 #define _err_fatal(fmt, ...) err_fatal(__func__, fmt, ##__VA_ARGS__)
 #define _err_fatal_core(fmt, ...) err_fatal_core(__func__, fmt, ##__VA_ARGS__)
 #define _err_func_printf(fmt, ...) err_func_format_printf(__func__, fmt, ##__VA_ARGS__)
+#define _err_color_printf(type, fmt, ...) err_color_format_printf(type, fmt, ##__VA_ARGS__)
+#define _err_warning(fmt, ...) _err_color_printf('W', fmt, ##__VA_ARGS__)
+#define _err_error(fmt, ...) _err_color_printf('E', fmt, ##__VA_ARGS__)
+#define _err_error_exit(fmt, ...) { _err_color_printf('E', fmt, ##__VA_ARGS__) ; exit(EXIT_FAILURE); }
+#define _err_success(fmt, ...) _err_color_printf('S', fmt, ##__VA_ARGS__)
+#define _err_info(fmt, ...) _err_color_printf('I', fmt, ##__VA_ARGS__)
 
 #define xopen(fn, mode) err_xopen_core(__func__, fn, mode)
 #define xreopen(fn, mode, fp) err_xreopen_core(__func__, fn, mode, fp)
@@ -118,6 +122,7 @@ extern "C" {
     long peakrss(void);
     void print_format_time(FILE *out);
     int err_func_format_printf(const char *func, const char *format, ...);
+    int err_color_format_printf(const char type, const char *format, ...);
 
 	void ks_introsort_64 (size_t n, uint64_t *a);
 	void ks_introsort_128(size_t n, pair64_t *a);
@@ -280,6 +285,7 @@ static inline uint64_t hash_64(uint64_t key)
 #define CLEAR "\e[2J" // clear
 #define CLRLINE "\r\e[K" // clear line
 
+
 // #define _RED(string) "\x1b[31m" string "\x1b[0m"
 #define _RED(string) "\x1b[91m" string "\x1b[0m"
 #define _GREEN(string) "\x1b[32m" string "\x1b[0m"
@@ -291,6 +297,20 @@ static inline uint64_t hash_64(uint64_t key)
 #define _ERROR_COLOR(string) "\x1b[1;91m" string "\x1b[0m"
 #define _WARNING_COLOR(string) "\x1b[1;93m" string "\x1b[0m"
 #define _SUCC_COLOR(string) "\x1b[1;32m" string "\x1b[0m"
+
+#define _SUCCESS "\x1b[1;32m"
+#define _ERROR "\x1b[1;91m"
+#define _WARNING "\x1b[1;93m"
+
+// #define PRINT_COLOR(fp, color, fmt, ...) fprintf(fp, color fmt "\x1b[0m", ##__VA_ARGS__)
+#define WARNING_FORMAT(fp, fmt, ...) fprintf(fp, _WARNING fmt "\x1b[0m", ##__VA_ARGS__)
+#define _ERR_WARNING_FORMAT(fmt, ...) fprintf(stderr, _WARNING fmt "\x1b[0m", ##__VA_ARGS__)
+#define ERROR_FORMAT(fp, fmt, ...) fprintf(fp, _ERROR fmt "\x1b[0m", ##__VA_ARGS__)
+#define _ERR_ERROR_FORMAT(fmt, ...) fprintf(stderr, _ERROR fmt "\x1b[0m", ##__VA_ARGS__)
+#define SUCCESS_FORMAT(fp, fmt, ...) fprintf(fp, _SUCCESS fmt "\x1b[0m", ##__VA_ARGS__)
+#define _ERR_SUCCESS_FORMAT(fmt, ...) fprintf(stderr, _SUCCESS fmt "\x1b[0m", ##__VA_ARGS__)
+#define INFO_FORMAT(fp, fmt, ...) fprintf(fp, fmt, ##__VA_ARGS__)
+#define _ERR_INFO_FORMAT(fmt, ...) fprintf(stderr, fmt, ##__VA_ARGS__)
 
 // from https://blog.csdn.net/MoDa_Li/java/article/details/82156888
 

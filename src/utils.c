@@ -391,6 +391,17 @@ void print_format_time(FILE *out)
     fprintf(out, "== %s == ", buffer);
 }
 
+char *get_format_time(void) {
+    time_t rawtime;
+    struct tm *info;
+    char *buffer = (char *)malloc(80 * sizeof(char));
+
+    time(&rawtime);
+    info = localtime( &rawtime );
+    strftime(buffer, 80, "%m-%d-%Y %X", info);
+    return buffer;
+}
+
 int err_func_format_printf(const char *func, const char *format, ...)
 {
     print_format_time(stderr);
@@ -403,5 +414,31 @@ int err_func_format_printf(const char *func, const char *format, ...)
 	int saveErrno = errno;
 	va_end(arg);
 	if (done < 0) err_fatal_simple("vfprintf(stderr)", strerror(saveErrno));
+	return done;
+}
+
+int err_color_format_printf(const char type, const char *format, ...) {
+    char *time_str = get_format_time();
+    char *msg_str = (char*)malloc(1024 * sizeof(char));
+
+    va_list arg;
+	int done;
+	va_start(arg, format);
+	// vfprintf(stderr, format, arg);
+	done = vsnprintf(msg_str, 1024, format, arg);
+
+    if (type == 'E')
+        _ERR_ERROR_FORMAT("== %s == [ERROR] %s", time_str, msg_str);
+    else if (type == 'W')
+        _ERR_WARNING_FORMAT("== %s == [WARNING] %s", time_str, msg_str);
+    else if (type == 'S')
+        _ERR_SUCCESS_FORMAT("== %s == [SUCCESS] %s", time_str, msg_str);
+    else
+        _ERR_INFO_FORMAT("== %s == [INFO] %s", time_str, msg_str);
+
+    free(time_str); free(msg_str);
+	int saveErrno = errno;
+	va_end(arg);
+	if (done < 0) err_fatal_simple("sprintf", strerror(saveErrno));
 	return done;
 }
