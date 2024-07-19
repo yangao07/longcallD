@@ -2,7 +2,3 @@
 	path = htslib
 	url = https://github.com/samtools/htslib.git
 	ignore = dirty
-[submodule "abPOA"]
-	path = abPOA
-	url = https://github.com/yangao07/abPOA.git
-    ignore = dirty

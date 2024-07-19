@@ -1,7 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "htslib/sam.h"
-#include "collect_snps.h"
+#include "collect_var.h"
+#include "call_var.h"
 #include "utils.h"
 #include "bam_utils.h"
 #include "seq.h"
@@ -206,20 +207,42 @@ read_snp_profile_t *collect_read_snp_profile(bam_chunk_t *bam_chunk, int n_cand_
     return p;
 }
 
-int collect_snps_main(const call_var_pl_t *pl, bam_chunk_t *bam_chunk) {
+// merge sort SNPs/indels
+int collect_variants(cand_snp_t *cand_snps, int n_cand_snps, var_t *var) {
+    if (n_cand_snps <= 0) return 0;
+    var->n = 0; var->m = n_cand_snps;
+    var->vars = (var1_t*)malloc(n_cand_snps * sizeof(var1_t));
+    for (int i = 0; i < n_cand_snps; ++i) {
+        var->vars[i].pos = cand_snps[i].pos;
+        var->vars[i].type = 0; // SNP
+        var->vars[i].ref_bases = (uint8_t*)malloc(1 * sizeof(uint8_t)); var->vars[i].ref_bases[0] = LONGCALLD_BAM_BASE_STR[cand_snps[i].ref_base];
+        var->vars[i].ref_len = 1;
+        var->vars[i].alt_bases = (uint8_t**)malloc(LONGCALLD_DEF_PLOID * sizeof(uint8_t*));
+        var->vars[i].alt_len = (int*)malloc(LONGCALLD_DEF_PLOID * sizeof(int));
+        var->vars[i].n_allele = 1;
+        var->vars[i].total_depth = cand_snps[i].n_depth;
+        var->vars[i].depths[0] = cand_snps[i].base_covs[cand_snps[i].base_to_i[cand_snps[i].ref_base]];
+        var->vars[i].depths[1] = cand_snps[i].n_depth - var->vars[i].depths[0];
+        var->vars[i].genotype[0] = 0; var->vars[i].genotype[1] = 0;
+        var->vars[i].gt_qual = 0;
+    }
+    return n_cand_snps;
+}
+
+void collect_var_main(const call_var_pl_t *pl, bam_chunk_t *bam_chunk, var_t *var) {
     // collect X/I/D sites from BAM
     collect_digars_from_bam(bam_chunk, pl);
     
     // merge X sites from all reads
     hts_pos_t *x_sites = NULL; int n_x_sites;
-    if ((n_x_sites = collect_x_sites(bam_chunk, &x_sites)) <= 0) return 0;
+    if ((n_x_sites = collect_x_sites(bam_chunk, &x_sites)) <= 0) return;
     
     // collect reference and alternative alleles for all X sites 
     cand_snp_t *cand_snps = collect_cand_snps(bam_chunk, n_x_sites, x_sites); free(x_sites);
     
     // filter candidate SNPs based depth, allele frequency, etc.
     int n_cand_snps;
-    if ((n_cand_snps = filter_cand_snps(cand_snps, n_x_sites, pl->opt)) <= 0) return 0;
+    if ((n_cand_snps = filter_cand_snps(cand_snps, n_x_sites, pl->opt)) <= 0) return;
     
     // collect read-wise snp profiles
     read_snp_profile_t *p = collect_read_snp_profile(bam_chunk, n_cand_snps, cand_snps);
@@ -227,8 +250,20 @@ int collect_snps_main(const call_var_pl_t *pl, bam_chunk_t *bam_chunk) {
     // assign hap to each read and SNP
     assign_hap(p, n_cand_snps, cand_snps, bam_chunk); 
 
+    // noisy-region SNPs, indels
+
     // write snps to VCF
-    write_snp_to_vcf(cand_snps, n_cand_snps, pl->opt->out_vcf, pl->header->target_name[bam_chunk->tid]);
+    // write_snp_to_vcf(cand_snps, n_cand_snps, pl->opt->out_vcf, pl->header->target_name[bam_chunk->tid]);
+    // collect variants, TODO noisy-region SNPs + indels
+    // collect_variants(cand_snps, n_cand_snps, var);
     free_read_snp_profile(p, bam_chunk->n_reads); free_cand_snps(cand_snps, n_cand_snps); 
-    return 0;
+}
+
+// stitch ii and ii+1
+void stitch_var_main(const call_var_pl_t *pl, bam_chunk_t *bam_chunk, var_t *var, long ii) {
+    if (ii == 0) {
+        // no stitching needed, copy variants directly
+        return;
+    }
+
 }

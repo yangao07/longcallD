@@ -58,6 +58,7 @@
 #define _err_error_exit(fmt, ...) { _err_color_printf('E', fmt, ##__VA_ARGS__) ; exit(EXIT_FAILURE); }
 #define _err_success(fmt, ...) _err_color_printf('S', fmt, ##__VA_ARGS__)
 #define _err_info(fmt, ...) _err_color_printf('I', fmt, ##__VA_ARGS__)
+#define _err_cmd(fmt, ...) _err_color_printf('C', fmt, ##__VA_ARGS__)
 
 #define xopen(fn, mode) err_xopen_core(__func__, fn, mode)
 #define xreopen(fn, mode, fp) err_xreopen_core(__func__, fn, mode, fp)
@@ -302,7 +303,6 @@ static inline uint64_t hash_64(uint64_t key)
 #define _ERROR "\x1b[1;91m"
 #define _WARNING "\x1b[1;93m"
 
-// #define PRINT_COLOR(fp, color, fmt, ...) fprintf(fp, color fmt "\x1b[0m", ##__VA_ARGS__)
 #define WARNING_FORMAT(fp, fmt, ...) fprintf(fp, _WARNING fmt "\x1b[0m", ##__VA_ARGS__)
 #define _ERR_WARNING_FORMAT(fmt, ...) fprintf(stderr, _WARNING fmt "\x1b[0m", ##__VA_ARGS__)
 #define ERROR_FORMAT(fp, fmt, ...) fprintf(fp, _ERROR fmt "\x1b[0m", ##__VA_ARGS__)
@@ -314,6 +314,6 @@ static inline uint64_t hash_64(uint64_t key)
 
 // from https://blog.csdn.net/MoDa_Li/java/article/details/82156888
 
-#endif
+#endif // _PRINT_FORMAT_H_
 
-#endif
+#endif // LONGCALLD_UTILS_H

@@ -6,11 +6,10 @@
 #include <stdlib.h>
 #include "seq.h"
 #include "htslib/vcf.h"
-#include "bam_utils.h"
+#include "htslib/sam.h"
 
 #define CALL_VAR_PL_THREAD_N 3
-#define CALL_VAR_THREAD_N 8
-
+#define CALL_VAR_THREAD_N 4
 
 #define LONGCALLD_MIN_CAND_SNP_MQ 0 // aln with MQ < 5 will be skipped
 #define LONGCALLD_MIN_CAND_SNP_BQ 0 // base with BQ < 10 will be skipped, only when qual is available
@@ -29,40 +28,37 @@
 extern "C" {
 #endif
 
-// // site wise summary data
-// typedef struct {
-//     // static information
-//     hts_pos_t pos, phase_set;
-//     int n_depth, n_uniq_bases; // ref+alt, used in variant calling & haplotype assignment
-//     int n_low_depth; // including bases/regions with low quality, only count depth, not base
-//     int8_t ref_base; // for VCF output
-//     uint8_t *bases; int *base_covs, *base_to_i; // 'ACGTN.D', and corresponding coverage
-
-//     // dynamic information, update during haplotype assignment
-//     uint8_t *base_to_hap; // SNP-wise (base_i_to_hap): 0123456(ACGTN.D) -> 1:H1/2:H2/0:not set yet
-//     int **hap_to_base_profile; // read-wise: 1:H1/2:H2 -> base_i -> read count
-//     int *hap_to_cons_base; // HAP-wise (hap_to_cons_base_i): 1:H1/2:H2 -> 0123456(ACGTN.D)
-
-//     // XXX
-//     uint8_t is_low_qual; // read evidence is low quality to support this site as SNP
-//                          // will be skipped or need extra operations to confirm
-//     uint8_t is_skipped;  // skipped in VCF output
-// } cand_snp_t;
-
+// for each vartiant:
+// #site-level:
+// * QUAL = -10 * log(1-p) (int), site-wise, p = P(data|ref)
+// * FILTER: PASS, LowQual, RefCall, NoCall
+// * INFO: DP/AD/AF/END
+// #sample-level:
+// * FORMAT: GT/GQ/DP/AD/PL/PS 
+//     GP = P(G|D)
+//     GL = P(D|G)
+//   * PL (int) = -10 * log10(P(D|G)), Phred-scaled likelihoods of the possible genotypes.
+//        "Normalized": the PL of the most likely genotype is set to 0, and the rest are scaled relative to this.
+//   * GQ (int) = PL_sec - PL_lowest (int)
+//   * GT = argmin(PL)
 typedef struct {
     uint8_t type; // 0: SNP, 1: insertion, 2: deletion, etc.
-    hts_pos_t pos, phase_set; int len; // PS
+    hts_pos_t pos, PS; int len; // PS
     uint8_t *ref_bases; int ref_len;
     uint8_t **alt_bases; int *alt_len;
     int n_allele; // including ref allele
-    int total_depth, depths[2]; uint8_t genotype[2]; // DP/AD/GT
-    int qual; // phred-scaled, GQ
+    int DP, AD[2]; uint8_t GT[2]; // DP/AD/GT
+    int QUAL, GQ, PL[6]; // phred-scaled, QUAL/FILTER/GQ/PL
+} var1_t;
+
+typedef struct var_t {
+    int n, m;
+    var1_t *vars;
 } var_t;
 
 typedef struct call_var_opt_t {
     // input files
-    char *ref_fa_fn;
-    char *in_bam_fn; char *sample_name;
+    char *ref_fa_fn; char *in_bam_fn; char *sample_name;
     // int max_ploidy;
     char *region_list; uint8_t region_is_file; // for -R/--region/--region-file option
 
@@ -77,28 +73,27 @@ typedef struct call_var_opt_t {
     FILE *out_vcf; // phased vcf
 
     // general
-    // int verbose;
 } call_var_opt_t;
 
 // shared data for all threads
-typedef struct {
+typedef struct call_var_pl_t {
     // input files
     ref_seq_t *ref_seq;
     samFile *bam; bam_hdr_t *header; hts_idx_t *idx; hts_itr_t *iter; int use_iter;
     // parameters, output files
     const call_var_opt_t *opt;
-    // TODO: variant calling result
-    // var_t *vars; int n_vars, m_vars; // SNPs, indels, complex variants (e.g. MNPs, SVs, duplications, inversions, translocations, etc.)
     // m-threads
     int max_reads_per_chunk, max_reg_len_per_chunk;
     int n_threads;
 } call_var_pl_t;
 
+struct bam_chunk_t;
 // separately/parallelly processed
 typedef struct {
     const call_var_pl_t *pl;
     int n_chunks, max_chunks; // 64
-    bam_chunk_t *chunks;
+    struct bam_chunk_t *chunks;
+    var_t *vars; // size: n_chunks; SNP/indel, SV, etc.
 } call_var_step_t;
 
 int call_var_main(int argc, char *argv[]);

@@ -2,6 +2,8 @@
 #include "cgranges.h"
 #include "utils.h"
 #include "call_var.h"
+#include "bam_utils.h"
+#include "collect_var.h"
 
 extern int LONGCALLD_VERBOSE;
 // 1st round operations: update base_to_hap -> {1/2/0}
@@ -395,8 +397,7 @@ int assign_hap(read_snp_profile_t *p, int n_cand_snps, cand_snp_t *cand_snps, ba
             }
         } if (changed_hap == 0) break;
     }
-    if (LONGCALLD_VERBOSE >= 1)
-        fprintf(stderr, "N_iter: %d\n", i_iter);
+    if (LONGCALLD_VERBOSE >= 1) _err_info("Iteration: %d\n", i_iter);
     free(ovlp_b); cr_destroy(read_snp_cr);
     return 0;
 }

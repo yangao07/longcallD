@@ -2,6 +2,7 @@ TODO:
 - [ ] Rescue reads without hap/Remove reads with ambiguous hap
 - [ ] Rescue SNPs in noisy region/Remove SNPs with low-confidence read evidence (T,T 1|2)
 - [x] Phase set
+- [ ] Phase quality (FORMAT:PQ)
 - [ ] Stitch phase sets/bam chunks
 - [ ] Link supp and primary
 - [x] 2 alt bases (no ref base)

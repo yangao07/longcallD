@@ -1,6 +1,7 @@
 #include <ctype.h>
 #include "bam_utils.h"
 #include "utils.h"
+#include "collect_var.h"
 #include "call_var.h"
 
 extern int LONGCALLD_VERBOSE;
@@ -683,7 +684,7 @@ void copy_bam_chunk(bam_chunk_t *from_chunk, bam_chunk_t *to_chunk, int *ovlp_re
     to_chunk->n_reads += n_reads;
 }
 
-int bam_read_chunk_init(bam_chunk_t *chunk, int n_reads, int *ovlp_read_i, int n_ovlp_reads) {
+int bam_chunk_init(bam_chunk_t *chunk, int n_reads, int *ovlp_read_i, int n_ovlp_reads) {
     if (n_ovlp_reads > n_reads) n_reads = n_ovlp_reads;
 
     chunk->reads = (bam1_t**)malloc(n_reads * sizeof(bam1_t*));
@@ -704,7 +705,7 @@ int bam_read_chunk_init(bam_chunk_t *chunk, int n_reads, int *ovlp_read_i, int n
     return 0;
 }
 
-int bam_read_chunk_realloc(bam_chunk_t *chunk) {
+int bam_chunk_realloc(bam_chunk_t *chunk) {
     int m_reads = chunk->m_reads * 2;
     chunk->reads = (bam1_t**)realloc(chunk->reads, m_reads * sizeof(bam1_t*));
     chunk->digars = (digar_t*)realloc(chunk->digars, m_reads * sizeof(digar_t));
@@ -719,7 +720,7 @@ int bam_read_chunk_realloc(bam_chunk_t *chunk) {
     return 0;
 }
 
-void bam_read_chunk_free(bam_chunk_t *chunk) {
+void bam_chunk_free(bam_chunk_t *chunk) {
     for (int i = 0; i < chunk->m_reads; i++) {
         if (chunk->digars[i].m_digar > 0) free(chunk->digars[i].digars);
     }
@@ -738,7 +739,7 @@ int collect_bam_chunk(samFile *in_bam, bam_hdr_t *header, hts_itr_t *iter, int u
     int tid = -1; char *tname = NULL; 
     hts_pos_t beg=-1, _beg=-1, end=-1, _end = -1, reg_end=-1;
 
-    bam_read_chunk_init(chunk, 4096, *ovlp_read_i, *n_ovlp_reads);
+    bam_chunk_init(chunk, 4096, *ovlp_read_i, *n_ovlp_reads);
     if (*ovlp_read_i != NULL) free(*ovlp_read_i);
 
     int m_ovlp_reads = chunk->m_reads, _n_ovlp_reads = 0; // push to ovlp_read_i if end >= reg_end, break if beg > reg_end
@@ -773,7 +774,7 @@ int collect_bam_chunk(samFile *in_bam, bam_hdr_t *header, hts_itr_t *iter, int u
         // check eqx cigar or MD tag
         if (has_eqx_cigar == 0) has_eqx_cigar = has_equal_X_in_bam_cigar(chunk->reads[chunk->n_reads]);
         if (has_MD == 0) has_MD = has_MD_in_bam(chunk->reads[chunk->n_reads]);
-        if (++(chunk->n_reads) >= chunk->m_reads) bam_read_chunk_realloc(chunk);
+        if (++(chunk->n_reads) >= chunk->m_reads) bam_chunk_realloc(chunk);
     }
 
     if (chunk->n_reads > *n_ovlp_reads) {
@@ -785,7 +786,20 @@ int collect_bam_chunk(samFile *in_bam, bam_hdr_t *header, hts_itr_t *iter, int u
     } else {
         *n_ovlp_reads = 0;
         chunk->n_reads = 0;
-        bam_read_chunk_free(chunk);
+        bam_chunk_free(chunk);
     }
     return chunk->n_reads;
+}
+
+char *extract_sample_name_from_bam_header(bam_hdr_t *header) {
+    int n_rg = sam_hdr_count_lines(header, "RG");
+    for (int i = 0; i < n_rg; ++i) {
+        kstring_t ks = KS_INITIALIZE;
+        if (sam_hdr_find_tag_pos(header, "RG", i, "SM", &ks) == 0) {
+            if (i < n_rg-1) _err_warning("Multiple RG/SM found in the BAM header, using the first one: %s\n", ks.s);
+            else _err_info("Sample name extracted from the BAM header: %s\n", ks.s);
+            return ks.s;
+        }
+    }
+    return NULL;
 }

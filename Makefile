@@ -5,7 +5,7 @@ EXTRA_FLAGS = -Wall -Wno-unused-function -Wno-misleading-indentation
 
 HTSLIB_DIR  = ./htslib
 HTSLIB      = $(HTSLIB_DIR)/libhts.a
-LIB         = $(HTSLIB) -lm -lz -lpthread -llzma -lbz2 -lcurl
+LIB         = $(HTSLIB) -lm -lz -lpthread #-llzma -lbz2 -lcurl
 INCLUDE     = -I $(HTSLIB_DIR)
 
 # for debug
@@ -51,8 +51,11 @@ endif
 
 all: $(HTS_ALL) $(BIN)
 
-$(HTS_ALL):
-	cd $(HTSLIB_DIR); make;
+# disable lzma, bz2 (CRAM), and libcurl (network protocol support)
+$(HTS_ALL): $(HTSLIB)
+
+$(HTSLIB): $(HTSLIB_DIR)/configure.ac
+	cd $(HTSLIB_DIR); autoreconf -i; ./configure --disable-lzma --disable-bz2 --disable-libcurl; make;
 
 $(BIN): $(OBJS)
 	if [ ! -d $(BIN_DIR) ]; then mkdir $(BIN_DIR); fi
@@ -61,12 +64,12 @@ $(BIN): $(OBJS)
 $(SRC_DIR)/assign_aln_hap.o: $(SRC_DIR)/assign_aln_hap.c $(SRC_DIR)/assign_aln_hap.h $(SRC_DIR)/utils.h $(SRC_DIR)/bam_utils.h
 $(SRC_DIR)/bam_utils.o: $(SRC_DIR)/bam_utils.c $(SRC_DIR)/bam_utils.h $(SRC_DIR)/utils.h
 $(SRC_DIR)/cgranges.o: $(SRC_DIR)/cgranges.c $(SRC_DIR)/cgranges.h $(SRC_DIR)/khash.h
-$(SRC_DIR)/collect_snps.o: $(SRC_DIR)/collect_snps.c $(SRC_DIR)/collect_snps.h $(SRC_DIR)/bam_utils.h
+$(SRC_DIR)/collect_var.o: $(SRC_DIR)/collect_var.c $(SRC_DIR)/collect_var.h $(SRC_DIR)/bam_utils.h
 $(SRC_DIR)/kalloc.o: $(SRC_DIR)/kalloc.c $(SRC_DIR)/kalloc.h
 $(SRC_DIR)/kthread.o: $(SRC_DIR)/kthread.c
 $(SRC_DIR)/main.o: $(SRC_DIR)/main.c $(SRC_DIR)/call_var.h
 $(SRC_DIR)/call_var.o: $(SRC_DIR)/call_var.c $(SRC_DIR)/call_var.h $(SRC_DIR)/main.h $(SRC_DIR)/utils.h $(SRC_DIR)/seq.h \
-                        $(SRC_DIR)/collect_snps.h
+                        $(SRC_DIR)/collect_var.h
 $(SRC_DIR)/seq.o: $(SRC_DIR)/seq.c $(SRC_DIR)/seq.h $(SRC_DIR)/utils.h
 $(SRC_DIR)/utils.o: $(SRC_DIR)/utils.c $(SRC_DIR)/utils.h $(SRC_DIR)/ksort.h $(SRC_DIR)/kseq.h
 $(SRC_DIR)/vcf_utils.o: $(SRC_DIR)/vcf_utils.c $(SRC_DIR)/vcf_utils.h $(SRC_DIR)/utils.h

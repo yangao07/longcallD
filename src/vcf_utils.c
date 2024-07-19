@@ -4,13 +4,13 @@
 #include <time.h> // Add the missing import statement for the 'time' library
 #include "main.h"
 #include "bam_utils.h"
+#include "collect_var.h"
 #include "htslib/vcf.h"
 #include "htslib/sam.h"
 
 // Write VCF header to FILE
 void write_vcf_header(bam_hdr_t *hdr, FILE *out_vcf, char *sample_name) {
-    fprintf(out_vcf, "##fileformat=VCFv4.2\n");
-    fprintf(out_vcf, "##FILTER=<ID=PASS,Description=\"All filters passed\">\n");
+    fprintf(out_vcf, "##fileformat=VCFv4.3\n");
     // Get current date
     time_t t = time(NULL); struct tm *tm = localtime(&t);
     char date[11]; strftime(date, sizeof(date), "%Y%m%d", tm);
@@ -21,15 +21,27 @@ void write_vcf_header(bam_hdr_t *hdr, FILE *out_vcf, char *sample_name) {
     for (int i = 0; i < hdr->n_targets; i++)
         fprintf(out_vcf, "##contig=<ID=%s,length=%d>\n", hdr->target_name[i], hdr->target_len[i]);
     
+    // FILTER field
+    fprintf(out_vcf, "##FILTER=<ID=PASS,Description=\"All filters passed\">\n");
+    fprintf(out_vcf, "##FILTER=<ID=LowQual,Description=\"Low quality variant\">\n");
+    fprintf(out_vcf, "##FILTER=<ID=RefCall,Description=\"Reference call\">\n");
+    fprintf(out_vcf, "##FILTER=<ID=NoCall,Description=\"Site has depth=0 resulting in no call\">\n");
+
     // INFO field
+    // fprintf(out_vcf, "##INFO=<ID=DP,Number=1,Type=Integer,Description=\"Combined depth across samples\">\n");
+    // fprintf(out_vcf, "##INFO=<ID=AD,Number=R,Type=Integer,Description=\"Total read depth for each allele\">\n");
     // fprintf(out_vcf, "##INFO=<ID=AF,Number=1,Type=Float,Description=\"Allele Frequency\">\n");
+    fprintf(out_vcf, "##INFO=<ID=END,Number=1,Type=Integer,Description=\"End position on CHROM\">\n");
 
     // FORMAT field
-    fprintf(out_vcf, "##FORMAT=<ID=DP,Number=1,Type=Integer,Description=\"Total Depth\">\n");
     fprintf(out_vcf, "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">\n");
-    fprintf(out_vcf, "##FORMAT=<ID=PS,Number=1,Type=Integer,Description=\"Phase Set\">\n");
+    fprintf(out_vcf, "##FORMAT=<ID=GQ,Number=1,Type=Integer,Description=\"Conditional genotype quality\">\n");
+    fprintf(out_vcf, "##FORMAT=<ID=DP,Number=1,Type=Integer,Description=\"Total read depth\">\n");
+    fprintf(out_vcf, "##FORMAT=<ID=AD,Number=R,Type=Integer,Description=\"Read depth for each allele\">\n");
+    fprintf(out_vcf, "##FORMAT=<ID=PL,Number=G,Type=Integer,Description=\"Phred-scaled genotype likelihoods rounded to the closest integer\">\n");
+    fprintf(out_vcf, "##FORMAT=<ID=PS,Number=1,Type=Integer,Description=\"Phase set\">\n");
 
-    // header
+    // field header
     fprintf(out_vcf, "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t%s\n", sample_name);
 }
 
