@@ -19,10 +19,12 @@
 #define LONGCALLD_MAX_LOW_QUAL_FRAC 0.25 // base with LOW_FRAC > 0.25 will be skipped
 #define LONGCALLD_DEF_PLOID 2 // diploid
 
-// dense X/gap region: more than 5 X/gap bases in a 100-bp window
-#define LONGCALLD_DENSE_REG_MAX_SITES 3   // 2
+#define LONGCALLD_DENSE_REG_MAX_SITES 3   // dense X/gap region: more than n X/gap bases in a 100-bp window
 #define LONGCALLD_DENSE_REG_SLIDE_WIN 100 // 10
-#define LONGCALLD_INDEL_FLANK_WIN_SIZE 3 // 3 bp around indel will be considered as low-quality region
+#define LONGCALLD_DENSE_FLANK_WIN 25 // 100/(3+1)
+#define LONGCALLD_NOISY_END_CLIP 100 // >= n bp clipping on both ends
+#define LONGCALLD_NOISY_END_CLIP_WIN 100 // n bp flanking end-clipping region will be considered as low-quality region
+#define LONGCALLD_INDEL_FLANK_WIN 0 // n bp around indel will be considered as low-quality region
 
 #ifdef __cplusplus
 extern "C" {
@@ -65,7 +67,9 @@ typedef struct call_var_opt_t {
     // filters for cand. SNPs used in phasing
     int max_ploid, min_mq, min_bq, min_dp; 
     double min_af, max_af, max_low_qual_frac;
-    int dens_reg_max_sites, dens_reg_slide_win, indel_flank_win_size;
+    int dens_reg_max_sites, dens_reg_slide_win, dens_reg_flank_win;
+    int indel_flank_win;
+    int end_clip_reg, end_clip_reg_flank_win;
 
     int pl_threads, n_threads;
     // output

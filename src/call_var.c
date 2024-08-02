@@ -20,13 +20,16 @@ const struct option call_var_opt [] = {
     { "out-bam", 1, NULL, 'b' },
     { "sample-name", 1, NULL, 'n'},
     { "min-depth", 1, NULL, 'd' },
-    { "max-ploidy", 1, NULL, 'p' },
+    // { "max-ploidy", 1, NULL, 'p' },
     { "max-sites", 1, NULL, 's' },
     { "win-size", 1, NULL, 'w'},
-    { "threads", 1, NULL, 't' },
+    { "noisy-flank", 1, NULL, 'f' },
+    { "end-clip", 1, NULL, 'c' },
+    { "clip-flank", 1, NULL, 'F' },
+    { "thread", 1, NULL, 't' },
     { "help", 0, NULL, 'h' },
     { "version", 0, NULL, 'v' },
-    // { "verbose", 1, NULL, 'V' },
+    { "verbose", 1, NULL, 'V' },
     { 0, 0, 0, 0}
 };
 
@@ -45,7 +48,11 @@ call_var_opt_t *call_var_init_para(void) {
 
     opt->dens_reg_max_sites = LONGCALLD_DENSE_REG_MAX_SITES;
     opt->dens_reg_slide_win = LONGCALLD_DENSE_REG_SLIDE_WIN;
-    opt->indel_flank_win_size = LONGCALLD_INDEL_FLANK_WIN_SIZE;
+    opt->dens_reg_flank_win = LONGCALLD_DENSE_FLANK_WIN;
+    opt->indel_flank_win = LONGCALLD_INDEL_FLANK_WIN;
+
+    opt->end_clip_reg = LONGCALLD_NOISY_END_CLIP;
+    opt->end_clip_reg_flank_win = LONGCALLD_NOISY_END_CLIP_WIN;
 
     opt->min_af = LONGCALLD_MIN_CAND_SNP_AF;
     opt->max_af = LONGCALLD_MAX_CAND_SNP_AF;
@@ -210,8 +217,8 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
             bam_chunk_t *c = s->chunks + i;
             for (int j = 0; j < c->n_reads; ++j) {
                 // chrome, pos, qname, hap, rlen
-                if (LONGCALLD_VERBOSE >= 2)
-                    fprintf(stderr, "%d\t%s\t%ld\t%s\t%d\t%d\t%ld\n", j, c->tname, c->reads[j]->core.pos+1, bam_get_qname(c->reads[j]), c->reads[j]->core.flag, c->haps[j], bam_cigar2rlen(c->reads[j]->core.n_cigar, bam_get_cigar(c->reads[j])));
+                // if (LONGCALLD_VERBOSE >= 2)
+                    // fprintf(stderr, "%d\t%s\t%ld\t%s\t%d\t%d\t%ld\n", j, c->tname, c->reads[j]->core.pos+1, bam_get_qname(c->reads[j]), c->reads[j]->core.flag, c->haps[j], bam_cigar2rlen(c->reads[j]->core.n_cigar, bam_get_cigar(c->reads[j])));
                 if (p->opt->out_bam != NULL)
                     if (sam_write1(p->opt->out_bam, p->header, c->reads[j]) < 0) _err_error_exit("Failed to write BAM record.");
             }
@@ -243,11 +250,15 @@ static int call_var_usage(void) {//main usage
     fprintf(stderr, "    -b --out-bam     STR  output phased BAM file [NULL]\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "  Variant:\n");
-    fprintf(stderr, "    -d --min-depth   INT  minimum depth to call a SNP [%d]\n", LONGCALLD_MIN_CAND_SNP_DP);
-    fprintf(stderr, "    -p --max-ploidy  INT  maximum ploidy [%d]\n", LONGCALLD_DEF_PLOID);
-    fprintf(stderr, "    -s --max-sites   INT  maximum number of substitutions/gaps in a window(-w/--win-size) [%d]\n", LONGCALLD_DENSE_REG_MAX_SITES);
+    fprintf(stderr, "    -d --min-depth   INT  min. depth to call a SNP [%d]\n", LONGCALLD_MIN_CAND_SNP_DP);
+    // fprintf(stderr, "    -p --max-ploidy  INT  max. ploidy [%d]\n", LONGCALLD_DEF_PLOID);
+    fprintf(stderr, "    -s --max-sites   INT  max. number of substitutions/gaps in a window(-w/--win-size) [%d]\n", LONGCALLD_DENSE_REG_MAX_SITES);
     fprintf(stderr, "    -w --win-size    INT  window size for noisy region [%d]\n", LONGCALLD_DENSE_REG_SLIDE_WIN);
     fprintf(stderr, "                          noisy region with more than -s subs/gaps in a window of -w bases will be skipped for initial haplotype assignment\n");
+    fprintf(stderr, "    -f --noisy-flank INT  flanking mask window size for noisy region [%d]\n", LONGCALLD_DENSE_FLANK_WIN);
+    fprintf(stderr, "    -c --end-clip    INT  max. number of clipping bases on both ends [%d]\n", LONGCALLD_NOISY_END_CLIP);
+    fprintf(stderr, "                          end-clipping region with more than -c bases will be considered as noisy clipping region\n");
+    fprintf(stderr, "    -F --clip-flank  INT  flanking mask window size for noisy clipping region [%d]\n", LONGCALLD_NOISY_END_CLIP_WIN);
     fprintf(stderr, "\n");
     fprintf(stderr, "  General:\n");
     fprintf(stderr, "    -t --thread      INT  number of threads to use [%d]\n", MIN_OF_TWO(CALL_VAR_THREAD_N, get_nprocs()));
@@ -264,7 +275,7 @@ int call_var_main(int argc, char *argv[]) {
     _err_cmd("%s\n", CMD);
     int c, op_idx; call_var_opt_t *opt = call_var_init_para();
     double realtime0 = realtime();
-    while ((c = getopt_long(argc, argv, "r:o:b:d:n:s:w:t:hvV:", call_var_opt, &op_idx)) >= 0) {
+    while ((c = getopt_long(argc, argv, "r:o:b:d:n:s:w:f:F:c:t:hvV:", call_var_opt, &op_idx)) >= 0) {
         switch(c) {
             case 'r': opt->ref_fa_fn = strdup(optarg); break;
             // case 'b': cgp->var_block_size = atoi(optarg); break;
@@ -274,6 +285,9 @@ int call_var_main(int argc, char *argv[]) {
             case 'n': opt->sample_name = strdup(optarg); break;
             case 's': opt->dens_reg_max_sites = atoi(optarg); break;
             case 'w': opt->dens_reg_slide_win = atoi(optarg); break;
+            case 'f': opt->dens_reg_flank_win = atoi(optarg); break;
+            case 'c': opt->end_clip_reg = atoi(optarg); break;
+            case 'F': opt->end_clip_reg_flank_win = atoi(optarg); break;
             case 't': opt->n_threads = atoi(optarg); break;
             case 'h': call_var_usage(); call_var_free_para(opt); return 0;
             case 'v': fprintf(stderr, "%s\n", VERSION); call_var_free_para(opt); return 0;

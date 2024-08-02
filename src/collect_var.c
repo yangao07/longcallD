@@ -10,7 +10,7 @@
 #include "vcf_utils.h"
 
 extern int LONGCALLD_VERBOSE;
-char test_read_name[1024] = "m84039_230928_213653_s3/45487002/ccs";
+char test_read_name[1024] = "m84039_230928_213653_s3/23396787/ccs";
 
 // init cand_snp_t
 cand_snp_t *init_cand_snps(int n_mis_pos, hts_pos_t *mis_pos) {
@@ -30,6 +30,24 @@ cand_snp_t *init_cand_snps(int n_mis_pos, hts_pos_t *mis_pos) {
     }
     return cand_snps;
 }
+
+cand_var_t *init_cand_vars(int n_var_sites, var_site_t *var_pos) {
+    cand_var_t *cand_vars = (cand_var_t*)malloc(n_var_sites * sizeof(cand_var_t));
+    for (int i = 0; i < n_var_sites; ++i) {
+        // static information
+        cand_vars[i].pos = var_pos[i].pos; cand_vars[i].phase_set = 0;
+        cand_vars[i].n_depth = 0; cand_vars[i].n_low_depth = 0; cand_vars[i].n_uniq_alles = 0;
+        cand_vars[i].ref_seq = NULL; cand_vars[i].ref_len = 0;
+        cand_vars[i].alle_seqs = NULL; cand_vars[i].alle_seq_len = NULL; cand_vars[i].alle_covs = NULL;
+        cand_vars[i].var_type = var_pos[i].var_type; // unset
+
+        // dynamic information, allocate and update during haplotype assignment
+        cand_vars[i].alle_to_hap = NULL; cand_vars[i].hap_to_alle_profile = NULL; cand_vars[i].hap_to_cons_alle = NULL;
+        cand_vars[i].is_low_qual = 0; cand_vars[i].is_skipped = 0;
+    }
+    return cand_vars;
+}
+
 
 void free_cand_snps(cand_snp_t *snp_sites, int m) {
     if (m > 0) {
@@ -96,6 +114,28 @@ cand_snp_t *collect_cand_snps(bam_chunk_t *bam_chunk, int n_x_sites, hts_pos_t *
     return cand_snps;
 }
 
+cand_var_t *collect_cand_vars(bam_chunk_t *bam_chunk, int n_var_sites, var_site_t *var_sites) {
+    cand_var_t *cand_vars = init_cand_vars(n_var_sites, var_sites);
+    // 2nd pass: update snp_sites, calculate the depth and allele frequency of each site
+    int start_var_i = 0;
+    for (int i = 0; i < bam_chunk->n_reads; ++i) {
+        if (bam_chunk->is_skipped[i]) continue;
+        bam1_t *read = bam_chunk->reads[i];
+        start_var_i = update_cand_vars_from_digar(bam_chunk->digars+i, read, n_var_sites, var_sites, start_var_i, cand_vars);
+    }
+    if (LONGCALLD_VERBOSE >= 2) {
+        for (int i = 0; i < n_var_sites; ++i) {
+            fprintf(stderr, "Var: %lld\t", (long long) var_sites[i].pos);
+            fprintf(stderr, "Depth: %d\t", cand_vars[i].n_depth);
+            // for (int j = 0; j < cand_vars[i].n_uniq_bases; ++j) {
+                // fprintf(stderr, "%c: %d\t", LONGCALLD_BAM_BASE_STR[cand_vars[i].bases[j]], cand_vars[i].base_covs[j]);
+            // }
+            fprintf(stderr, "Low-Depth: %d\n", cand_vars[i].n_low_depth);
+        }
+    }
+    return cand_vars;
+}
+
 // filter: 
 //   1) usable X/= over total non-low-qual depth >= threshold
 //   2) total non-low-qual depth / total depth >= threshold
@@ -150,6 +190,8 @@ void collect_digars_from_bam(bam_chunk_t *bam_chunk, const call_var_pl_t *pl) {
         if (bam_chunk->is_skipped[i]) continue;
         bam1_t *read = bam_chunk->reads[i];
         if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "qname: %s, pos: %ld, end: %ld\n", bam_get_qname(read), (long) read->core.pos+1, (long) bam_endpos(read));
+        if (strcmp(test_read_name, bam_get_qname(read)) == 0)
+            fprintf(stderr, "Read: %s\n", bam_get_qname(read));
         if (read->core.qual < opt->min_mq) {
             bam_chunk->is_skipped[i] = 1; continue;
         }
@@ -165,6 +207,52 @@ void collect_digars_from_bam(bam_chunk_t *bam_chunk, const call_var_pl_t *pl) {
     }
 }
 
+var_site_t make_var_site(digar1_t digar) {
+    var_site_t var_site = {digar.pos, digar.type, 0};
+    if (digar.type == BAM_CDIFF) {
+        var_site.ref_len = 1;
+    } else if (digar.type == BAM_CINS) {
+        var_site.ref_len = 1;
+    } else if (digar.type == BAM_CDEL) {
+        var_site.ref_len = 1 + digar.len;
+    }
+    return var_site;
+}
+
+int merge_var_sites(int n_total_var_sites, var_site_t **var_sites, int n_digar, digar1_t *digars) {
+    int new_total_var_sites = 0;
+    var_site_t *new_var_sites = (var_site_t*)malloc((n_total_var_sites + n_digar) * sizeof(var_site_t));
+    int i, j;
+    for (i = j = 0; i < n_total_var_sites && j < n_digar; ) {
+        if (!digars[j].is_low_qual && (digars[j].type == BAM_CDIFF || digars[j].type == BAM_CINS || digars[j].type == BAM_CDEL)) {
+            var_site_t var_site1 = make_var_site(digars[j]);
+            if ((*var_sites)[i].pos < digars[j].pos) {
+                new_var_sites[new_total_var_sites] = (*var_sites)[i];
+                i++;
+            } else if ((*var_sites)[i].pos > digars[j].pos) {
+                new_var_sites[new_total_var_sites] = var_site1;
+                j++;
+            } else { // same position
+                if ((*var_sites)[i].var_type != var_site1.var_type || (*var_sites)[i].ref_len != var_site1.ref_len) {
+                    new_var_sites[new_total_var_sites++] = var_site1;
+                }
+                new_var_sites[new_total_var_sites] = (*var_sites)[i];
+                i++; j++;
+            }
+            new_total_var_sites++;
+        } else j++;
+    }
+    for (; i < n_total_var_sites; ++i, ++new_total_var_sites) new_var_sites[new_total_var_sites] = (*var_sites)[i];
+    for (; j < n_digar; ++j) {
+        if (!digars[j].is_low_qual && (digars[j].type == BAM_CDIFF || digars[j].type == BAM_CINS || digars[j].type == BAM_CDEL)) {
+            var_site_t var_site1 = make_var_site(digars[j]);
+            new_var_sites[new_total_var_sites++] = var_site1;
+        }
+    }
+    free(*var_sites); *var_sites = new_var_sites;
+    return new_total_var_sites;
+}
+
 int collect_x_sites(bam_chunk_t *bam_chunk, hts_pos_t **x_sites) {
     int n_total_x_sites = 0;
     for (int i = 0; i < bam_chunk->n_reads; ++i) {
@@ -177,6 +265,22 @@ int collect_x_sites(bam_chunk_t *bam_chunk, hts_pos_t **x_sites) {
     //     fprintf(stderr, "Mis: %lld\n", (long long) (*x_sites)[i]);
     // }
     return n_total_x_sites;
+}
+
+int collect_var_sites(bam_chunk_t *bam_chunk, var_site_t **var_sites) {
+    int n_total_var_sites = 0;
+    for (int i = 0; i < bam_chunk->n_reads; ++i) {
+        if (bam_chunk->is_skipped[i]) continue;
+       n_total_var_sites = merge_var_sites(n_total_var_sites, var_sites, bam_chunk->digars[i].n_digar, bam_chunk->digars[i].digars);
+    }
+    // print cand_snps
+    if (LONGCALLD_VERBOSE >= 2) {
+        fprintf(stderr, "Total candidate variant sites: %d\n", n_total_var_sites);
+        for (int i = 0; i < n_total_var_sites; ++i) {
+            fprintf(stderr, "Var: %lld\t%d\t%c\n", (long long) (*var_sites)[i].pos, (*var_sites)[i].ref_len, BAM_CIGAR_STR[(*var_sites)[i].var_type]);
+        }
+    }
+    return n_total_var_sites;
 }
 
 read_snp_profile_t *collect_read_snp_profile(bam_chunk_t *bam_chunk, int n_cand_snps, cand_snp_t *cand_snps) {
@@ -213,18 +317,18 @@ int collect_variants(cand_snp_t *cand_snps, int n_cand_snps, var_t *var) {
     var->n = 0; var->m = n_cand_snps;
     var->vars = (var1_t*)malloc(n_cand_snps * sizeof(var1_t));
     for (int i = 0; i < n_cand_snps; ++i) {
-        var->vars[i].pos = cand_snps[i].pos;
-        var->vars[i].type = 0; // SNP
-        var->vars[i].ref_bases = (uint8_t*)malloc(1 * sizeof(uint8_t)); var->vars[i].ref_bases[0] = LONGCALLD_BAM_BASE_STR[cand_snps[i].ref_base];
-        var->vars[i].ref_len = 1;
-        var->vars[i].alt_bases = (uint8_t**)malloc(LONGCALLD_DEF_PLOID * sizeof(uint8_t*));
-        var->vars[i].alt_len = (int*)malloc(LONGCALLD_DEF_PLOID * sizeof(int));
-        var->vars[i].n_allele = 1;
-        var->vars[i].total_depth = cand_snps[i].n_depth;
-        var->vars[i].depths[0] = cand_snps[i].base_covs[cand_snps[i].base_to_i[cand_snps[i].ref_base]];
-        var->vars[i].depths[1] = cand_snps[i].n_depth - var->vars[i].depths[0];
-        var->vars[i].genotype[0] = 0; var->vars[i].genotype[1] = 0;
-        var->vars[i].gt_qual = 0;
+        // var->vars[i].pos = cand_snps[i].pos;
+        // var->vars[i].type = 0; // SNP
+        // var->vars[i].ref_bases = (uint8_t*)malloc(1 * sizeof(uint8_t)); var->vars[i].ref_bases[0] = LONGCALLD_BAM_BASE_STR[cand_snps[i].ref_base];
+        // var->vars[i].ref_len = 1;
+        // var->vars[i].alt_bases = (uint8_t**)malloc(LONGCALLD_DEF_PLOID * sizeof(uint8_t*));
+        // var->vars[i].alt_len = (int*)malloc(LONGCALLD_DEF_PLOID * sizeof(int));
+        // var->vars[i].n_allele = 1;
+        // var->vars[i].total_depth = cand_snps[i].n_depth;
+        // var->vars[i].depths[0] = cand_snps[i].base_covs[cand_snps[i].base_to_i[cand_snps[i].ref_base]];
+        // var->vars[i].depths[1] = cand_snps[i].n_depth - var->vars[i].depths[0];
+        // var->vars[i].genotype[0] = 0; var->vars[i].genotype[1] = 0;
+        // var->vars[i].gt_qual = 0;
     }
     return n_cand_snps;
 }
@@ -234,21 +338,26 @@ void collect_var_main(const call_var_pl_t *pl, bam_chunk_t *bam_chunk, var_t *va
     collect_digars_from_bam(bam_chunk, pl);
     
     // merge X sites from all reads
-    hts_pos_t *x_sites = NULL; int n_x_sites;
-    if ((n_x_sites = collect_x_sites(bam_chunk, &x_sites)) <= 0) return;
+    // hts_pos_t *x_sites = NULL; int n_x_sites;
+    // if ((n_x_sites = collect_x_sites(bam_chunk, &x_sites)) <= 0) return;
+
+    // merge var sites from all reads
+    var_site_t *var_sites = NULL; int n_var_sites;
+    if ((n_var_sites = collect_var_sites(bam_chunk, &var_sites)) <= 0) return;
     
     // collect reference and alternative alleles for all X sites 
-    cand_snp_t *cand_snps = collect_cand_snps(bam_chunk, n_x_sites, x_sites); free(x_sites);
+    // cand_snp_t *cand_snps = collect_cand_snps(bam_chunk, n_x_sites, x_sites); free(x_sites);
+    // cand_var_t *cand_vars = collect_cand_vars(bam_chunk, n_var_sites, var_sites); free(var_sites);
     
     // filter candidate SNPs based depth, allele frequency, etc.
-    int n_cand_snps;
-    if ((n_cand_snps = filter_cand_snps(cand_snps, n_x_sites, pl->opt)) <= 0) return;
+    // int n_cand_snps;
+    // if ((n_cand_snps = filter_cand_snps(cand_snps, n_x_sites, pl->opt)) <= 0) return;
     
     // collect read-wise snp profiles
-    read_snp_profile_t *p = collect_read_snp_profile(bam_chunk, n_cand_snps, cand_snps);
+    // read_snp_profile_t *p = collect_read_snp_profile(bam_chunk, n_cand_snps, cand_snps);
 
     // assign hap to each read and SNP
-    assign_hap(p, n_cand_snps, cand_snps, bam_chunk); 
+    // assign_hap(p, n_cand_snps, cand_snps, bam_chunk); 
 
     // noisy-region SNPs, indels
 
@@ -256,7 +365,7 @@ void collect_var_main(const call_var_pl_t *pl, bam_chunk_t *bam_chunk, var_t *va
     // write_snp_to_vcf(cand_snps, n_cand_snps, pl->opt->out_vcf, pl->header->target_name[bam_chunk->tid]);
     // collect variants, TODO noisy-region SNPs + indels
     // collect_variants(cand_snps, n_cand_snps, var);
-    free_read_snp_profile(p, bam_chunk->n_reads); free_cand_snps(cand_snps, n_cand_snps); 
+    // free_read_snp_profile(p, bam_chunk->n_reads); free_cand_snps(cand_snps, n_cand_snps); 
 }
 
 // stitch ii and ii+1
