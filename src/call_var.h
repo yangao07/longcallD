@@ -44,11 +44,11 @@ extern "C" {
 //   * GQ (int) = PL_sec - PL_lowest (int)
 //   * GT = argmin(PL)
 typedef struct {
-    uint8_t type; // 0: SNP, 1: insertion, 2: deletion, etc.
-    hts_pos_t pos, PS; int len; // PS
+    uint8_t type; // BAM_CINS/BAM_CDEL/BAM_CDIFF
+    hts_pos_t pos, PS; // phase set
     uint8_t *ref_bases; int ref_len;
     uint8_t **alt_bases; int *alt_len;
-    int n_allele; // including ref allele
+    int n_alt_allele; // alt allele
     int DP, AD[2]; uint8_t GT[2]; // DP/AD/GT
     int QUAL, GQ, PL[6]; // phred-scaled, QUAL/FILTER/GQ/PL
 } var1_t;
@@ -93,7 +93,7 @@ typedef struct call_var_pl_t {
 
 struct bam_chunk_t;
 // separately/parallelly processed
-typedef struct {
+typedef struct call_var_step_t {
     const call_var_pl_t *pl;
     int n_chunks, max_chunks; // 64
     struct bam_chunk_t *chunks;

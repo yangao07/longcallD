@@ -18,11 +18,31 @@ read_snp_profile_t *init_read_snp_profile(int n_reads, int n_total_snps) {
     return p;
 }
 
+read_var_profile_t *init_read_var_profile(int n_reads, int n_total_vars) {
+    read_var_profile_t *p = (read_var_profile_t*)malloc(n_reads * sizeof(read_var_profile_t));
+    for (int i = 0; i < n_reads; ++i) {
+        p[i].read_id = i;
+        p[i].start_var_idx = -1; p[i].end_var_idx = -2;
+        p[i].var_is_used = (uint8_t*)calloc(n_total_vars, sizeof(uint8_t));
+        p[i].alleles = (int*)malloc(n_total_vars * sizeof(int));
+    }
+    return p;
+}
+
+
 void free_read_snp_profile(read_snp_profile_t *p, int n_reads) {
     for (int i = 0; i < n_reads; ++i) {
         if (p[i].snp_is_used) free(p[i].snp_is_used);
         if (p[i].snp_bases) free(p[i].snp_bases);
         if (p[i].snp_qual) free(p[i].snp_qual);
+    }
+    free(p);
+}
+
+void free_read_var_profile(read_var_profile_t *p, int n_reads) {
+    for (int i = 0; i < n_reads; ++i) {
+        if (p[i].var_is_used) free(p[i].var_is_used);
+        if (p[i].alleles) free(p[i].alleles);
     }
     free(p);
 }
@@ -160,6 +180,14 @@ int get_snp_start(cand_snp_t *snp_sites, int cur_site_i, int n_total_pos, hts_po
     return i;
 }
 
+int get_var_start(cand_var_t *var_sites, int cur_site_i, int n_total_pos, hts_pos_t start) {
+    int i;
+    for (i = cur_site_i; i < n_total_pos; ++i) {
+        if (var_sites[i].pos >= start) return i;
+    }
+    return i;
+}
+
 int get_x_site_start(hts_pos_t *pos, int cur_site_i, int n_total_pos, hts_pos_t start) {
     int i;
     for (i = cur_site_i; i < n_total_pos; ++i) {
@@ -263,26 +291,130 @@ int get_var_site_start(var_site_t *var_sites, int cur_site_i, int n_total_pos, h
     return i;
 }
 
-int update_cand_vars_from_digar(digar_t *digar, bam1_t *read, int n_var_sites, var_site_t *var_sites, int start_i, cand_var_t *cand_vars) {
-    int cur_start_i = -1, site_i = -1;
-    const uint8_t *bam_seq = bam_get_seq(read);
-
-//     for (int i = 0; i < digar->n_digar; ++i) {
-//         if (cur_start_i == -1) site_i = cur_start_i = get_var_site_start(var_sites, start_i, n_var_sites, digar->digars[i].pos);
-//         // if (digar->digars[i].is_low_qual) continue;
-//         if (digar->digars[i].type == BAM_CDIFF) {
-//             site_i = merge_diff_var_sites(cand_vars, var_sites, site_i, n_var_sites, digar->digars[i].pos, digar->digars[i].base, digar->digars[i].is_low_qual);
-//         } else if (digar->digars[i].type == BAM_CEQUAL) {
-//             site_i = merge_equal_var_sites(cand_vars, var_sites, site_i, n_var_sites, digar->digars[i].pos, digar->digars[i].pos+digar->digars[i].len, digar->digars[i].qi, bam_seq, digar->digars[i].is_low_qual);
-//         } else if (digar->digars[i].type == BAM_CDEL) {
-//             site_i = merge_del_var_sites(cand_vars, var_sites, site_i, n_var_sites, digar->digars[i].pos, digar->digars[i].pos+digar->digars[i].len, digar->digars[i].qi);
-//         } else if (digar->digars[i].type == BAM_CINS) {
-//             site_i = merge_ins_var_sites(cand_vars, var_sites, site_i, n_var_sites, digar->digars[i].pos, digar->digars[i].pos+digar->digars[i].len, digar->digars[i].is_low_qual);
-//         }
-//    }
-    return cur_start_i;
+void update_var_site_with_ref_allele(cand_var_t *cand_var) {
+    cand_var->n_depth++;
+    cand_var->alle_covs[0] += 1;
 }
 
+void update_read_var_profile_with_ref_allele(cand_var_t *cand_vars, int var_i, read_var_profile_t *read_var_profile) {
+    if (read_var_profile->start_var_idx == -1) read_var_profile->start_var_idx = var_i;
+    read_var_profile->end_var_idx = var_i;
+    int _var_i = var_i - read_var_profile->start_var_idx;
+    read_var_profile->var_is_used[_var_i] = 1;
+    read_var_profile->alleles[_var_i] = 0;
+}
+
+void update_read_var_profile_with_alt_allele(cand_var_t *cand_vars, int var_i, read_var_profile_t *read_var_profile, int allele_i, int is_low_qual) {
+    if (read_var_profile->start_var_idx == -1) read_var_profile->start_var_idx = var_i;
+    read_var_profile->end_var_idx = var_i;
+    int _var_i = var_i - read_var_profile->start_var_idx;
+    read_var_profile->alleles[_var_i] = allele_i; // -1 for all low-qual sites
+    if (is_low_qual) {
+        read_var_profile->var_is_used[_var_i] = 0;
+    } else {
+        read_var_profile->var_is_used[_var_i] = 1;
+    }
+}
+
+// only for mismatch and insertion
+uint8_t *make_alt_seq(digar1_t *digar, const uint8_t *bseq) {
+    if (digar->type == BAM_CDEL) return NULL;
+    uint8_t *alt_seq = (uint8_t*)malloc((digar->len) * sizeof(uint8_t));
+    for (int i = 0; i < digar->len; ++i) {
+        alt_seq[i] = seq_nt16_int[bam_seqi(bseq, digar->qi+i)];
+    }
+    return alt_seq;
+}
+
+int get_alt_allele_idx(cand_var_t *cand_var, digar1_t *digar, const uint8_t *bseq) {
+    if (digar->is_low_qual) return -1;
+    if (cand_var->var_type == BAM_CDEL) return 1; // only 0/1 for deletion
+    uint8_t *alt_seq = make_alt_seq(digar, bseq);
+    int alt_len = digar->len;
+    int allele_i = -1;
+    for (int i = 0; i < cand_var->n_uniq_alles-1; ++i) {
+        if (cand_var->alt_alle_seq_len[i] == alt_len && memcmp(cand_var->alt_alle_seqs[i], alt_seq, alt_len) == 0) {
+            allele_i = i+1;
+            break;
+        }
+    }
+    free(alt_seq);
+    if (allele_i == -1) {
+        _err_error_exit("Alt allele not found: %d\n", allele_i);
+    }
+    return allele_i;
+}
+
+void update_var_site_with_alt_allele(cand_var_t *cand_var, digar1_t *digar, const uint8_t *bseq, uint8_t is_low_qual) {
+    if (is_low_qual) {
+        cand_var->n_low_depth++;
+        return;
+    }
+    cand_var->n_depth++;
+    uint8_t *alt_seq = make_alt_seq(digar, bseq);
+    int alt_len = digar->len;
+    if (digar->type == BAM_CDEL) {
+        alt_len = 0;
+    }
+
+    int allele_i = -1, exist=0;
+    for (int i = 0; i < cand_var->n_uniq_alles-1; ++i) {
+        if (cand_var->alt_alle_seq_len[i] == alt_len && memcmp(cand_var->alt_alle_seqs[i], alt_seq, alt_len) == 0) {
+            exist = 1; allele_i = i+1;
+        }
+    }
+    if (exist == 0) { // new alt allele
+        cand_var->alle_covs = (int*)realloc(cand_var->alle_covs, (cand_var->n_uniq_alles+1) * sizeof(int));
+        cand_var->alt_alle_seq_len = (int*)realloc(cand_var->alt_alle_seq_len, (cand_var->n_uniq_alles) * sizeof(int));
+        cand_var->alt_alle_seqs = (uint8_t**)realloc(cand_var->alt_alle_seqs, (cand_var->n_uniq_alles) * sizeof(uint8_t*));
+
+        cand_var->alle_covs[cand_var->n_uniq_alles] = 1;
+        cand_var->alt_alle_seq_len[cand_var->n_uniq_alles-1] = alt_len;
+        cand_var->alt_alle_seqs[cand_var->n_uniq_alles-1] = alt_seq;
+        cand_var->n_uniq_alles += 1;
+    } else {
+        cand_var->alle_covs[allele_i] += 1;
+        free(alt_seq);
+    }
+}
+
+int update_cand_vars_from_digar(digar_t *digar, bam1_t *read, int n_var_sites, var_site_t *var_sites, int start_i, cand_var_t *cand_vars) {
+    int cur_start_i, site_i, digar_i = 0;
+    hts_pos_t pos_start = read->core.pos+1, pos_end = bam_endpos(read);
+
+    cur_start_i = site_i = get_var_site_start(var_sites, start_i, n_var_sites, pos_start);
+    // loop over all var_sites falling in the read (pos_start, pos_end)
+    // if any digar matches the var_site: update var_site with alt allele
+    // if no digar matches the var_site: update var_site with ref allele
+    while (site_i < n_var_sites && var_sites[site_i].pos <= pos_end) {
+        int is_ref = 1, var_digar_i = -1;
+        while (digar_i < digar->n_digar && digar->digars[digar_i].pos < var_sites[site_i].pos) {
+            digar_i++;
+        }
+        if (digar_i >= digar->n_digar) { // no digar matches the var site
+            is_ref = 1;
+        } else {
+            if (digar->digars[digar_i].pos > var_sites[site_i].pos) {
+                is_ref = 1;
+            } else { // digar->digars[digar_i].pos == var_sites[site_i].pos
+                var_site_t digar_var_site = make_var_site(-1, digar->digars+digar_i);
+                if (var_sites[site_i].var_type == digar_var_site.var_type && var_sites[site_i].ref_len == digar_var_site.ref_len) {
+                    var_digar_i = digar_i;
+                    is_ref = 0;
+                } else {
+                    is_ref = 1;
+                }
+            }
+        }
+        if (is_ref) {
+            update_var_site_with_ref_allele(cand_vars+site_i);
+        } else {
+            update_var_site_with_alt_allele(cand_vars+site_i, digar->digars+var_digar_i, digar->bseq, digar->digars[var_digar_i].is_low_qual);
+        }
+        site_i++;
+    }
+    return cur_start_i;
+}
 
 int update_read_snp_profile_from_D_sites(cand_snp_t *snp_sites, int cur_site_i, int n_total_pos, hts_pos_t pos_start, hts_pos_t pos_end, 
                                          uint8_t qual, read_snp_profile_t *read_snp_profile) {
@@ -360,6 +492,43 @@ int update_read_snp_profile_from_digar(digar_t *digar, bam1_t *read, int n_cand_
             uint8_t d_qual; if (qi > 0) d_qual = (qual[qi] + qual[qi-1]) / 2; else d_qual = qual[qi];
             snp_i = update_read_snp_profile_from_D_sites(cand_snps, snp_i, n_cand_snps, pos, pos+len, d_qual, read_snp_profile);
         }
+    }
+    return cur_start_i;
+}
+
+int update_read_var_profile_from_digar(digar_t *digar, bam1_t *read, int n_cand_vars, cand_var_t *cand_vars, int start_var_i, read_var_profile_t *read_var_profile) {
+    hts_pos_t pos_start = read->core.pos+1, pos_end = bam_endpos(read);
+    int cur_start_i, var_i, digar_i = 0; cur_start_i = var_i = get_var_start(cand_vars, start_var_i, n_cand_vars, pos_start);
+    // loop over all var_sites falling in the read (pos_start, pos_end)
+    // if any digar matches the var_site: update var_site with alt allele
+    // if no digar matches the var_site: update var_site with ref allele
+    while (var_i < n_cand_vars && cand_vars[var_i].pos <= pos_end) {
+        int allele_i = -1, is_ref = 1, var_digar_i = -1;
+        while (digar_i < digar->n_digar && digar->digars[digar_i].pos < cand_vars[var_i].pos) {
+            digar_i++;
+        }
+        if (digar_i >= digar->n_digar) { // no digar matches the var site
+            is_ref = 1;
+        } else {
+            if (digar->digars[digar_i].pos > cand_vars[var_i].pos) {
+                is_ref = 1;
+            } else { // digar->digars[digar_i].pos == var_sites[site_i].pos
+                var_site_t digar_var_site = make_var_site(-1, digar->digars+digar_i);
+                if (cand_vars[var_i].var_type == digar_var_site.var_type && cand_vars[var_i].ref_len == digar_var_site.ref_len) {
+                    var_digar_i = digar_i;
+                    allele_i = get_alt_allele_idx(cand_vars+var_i, digar->digars+var_digar_i, digar->bseq);
+                    is_ref = 0;
+                } else {
+                    is_ref = 1;
+                }
+            }
+        }
+        if (is_ref) {
+            update_read_var_profile_with_ref_allele(cand_vars, var_i, read_var_profile);
+        } else {
+            update_read_var_profile_with_alt_allele(cand_vars, var_i, read_var_profile, allele_i, digar->digars[var_digar_i].is_low_qual);
+        }
+        var_i++;
     }
     return cur_start_i;
 }
@@ -766,47 +935,61 @@ void collect_digar_from_ref_seq(bam1_t *read, const call_var_opt_t *opt, kstring
     free(_digars); free_xid_queue(q);
 }
 
-void copy_bam_chunk(bam_chunk_t *from_chunk, bam_chunk_t *to_chunk, int *ovlp_read_i, int n_reads) {
+void copy_bam_chunk(bam_chunk_t *from_chunk, bam_chunk_t *to_chunk, int *last_chunk_read_i, int n_reads) {
+    to_chunk->up_ovlp_read_i = (int*)malloc(n_reads * sizeof(int));
     for (int i = 0; i < n_reads; i++) {
-        int read_i = ovlp_read_i[i];
-        // if (bam_copy1(to_chunk->reads[to_chunk->n_reads + i], from_chunk->reads[read_i]) == NULL)
-            // _err_error_exit("Failed to copy BAM record: %s (%d,%d)", bam_get_qname(from_chunk->reads[read_i]), read_i, n_reads);
-        to_chunk->reads[to_chunk->n_reads + i] =  from_chunk->reads[read_i];
+        int from_read_i = last_chunk_read_i[i];
+        if (bam_copy1(to_chunk->reads[to_chunk->n_reads + i], from_chunk->reads[from_read_i]) == NULL)
+            _err_error_exit("Failed to copy BAM record: %s (%d,%d)", bam_get_qname(from_chunk->reads[from_read_i]), from_read_i, n_reads);
+        // to_chunk->reads[to_chunk->n_reads + i] =  from_chunk->reads[read_i];
+        if (from_chunk->is_ovlp[from_read_i]) {
+            to_chunk->up_ovlp_read_i[to_chunk->n_up_ovlp_reads++] = from_read_i;
+            to_chunk->is_ovlp[to_chunk->n_reads + i] = 1;
+        }
     }
     to_chunk->n_reads += n_reads;
 }
 
-int bam_chunk_init(bam_chunk_t *chunk, int n_reads, int *ovlp_read_i, int n_ovlp_reads) {
-    if (n_ovlp_reads > n_reads) n_reads = n_ovlp_reads;
+int bam_chunk_init(bam_chunk_t *chunk, int n_reads, int *last_chunk_read_i, int n_last_chunk_reads) {
+    if (n_last_chunk_reads > n_reads) n_reads = n_last_chunk_reads;
 
+    // input
+    chunk->n_reads = 0; chunk->m_reads = n_reads;
+    chunk->n_up_ovlp_reads = 0; chunk->up_ovlp_read_i = NULL;
     chunk->reads = (bam1_t**)malloc(n_reads * sizeof(bam1_t*));
+    // intermediate
+    chunk->is_skipped = (uint8_t*)calloc(n_reads, sizeof(uint8_t));
+    chunk->is_ovlp = (uint8_t*)calloc(n_reads, sizeof(uint8_t));
     chunk->digars = (digar_t*)malloc(n_reads * sizeof(digar_t));
     for (int i = 0; i < n_reads; i++) {
-        if (i >= n_ovlp_reads) chunk->reads[i] = bam_init1();
-        else chunk->reads[i] = NULL;
+        chunk->reads[i] = bam_init1();
         chunk->digars[i].n_digar = chunk->digars[i].m_digar = 0;
     }
-    chunk->is_skipped = (uint8_t*)calloc(n_reads, sizeof(uint8_t));
+    // variant
+    chunk->n_cand_vars = 0; chunk->cand_vars = NULL;
+    chunk->read_var_profile = NULL;
+    // output
     chunk->haps = (int*)calloc(n_reads, sizeof(int));
-    chunk->n_reads = 0; chunk->m_reads = n_reads;
+    chunk->flip_hap = 0;
 
-    if (n_ovlp_reads > 0) {
-        copy_bam_chunk(chunk-1, chunk, ovlp_read_i, n_ovlp_reads);
-        chunk->n_ovlp_reads = n_ovlp_reads;
-    } 
-    return 0;
+    if (n_last_chunk_reads > 0) {
+        copy_bam_chunk(chunk-1, chunk, last_chunk_read_i, n_last_chunk_reads);
+        return chunk->reads[0]->core.tid;
+    } else return -1;
 }
 
 int bam_chunk_realloc(bam_chunk_t *chunk) {
     int m_reads = chunk->m_reads * 2;
     chunk->reads = (bam1_t**)realloc(chunk->reads, m_reads * sizeof(bam1_t*));
-    chunk->digars = (digar_t*)realloc(chunk->digars, m_reads * sizeof(digar_t));
     chunk->is_skipped = (uint8_t*)realloc(chunk->is_skipped, m_reads * sizeof(uint8_t));
+    chunk->is_ovlp = (uint8_t*)realloc(chunk->is_ovlp, m_reads * sizeof(uint8_t));
+    chunk->digars = (digar_t*)realloc(chunk->digars, m_reads * sizeof(digar_t));
     chunk->haps = (int*)realloc(chunk->haps, m_reads * sizeof(int));
     for (int i = chunk->m_reads; i < m_reads; i++) {
         chunk->reads[i] = bam_init1();
         chunk->digars[i].n_digar = chunk->digars[i].m_digar = 0;
         chunk->is_skipped[i] = 0; chunk->haps[i] = 0;
+        chunk->is_ovlp[i] = 0;
     }
     chunk->m_reads = m_reads;
     return 0;
@@ -816,67 +999,113 @@ void bam_chunk_free(bam_chunk_t *chunk) {
     for (int i = 0; i < chunk->m_reads; i++) {
         if (chunk->digars[i].m_digar > 0) free(chunk->digars[i].digars);
     }
-    for (int i = chunk->n_ovlp_reads; i < chunk->m_reads; i++) {
+    for (int i = 0; i < chunk->m_reads; i++) {
         bam_destroy1(chunk->reads[i]);
     }
+    if (chunk->cand_vars != NULL) free_cand_vars(chunk->cand_vars, chunk->n_cand_vars);
+    if (chunk->read_var_profile != NULL) free_read_var_profile(chunk->read_var_profile, chunk->n_reads);
     free(chunk->reads); free(chunk->digars);
-    free(chunk->is_skipped); free(chunk->haps);
+    free(chunk->is_skipped); free(chunk->is_ovlp); free(chunk->haps);
+    if (chunk->up_ovlp_read_i != NULL) free(chunk->up_ovlp_read_i);
+}
+
+void bam_chunks_free(bam_chunk_t *chunks, int n_chunks) {
+    for (int i = 0; i < n_chunks; i++) {
+        bam_chunk_free(chunks+i);
+    }
+    free(chunks);
 }
 
 
 // collect reads from a BAM file, region: [start, start+max_reg_len_per_chunk]
 // *n_ovlp_reads: number of overlapping reads between previous chunk and current chunk, update it to "overlapping reads between current chunk and next chunk" after collecting reads
-int collect_bam_chunk(samFile *in_bam, bam_hdr_t *header, hts_itr_t *iter, int use_iter, int max_reg_len_per_chunk, int **ovlp_read_i, int *n_ovlp_reads, bam_chunk_t *chunk) {
+// int collect_bam_chunk(samFile *in_bam, bam_hdr_t *header, hts_itr_t *iter, int use_iter, int max_reg_len_per_chunk, int **ovlp_read_i, int *n_ovlp_reads, hts_pos_t *last_reg_end, bam_chunk_t *chunk) {
+
+// collect reads from a BAM file, region: [start, start+max_reg_len_per_chunk]
+// **last_chunk_read_i: indices of reads from the last chunk that will be collected in current chunk
+// *n_last_chunk_reads: number of reads in the last chunk that will be collected in current chunk
+// int collect_bam_chunk(samFile *in_bam, bam_hdr_t *header, hts_itr_t *iter, int use_iter, int max_reg_len_per_chunk, int **last_chunk_read_i, int *n_last_chunk_reads, hts_pos_t *last_reg_end, bam_chunk_t *chunk) {
+int collect_bam_chunk(samFile *in_bam, bam_hdr_t *header, hts_itr_t *iter, int use_iter, int max_reg_len_per_chunk, 
+                      int **last_chunk_read_i, int *n_last_chunk_reads, hts_pos_t *cur_reg_beg, bam_chunk_t *chunk) {
     int r, has_eqx_cigar=0, has_MD=0;
-    int tid = -1; char *tname = NULL; 
-    hts_pos_t beg=-1, _beg=-1, end=-1, _end = -1, reg_end=-1;
+    int reg_tid=-1, tid0;
+    hts_pos_t beg0=-1, end0=-1; // read-wise, end: end of all reads in current chunk, beg0/end0: start/end of the current read
+    hts_pos_t reg_beg=-1, reg_end=-1, next_reg_beg=-1; // region-wise
 
-    bam_chunk_init(chunk, 4096, *ovlp_read_i, *n_ovlp_reads);
-    if (*ovlp_read_i != NULL) free(*ovlp_read_i);
-
-    int m_ovlp_reads = chunk->m_reads, _n_ovlp_reads = 0; // push to ovlp_read_i if end >= reg_end, break if beg > reg_end
-    *ovlp_read_i = (int*)malloc(m_ovlp_reads * sizeof(int));
+    reg_tid = bam_chunk_init(chunk, 4096, *last_chunk_read_i, *n_last_chunk_reads);
+    if (*last_chunk_read_i != NULL) free(*last_chunk_read_i);
+    // if *n_last_chunk_reads > 0, *cur_reg_beg was set during collecting the last chunk; tid will be set as the tid of last_chunk_reads
+    // else if tid==-1, and *cur_reg_beg needs to be set as the start of the current region
+    if (*cur_reg_beg != -1) {
+        // assert(reg_tid != -1);
+        reg_beg = *cur_reg_beg;
+        reg_end = reg_beg + max_reg_len_per_chunk - 1;
+        next_reg_beg = reg_end + 1;
+    }
+    int m_last_chunk_reads = chunk->m_reads; // push to last_chunk_read_i if end >= reg_end or tid != cur_tid, break if beg > reg_end or tid != cur_tid
+    int _n_last_chunk_reads = 0;             // for tid != cur_id, only one read will be collect for next chunk (*n_last_chunk_reads=1)
+    *last_chunk_read_i = (int*)malloc(m_last_chunk_reads * sizeof(int));
     while (1) {
+        if (chunk->n_reads == chunk->m_reads) bam_chunk_realloc(chunk);
         if (use_iter) r = sam_itr_next(in_bam, iter, chunk->reads[chunk->n_reads]);
         else r = sam_read1(in_bam, header, chunk->reads[chunk->n_reads]);
         if (r < 0) break;
         // skip unmapped/secondary alignments
         if (chunk->reads[chunk->n_reads]->core.flag & (BAM_FUNMAP | BAM_FSECONDARY)) continue; // BAM_FSUPPLEMENTARY
-        if (tid == -1) { // first in the chunk
-            tid = chunk->reads[chunk->n_reads]->core.tid;
-            tname = header->target_name[tid];
-            _beg = chunk->reads[chunk->n_reads]->core.pos + 1;
-            reg_end = _beg + max_reg_len_per_chunk - 1;
-        } else if (tid != chunk->reads[chunk->n_reads]->core.tid) break; // different chromosome
-        else { // same chromosome
-            beg = chunk->reads[chunk->n_reads]->core.pos + 1;
-            end = beg + bam_cigar2rlen(chunk->reads[chunk->n_reads]->core.n_cigar, bam_get_cigar(chunk->reads[chunk->n_reads])) - 1;
-            if (reg_end == -1) reg_end = beg + max_reg_len_per_chunk - 1;
-            if (end >= reg_end) {
-                (*ovlp_read_i)[_n_ovlp_reads] = chunk->n_reads;
-                if (++_n_ovlp_reads >= m_ovlp_reads) {
-                    m_ovlp_reads *= 2;
-                    *ovlp_read_i = (int*)realloc(*ovlp_read_i, m_ovlp_reads * sizeof(int));
+
+        tid0 = chunk->reads[chunk->n_reads]->core.tid;
+        beg0 = chunk->reads[chunk->n_reads]->core.pos + 1;
+        end0 = bam_endpos(chunk->reads[chunk->n_reads]);
+
+        if (reg_tid == -1) { // first read in the first chunk
+            reg_tid = tid0; reg_beg = beg0; reg_end = beg0 + max_reg_len_per_chunk - 1; next_reg_beg = reg_end + 1;
+            if (end0 >= reg_end) { // extreamly long reads that span the whole region
+                chunk->is_ovlp[chunk->n_reads] = 1; // overlap between current and next chunk
+                if (_n_last_chunk_reads == m_last_chunk_reads) {
+                    m_last_chunk_reads *= 2;
+                    *last_chunk_read_i = (int*)realloc(*last_chunk_read_i, m_last_chunk_reads * sizeof(int));
                 }
+                (*last_chunk_read_i)[_n_last_chunk_reads++] = chunk->n_reads;
             }
-            if (beg > reg_end) break; // out of the region
-            if (end > _end) _end = end; 
+        } else if (reg_tid != tid0) { // diff chr: set next_reg_beg, n_last_chunk_reads, last_chunk_read_i
+            reg_end = -1; // next chunk is diff chr, so set current reg_end as -1
+            next_reg_beg = beg0;
+            _n_last_chunk_reads = 0;
+            (*last_chunk_read_i)[_n_last_chunk_reads++] = chunk->n_reads; // only keep one read for the next chunk
+            break;
+        } else { // same chromosome
+            // reg_beg/reg_end is already set
+            assert(reg_beg != -1); assert(reg_end != -1);
+            // if (reg_end == -1) reg_end = beg0 + max_reg_len_per_chunk - 1;
+            if (end0 >= reg_end) {
+                chunk->is_ovlp[chunk->n_reads] = 1; // overlap between current and next chunk
+                if (_n_last_chunk_reads == m_last_chunk_reads) {
+                    m_last_chunk_reads *= 2;
+                    *last_chunk_read_i = (int*)realloc(*last_chunk_read_i, m_last_chunk_reads * sizeof(int));
+                }
+                (*last_chunk_read_i)[_n_last_chunk_reads++] = chunk->n_reads;
+            }
+            if (beg0 > reg_end) { // out of the current region
+                chunk->is_ovlp[chunk->n_reads] = 0; // no overlap with the current chunk
+                break;
+            }
         }
-        // fprintf(stderr, "qname: %s, pos: %ld\n", bam_get_qname(chunk->reads[chunk->n_reads]), beg);
         // check eqx cigar or MD tag
         if (has_eqx_cigar == 0) has_eqx_cigar = has_equal_X_in_bam_cigar(chunk->reads[chunk->n_reads]);
         if (has_MD == 0) has_MD = has_MD_in_bam(chunk->reads[chunk->n_reads]);
-        if (++(chunk->n_reads) >= chunk->m_reads) bam_chunk_realloc(chunk);
+        ++chunk->n_reads;
     }
 
-    if (chunk->n_reads > *n_ovlp_reads) {
-        chunk->tid = tid; chunk->tname = tname;
-        chunk->beg = _beg; chunk->end = _end;
+    if (chunk->n_reads > *n_last_chunk_reads) {
+        chunk->tid = reg_tid; chunk->tname = header->target_name[reg_tid];
+        chunk->beg = reg_beg; chunk->end = reg_end; // XXX set end as min(reg_end, end)
         chunk->bam_has_eqx_cigar = has_eqx_cigar; chunk->bam_has_md_tag = has_MD;
-        // fprintf(stderr, "CHUNK: eqx: %d, MD: %d, n_reads: %d, n_ovlp: %d (%d)\n", has_eqx_cigar, has_MD, chunk->n_reads, *n_ovlp_reads, _n_ovlp_reads);
-        *n_ovlp_reads = _n_ovlp_reads;
+        fprintf(stderr, "CHUNK: tname: %s, tid: %d, beg: %ld, end: %ld, n_reads: %d, n_ovlp: %d\n", chunk->tname, reg_tid, chunk->beg, chunk->end, chunk->n_reads, _n_last_chunk_reads);
+        // for the next chunk
+        *cur_reg_beg = next_reg_beg;
+        *n_last_chunk_reads = _n_last_chunk_reads;
     } else {
-        *n_ovlp_reads = 0;
+        *n_last_chunk_reads = 0;
         chunk->n_reads = 0;
         bam_chunk_free(chunk);
     }

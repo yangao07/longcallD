@@ -6,9 +6,13 @@ extern "C" {
 #endif
 
 struct cand_snp_t;
+struct cand_var_t;
+struct bam_chunk_t;
+struct var_t;
 
 int write_vcf_header(bam_hdr_t *hdr, FILE *out_vcf, char *sample_name);
 int write_snp_to_vcf(struct cand_snp_t *cand_snps, int n_cand_snps, FILE *out_vcf, char *chrom);
+int write_var_to_vcf(struct var_t *vars, FILE *out_vcf, char *chrom);
 
 #ifdef __cplusplus
 }

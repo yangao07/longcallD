@@ -8,7 +8,7 @@
 extern int LONGCALLD_VERBOSE;
 // 1st round operations: update base_to_hap -> {1/2/0}
 // assign haplotype to a SNP, when no other information avaliable
-// most common base -> 1, sedond common base -> 2, others -> 0
+// most common base -> 1, second common base -> 2, others -> 0
 // potential start of a PhaseSet, could be merged with others (intra- or inter-blocks)
 hts_pos_t assign_snp_init_hap(cand_snp_t *snp) {
     if (LONGCALLD_VERBOSE >= 2)
@@ -34,6 +34,31 @@ hts_pos_t assign_snp_init_hap(cand_snp_t *snp) {
         snp->base_to_hap[hap1_base_i] = 1; snp->base_to_hap[hap2_base_i] = 2;
     }
     return snp->phase_set;
+}
+
+hts_pos_t assign_var_init_hap(cand_var_t *var) {
+    if (LONGCALLD_VERBOSE >= 2)
+        fprintf(stderr, "Init Var hap: %ld\n", var->pos);
+    var->phase_set = var->pos; // potential start of a PhaseSet
+    // if (snp->pos == 10737188)
+        // printf("ok");
+    int hap1_alle_i = -1, hap2_alle_i = -1, hap1_cov = 0, hap2_cov = 0;
+    for (int i = 0; i < var->n_uniq_alles; ++i) {
+        var->alle_to_hap[i] = 0;
+        if (var->alle_covs[i] > hap1_cov) {
+            hap2_alle_i = hap1_alle_i; hap2_cov = hap1_cov;
+            hap1_alle_i = i; hap1_cov = var->alle_covs[i];
+        } else if (var->alle_covs[i] > hap2_cov) {
+            hap2_alle_i = i; hap2_cov = var->alle_covs[i];
+        }
+    }
+    if (hap2_alle_i == -1) _err_error_exit("Only one allele in Var: %ld\n", var->pos);
+    if (hap2_alle_i == 0) { // ref allele
+        var->alle_to_hap[hap1_alle_i] = 2; var->alle_to_hap[hap2_alle_i] = 1;
+    } else {
+        var->alle_to_hap[hap1_alle_i] = 1; var->alle_to_hap[hap2_alle_i] = 2;
+    }
+    return var->phase_set;
 }
 
 // assign haplotype to a SNP based on read SNP profiles
@@ -80,6 +105,45 @@ hts_pos_t assign_snp_hap_based_on_pre_reads1(cand_snp_t *snp) {
     return snp->phase_set;
 } 
 
+hts_pos_t assign_var_hap_based_on_pre_reads1(cand_var_t *var) {
+    int first_hap=0, first_hap_cnt=0, first_hap_alle_i=-1;
+    int sec_hap=0, sec_hap_cnt=0, sec_hap_alle_i=-1;
+
+    for (int j = 1; j <= LONGCALLD_DEF_PLOID; ++j) {
+        for (int i = 0; i < var->n_uniq_alles; ++i) {
+            if (var->hap_to_alle_profile[j][i] > first_hap_cnt) {
+                sec_hap_cnt = first_hap_cnt; sec_hap = first_hap; sec_hap_alle_i = first_hap_alle_i;
+                first_hap_cnt = var->hap_to_alle_profile[j][i]; first_hap = j; first_hap_alle_i = i;
+            } else if (var->hap_to_alle_profile[j][i] > sec_hap_cnt) {
+                sec_hap_cnt = var->hap_to_alle_profile[j][i]; sec_hap = j; sec_hap_alle_i = i;
+            }
+        }
+    }
+    if (first_hap == 0) _err_error_exit("major haplotype is not set yet\n"); 
+    if (sec_hap == 0) {
+        if (first_hap == 1) sec_hap = 2; else sec_hap = 1;
+        // set the most common bases other than first_hap_base to sec_hap
+        int sec_hap_alle_cov = 0;
+        for (int i = 0; i < var->n_uniq_alles; ++i) {
+            if (var->alle_covs[i] > sec_hap_alle_cov && i != first_hap_alle_i) {
+                sec_hap_alle_i = i; sec_hap_alle_cov = var->alle_covs[i];
+            }
+        }
+    }
+    if (first_hap == sec_hap || first_hap_alle_i == sec_hap_alle_i) {
+        if (LONGCALLD_VERBOSE >= 2)
+            _err_func_printf("Var: %ld, first_hap: %d (%d: %d), sec_hap: %d (%d: %d)\n", var->pos, first_hap, first_hap_alle_i, first_hap_cnt, sec_hap, sec_hap_alle_i, sec_hap_cnt);
+        assign_var_init_hap(var);
+    } else {
+        for (int i = 0; i < var->n_uniq_alles; ++i) {
+            if (i == first_hap_alle_i) var->alle_to_hap[i] = first_hap;
+            else if (i == sec_hap_alle_i) var->alle_to_hap[i] = sec_hap;
+            else var->alle_to_hap[i] = 0;
+        }
+    }
+    return var->phase_set;
+} 
+
 void snp_init_hap_profile(cand_snp_t *snps, int n_cand_snps) {
     for (int i = 0; i < n_cand_snps; ++i) {
         cand_snp_t *snp = snps+i;
@@ -88,6 +152,18 @@ void snp_init_hap_profile(cand_snp_t *snps, int n_cand_snps) {
             snp->hap_to_base_profile = (int**)malloc((LONGCALLD_DEF_PLOID+1) * sizeof(int*));
             for (int i = 0; i <= LONGCALLD_DEF_PLOID; ++i) snp->hap_to_base_profile[i] = (int*)calloc(snp->n_uniq_bases, sizeof(int));
             snp->hap_to_cons_base = (int*)malloc((LONGCALLD_DEF_PLOID+1) * sizeof(int));
+        }
+    }
+}
+
+void var_init_hap_profile(cand_var_t *vars, int n_cand_vars) {
+    for (int i = 0; i < n_cand_vars; ++i) {
+        cand_var_t *var = vars+i;
+        if (var->hap_to_alle_profile == NULL) {
+            var->alle_to_hap = (uint8_t*)calloc(var->n_uniq_alles, sizeof(uint8_t));
+            var->hap_to_alle_profile = (int**)malloc((LONGCALLD_DEF_PLOID+1) * sizeof(int*));
+            for (int i = 0; i <= LONGCALLD_DEF_PLOID; ++i) var->hap_to_alle_profile[i] = (int*)calloc(var->n_uniq_alles, sizeof(int));
+            var->hap_to_cons_alle = (int*)malloc((LONGCALLD_DEF_PLOID+1) * sizeof(int));
         }
     }
 }
@@ -136,6 +212,26 @@ void snp_init_hap_cons_base0(cand_snp_t *snp) {
     }
 }
 
+void var_init_hap_cons_alle0(cand_var_t *var) {
+    // select the most common allele as the consensus allele, based on hap_to_alle_profile
+    for (int hap = 1; hap <= LONGCALLD_DEF_PLOID ; ++hap) {
+        int max_cov = 0, max_cov_alle_i = -1;
+        for (int i = 0; i < var->n_uniq_alles; ++i) {
+            if (var->hap_to_alle_profile[hap][i] > max_cov) {
+                max_cov = var->hap_to_alle_profile[hap][i];
+                max_cov_alle_i = i;
+            }
+        }
+        if (max_cov_alle_i == -1) {
+            if (LONGCALLD_VERBOSE >= 2) _err_func_printf("No HAP allele %d in Var: %ld\n", hap, var->pos);
+            var->is_skipped = 1;
+        } else {
+            var->hap_to_cons_alle[hap] = max_cov_alle_i;
+            var->is_skipped = 0;
+        }
+    }
+}
+
 void snp_init_hap_cons_base1(cand_snp_t *snp, int hap) {
     // select the most common base as the consensus base, based on hap_to_base_profile
     int max_cov = 0, max_cov_base_i = -1;
@@ -170,6 +266,24 @@ hts_pos_t assign_snp_hap_based_on_pre_reads(cand_snp_t *snp) {
     }
 }
 
+int var_hap_profile_cov(cand_var_t *var) {
+    int cov = 0;
+    for (int j = 1; j <= LONGCALLD_DEF_PLOID; ++j) {
+        for (int i = 0; i < var->n_uniq_alles; ++i) {
+            cov += var->hap_to_alle_profile[j][i];
+        }
+    }
+    return cov;
+}
+
+hts_pos_t assign_var_hap_based_on_pre_reads(cand_var_t *var) {
+    if (var_hap_profile_cov(var) < LONGCALLD_MIN_CAND_SNP_DP) 
+        return assign_var_init_hap(var);
+    else {
+        return assign_var_hap_based_on_pre_reads1(var);
+    }
+}
+
 void reset_snp_hap_profile(cand_snp_t *snp) {
     for (int j = 1; j <= LONGCALLD_DEF_PLOID; ++j) {
         for (int i = 0; i < snp->n_uniq_bases; ++i) {
@@ -189,6 +303,18 @@ void update_snp_hap_profile_based_on_aln_hap(int hap, hts_pos_t ps, cand_snp_t *
         snp[snp_i].hap_to_base_profile[hap][snp_base_i] += 1;
         if (snp[snp_i].phase_set == 0 || ps <= snp[snp_i].pos)
             snp[snp_i].phase_set = ps;
+    }
+}
+
+void update_var_hap_profile_based_on_aln_hap(int hap, hts_pos_t phase_set, cand_var_t *var, read_var_profile_t *p, int read_i) {
+    int start_var_idx = p[read_i].start_var_idx, end_var_idx = p[read_i].end_var_idx;
+    for (int var_i = start_var_idx; var_i <= end_var_idx; ++var_i) {
+        int read_var_idx = var_i - start_var_idx;
+        if (p[read_i].var_is_used[read_var_idx] == 0) continue;
+        int allele_i = p[read_i].alleles[read_var_idx];
+        var[var_i].hap_to_alle_profile[hap][allele_i] += 1;
+        if (var[var_i].phase_set == 0 || phase_set <= var[var_i].pos)
+            var[var_i].phase_set = phase_set;
     }
 }
 
@@ -239,6 +365,26 @@ int collect_tmp_hap_cons_by_deduct_read(cand_snp_t *snp, int hap, int snp_base_i
     return 0;
 }
 
+int collect_tmp_hap_cons_allele_by_deduct_read(cand_var_t *var, int hap, int allele_i, int *tmp_hap_to_cons_alle) {
+    for (int i = 1; i <= LONGCALLD_DEF_PLOID; ++i) {
+        if (i != hap || var->hap_to_cons_alle[i] != allele_i) { // no change
+            tmp_hap_to_cons_alle[i] = var->hap_to_cons_alle[i];
+        } else { // i==hap && var->hap_to_cons_alle[i] == allele_i
+            int cov, max_cov = 0, max_cov_alle_i = -1;
+            for (int j = 0; j < var->n_uniq_alles; ++j) {
+                cov = var->hap_to_alle_profile[i][j];
+                if (j == allele_i) cov -= 1;
+                if (cov > max_cov) {
+                    max_cov = cov; max_cov_alle_i = j;
+                }
+            }
+            if (max_cov_alle_i == -1 && LONGCALLD_VERBOSE >= 2) _err_func_printf("No HAP %d allele in SNP: %ld\n", i, var->pos);
+            tmp_hap_to_cons_alle[i] = max_cov_alle_i;
+        }
+    }
+    return 0;
+}
+
 // update hap_cons_profile based on hap_to_base_profile
 // update haplotype for a read based on SNP profiles of all other overlapping reads
 // input: target read, SNP profiles of all reads
@@ -284,6 +430,47 @@ int update_aln_hap1(int target_read_i, int cur_hap,  bam_chunk_t *bam_chunk, rea
     return max_hap;
 }
 
+int update_var_aln_hap1(int target_read_i, int cur_hap,  bam_chunk_t *bam_chunk, read_var_profile_t *p, cand_var_t *cand_vars) {
+    int start_var_idx = p[target_read_i].start_var_idx, end_var_idx = p[target_read_i].end_var_idx;
+    // deduct target read from hap_to_alle_profile, then compare target read's var profile with hap_cons_alle
+    int *hap_match_cnt = (int*)calloc((LONGCALLD_DEF_PLOID+1), sizeof(int));
+    int *tmp_hap_to_cons_alle = (int*)malloc((LONGCALLD_DEF_PLOID+1) * sizeof(int));
+
+    for (int var_i = start_var_idx; var_i <= end_var_idx; ++var_i) {
+        int read_var_idx = var_i - start_var_idx;
+        if (p[target_read_i].var_is_used[read_var_idx] == 0) continue;
+
+        cand_var_t *var = cand_vars+var_i;
+        int allele_i =p[target_read_i].alleles[read_var_idx];
+        collect_tmp_hap_cons_allele_by_deduct_read(var, cur_hap, allele_i, tmp_hap_to_cons_alle);
+        for (int i = 1; i <= LONGCALLD_DEF_PLOID; ++i) {
+            if (tmp_hap_to_cons_alle[i] == allele_i) {
+                hap_match_cnt[i] += 1;
+            }
+        }
+    }
+    int max_cnt=0, max_hap=0, sec_cnt=0;
+    for (int i = 1; i <= LONGCALLD_DEF_PLOID; ++i) {
+        if (hap_match_cnt[i] > max_cnt) {
+            sec_cnt = max_cnt;
+            max_cnt = hap_match_cnt[i]; max_hap = i;
+        } else if (hap_match_cnt[i] > sec_cnt) {
+            sec_cnt = hap_match_cnt[i];
+        }
+    }
+    free(hap_match_cnt); free(tmp_hap_to_cons_alle);
+    if (max_cnt == 0) {
+        if (LONGCALLD_VERBOSE >= 2)
+            _err_func_printf("Read %s max_cnt == 0 (pos: %ld)\n", bam_get_qname(bam_chunk->reads[target_read_i]), bam_chunk->reads[target_read_i]->core.pos);
+        return 0; // unknown
+    } else if (max_cnt == sec_cnt) {
+        if (LONGCALLD_VERBOSE >= 2)
+            _err_func_printf("Read %s max_cnt == sec_cnt (%ld)\n", bam_get_qname(bam_chunk->reads[target_read_i]), bam_chunk->reads[target_read_i]->core.pos);
+        max_hap = cur_hap;
+    }
+    return max_hap;
+}
+
 int update_snp_hap_profile_based_on_changed_hap(int new_hap, int old_hap, cand_snp_t *cand_snps, read_snp_profile_t *p, int read_i) {
     int start_snp_idx = p[read_i].start_snp_idx, end_snp_idx = p[read_i].end_snp_idx;
     for (int snp_i = start_snp_idx; snp_i <= end_snp_idx; ++snp_i) {
@@ -297,6 +484,22 @@ int update_snp_hap_profile_based_on_changed_hap(int new_hap, int old_hap, cand_s
         snp->hap_to_base_profile[old_hap][snp_base_i] -= 1;
         snp->hap_to_base_profile[new_hap][snp_base_i] += 1;
         snp_init_hap_cons_base0(snp);
+    }
+    return 0;
+}
+
+int update_var_hap_profile_based_on_changed_hap(int new_hap, int old_hap, cand_var_t *cand_vars, read_var_profile_t *p, int read_i) {
+    int start_var_idx = p[read_i].start_var_idx, end_var_idx = p[read_i].end_var_idx;
+    for (int var_i = start_var_idx; var_i <= end_var_idx; ++var_i) {
+        int read_var_idx = var_i - start_var_idx;
+        if (p[read_i].var_is_used[read_var_idx] == 0) continue;
+        int allele_i = p[read_i].alleles[read_var_idx];
+        cand_var_t *var = cand_vars+var_i;
+        if (LONGCALLD_VERBOSE >= 2)
+            fprintf(stderr, "pos: %ld, old_hap: %d, new_hap: %d, var: %d\n", var->pos, old_hap, new_hap, allele_i);
+        var->hap_to_alle_profile[old_hap][allele_i] -= 1;
+        var->hap_to_alle_profile[new_hap][allele_i] += 1;
+        var_init_hap_cons_alle0(var);
     }
     return 0;
 }
@@ -333,6 +536,79 @@ int *sort_snps_by_cov(int n_cand_snps, cand_snp_t *cand_snps) {
 //             until no changes to any reads
 // output bam_chunk->haps[i] to 1 or 2, 0: unknown
 char read_name[1024] = "m84039_231005_222902_s1/80479720/ccs";
+
+int assign_hap_based_on_cand_vars(bam_chunk_t *bam_chunk) {
+    read_var_profile_t *p = bam_chunk->read_var_profile;
+    int n_cand_vars = bam_chunk->n_cand_vars;
+    cand_var_t *cand_vars = bam_chunk->cand_vars;
+    // init read_snp_cr for read overlapping query
+    cgranges_t *read_var_cr = cr_init(); int64_t ovlp_i, ovlp_n, *ovlp_b = 0, max_b = 0;
+    for (int i = 0; i < bam_chunk->n_reads; ++i) {
+        if (bam_chunk->is_skipped[i]) continue;
+        if (p[i].start_var_idx < 0 || p[i].end_var_idx < 0) continue;
+        cr_add(read_var_cr, "cr", p[i].start_var_idx, p[i].end_var_idx+1, i); // [start, end): 0-based
+    } cr_index(read_var_cr);
+
+    // 1st loop: var-wise loop
+    var_init_hap_profile(cand_vars, n_cand_vars);
+    for (int var_i = 0; var_i < n_cand_vars; ++var_i) {
+        cand_var_t *var = cand_vars+var_i;
+        ovlp_n = cr_overlap(read_var_cr, "cr", var_i, var_i+1, &ovlp_b, &max_b);
+        hts_pos_t phase_set = assign_var_hap_based_on_pre_reads(var); // update alle_to_hap
+        for (ovlp_i = 0; ovlp_i < ovlp_n; ++ovlp_i) {
+            int read_i = cr_label(read_var_cr, ovlp_b[ovlp_i]);
+            int read_var_idx = var_i - p[read_i].start_var_idx;
+            if (bam_chunk->haps[read_i] == 0 && bam_chunk->is_skipped[read_i] != 1 && p[read_i].var_is_used[read_var_idx] == 1) {
+                int var_alle_i = p[read_i].alleles[read_var_idx];
+                int hap = cand_vars[var_i].alle_to_hap[var_alle_i];
+                // XXX for hap == 0, due to alle_to_hap was not updated yet
+                if (hap != 0) {
+                    // first time assign hap to the read (update bam_haps)
+                    bam_chunk->haps[read_i] = hap;
+                    if (LONGCALLD_VERBOSE >= 2)
+                        fprintf(stderr, "read: %s, cur_var: %ld, alle: %d, hap: %d\n", bam_get_qname(bam_chunk->reads[read_i]), var->pos, var_alle_i, hap);
+                    // update hap_to_alle_profile for all Vars covered by this read, based on its assigned haplotype
+                    // udpated profile will then be used for following Vars (assign_var_hap_based_on_pre_reads)
+                    update_var_hap_profile_based_on_aln_hap(hap, phase_set, cand_vars, p, read_i);
+                }
+            }
+        }
+        var_init_hap_cons_alle0(var); // update hap_to_cons_alle
+    } // after first round, 
+      // bam_haps/hap_to_alle_profile/hap_to_cons_alle are upToDate and will be used in the following rounds
+      // alle_to_hap will not be used (may be NOT upToDate)
+    // 2nd loop: read-wise iterative loop
+    int changed_hap, max_iter = 10, i_iter=0;
+    while (i_iter++ < max_iter) {
+        if (LONGCALLD_VERBOSE >= 2)
+            fprintf(stderr, "iter: %d\n", i_iter);
+        changed_hap = 0;
+        // read-wise loop
+        // re-calculate read-wise haplotype (Var-wise 1. Hap, 2. Allele, 3. Read, 4. AlleleCons are all up-to-date)
+        for (int read_i = 0; read_i < bam_chunk->n_reads; ++read_i) {
+            if (bam_chunk->is_skipped[read_i] || bam_chunk->haps[read_i] == 0) continue;
+            // if (strcmp(read_name, bam_get_qname(bam_chunk->reads[read_i])) == 0) 
+                // fprintf(stderr, "ok\n");
+            int cur_hap = bam_chunk->haps[read_i];
+            // XXX TODO: potential local optima
+            int new_hap = update_var_aln_hap1(read_i, cur_hap, bam_chunk, p, cand_vars);
+            if (new_hap != cur_hap) { // update bam_haps, hap_to_base_profile, hap_to_cons_base
+                if (LONGCALLD_VERBOSE >= 2) {
+                    fprintf(stderr, "read (%d): %s, pos: %ld\t", read_i, bam_get_qname(bam_chunk->reads[read_i]), bam_chunk->reads[read_i]->core.pos);
+                    fprintf(stderr, "\t\t cur_hap: %d, new_hap: %d\n", cur_hap, new_hap);
+                }
+                changed_hap = 1;
+                bam_chunk->haps[read_i] = new_hap; // update intermediately
+                // bam_aux_append(bam_chunk->reads[read_i], "XT", 'i', 4, (uint8_t*)&(bam_chunk->haps[read_i]));
+                update_var_hap_profile_based_on_changed_hap(new_hap, cur_hap, cand_vars, p, read_i);
+            }
+        } if (changed_hap == 0) break;
+    }
+    if (LONGCALLD_VERBOSE >= 2) _err_info("Iteration: %d\n", i_iter);
+    free(ovlp_b); cr_destroy(read_var_cr);
+    return 0;
+}
+
 int assign_hap(read_snp_profile_t *p, int n_cand_snps, cand_snp_t *cand_snps, bam_chunk_t *bam_chunk) {
     // init read_snp_cr for read overlapping query
     cgranges_t *read_snp_cr = cr_init(); int64_t ovlp_i, ovlp_n, *ovlp_b = 0, max_b = 0;
@@ -397,7 +673,7 @@ int assign_hap(read_snp_profile_t *p, int n_cand_snps, cand_snp_t *cand_snps, ba
             }
         } if (changed_hap == 0) break;
     }
-    if (LONGCALLD_VERBOSE >= 1) _err_info("Iteration: %d\n", i_iter);
+    if (LONGCALLD_VERBOSE >= 2) _err_info("Iteration: %d\n", i_iter);
     free(ovlp_b); cr_destroy(read_snp_cr);
     return 0;
 }

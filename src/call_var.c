@@ -26,7 +26,7 @@ const struct option call_var_opt [] = {
     { "noisy-flank", 1, NULL, 'f' },
     { "end-clip", 1, NULL, 'c' },
     { "clip-flank", 1, NULL, 'F' },
-    { "thread", 1, NULL, 't' },
+    { "threads", 1, NULL, 't' },
     { "help", 0, NULL, 'h' },
     { "version", 0, NULL, 'v' },
     { "verbose", 1, NULL, 'V' },
@@ -67,7 +67,6 @@ call_var_opt_t *call_var_init_para(void) {
 }
 
 void call_var_free_para(call_var_opt_t *opt) {
-    if (opt->ref_fa_fn) free(opt->ref_fa_fn);
     if (opt->sample_name) free(opt->sample_name);
     if (opt->region_list) free(opt->region_list);
     free(opt);
@@ -85,10 +84,10 @@ void call_var_free_pl(call_var_pl_t pl) {
 
 void var_free(var_t *v) {
     if (v->vars) {
-        for (int i = 0; i < v->m; ++i) {
+        for (int i = 0; i < v->n; ++i) {
             if (v->vars[i].ref_bases) free(v->vars[i].ref_bases);
             if (v->vars[i].alt_bases) {
-                for (int j = 0; j < v->vars[i].n_allele-1; ++j)
+                for (int j = 0; j < v->vars[i].n_alt_allele; ++j)
                     free(v->vars[i].alt_bases[j]);
                 free(v->vars[i].alt_bases);
                 free(v->vars[i].alt_len);
@@ -117,9 +116,9 @@ static void call_var_worker_for(void *_data, long ii, int tid) {
 // merge variants from two chunks
 static void stitch_var_worker_for(void *_data, long ii, int tid) {
     call_var_step_t *step = (call_var_step_t*)_data;
-    bam_chunk_t *c = step->chunks; var_t *var = step->vars;
+    bam_chunk_t *c = step->chunks+ii; var_t *var = step->vars+ii;
     if (LONGCALLD_VERBOSE >= 1) fprintf(stderr, "[%s] tid: %d, chunk: %ld (%d), n_reads: %d\n", __func__, tid, ii, step->n_chunks, (c+ii)->n_reads);
-    stitch_var_main(step->pl, c, var, ii);
+    stitch_var_main(step, c, var, ii);
 }
 
 static void call_var_pl_open_bam(call_var_opt_t *opt, call_var_pl_t *pl, char **regions, int n_regions) {
@@ -167,8 +166,8 @@ static void call_var_pl_write_bam_header(samFile *out_bam, bam_hdr_t *header) {
 }
 
 static void call_var_pl_open_ref_fa(const char *ref_fa_fn, call_var_pl_t *pl) {
-    // if (pl->bam_has_eqx_cigar || pl->bam_has_md_tag) return;
     if (ref_fa_fn) {
+        if (LONGCALLD_VERBOSE >= 1) _err_info("Reading reference genome: %s.\n", ref_fa_fn);
         pl->ref_seq = read_ref_seq(ref_fa_fn);
         if (pl->ref_seq == NULL) _err_error_exit("Failed to read reference genome: %s.\n", ref_fa_fn);
     } else {
@@ -184,11 +183,18 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
         s = calloc(1, sizeof(call_var_step_t));
         s->pl = p;
         s->max_chunks = 64; s->chunks = calloc(s->max_chunks, sizeof(bam_chunk_t));
-        int r, n_ovlp_reads=0, *ovlp_read_i=NULL;
-        while ((r = collect_bam_chunk(p->bam, p->header, p->iter, p->use_iter, p->max_reg_len_per_chunk, &ovlp_read_i, &n_ovlp_reads, s->chunks+s->n_chunks)) > 0) {
+        int r, n_last_chunk_reads=0, *last_chunk_read_i=NULL; hts_pos_t cur_reg_beg = -1;
+        // for each round, collect s->max_chunks of reads
+        // XXX use the variant calling result of current round to guide the reg_beg of next round 
+        // adjacent rounds: try to overlap at least one high-quality variant
+        // XXX (maybe not necessary) if overlapping part is too large, enlarge the total chunk size for the next round
+        // if there is a variant gap, simply start with the first read of the next round
+        // this enables the phasing across multiple rounds
+        // XXX add a tmp_bam_chunk to store the last chunk of last round, stitch it with the first chunk of current round
+        while ((r = collect_bam_chunk(p->bam, p->header, p->iter, p->use_iter, p->max_reg_len_per_chunk, &last_chunk_read_i, &n_last_chunk_reads, &cur_reg_beg, s->chunks+s->n_chunks)) > 0) {
             if (++s->n_chunks >= s->max_chunks) break;
         }
-        if (ovlp_read_i != NULL) free(ovlp_read_i);
+        if (last_chunk_read_i != NULL) free(last_chunk_read_i);
         // XXX merge chunks if too few reads
         if (s->n_chunks > 0) return s;
         else { free(s->chunks); free(s); return 0; }
@@ -196,6 +202,8 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
         if (LONGCALLD_VERBOSE >= 1) _err_info("Step 1: call variants.\n");
         if (((call_var_step_t*)in)->n_chunks > 0) {
             ((call_var_step_t*)in)->vars = calloc(((call_var_step_t*)in)->n_chunks, sizeof(var_t));
+            if (LONGCALLD_VERBOSE >= 2)
+                fprintf(stderr, "n_chunks: %d\n", ((call_var_step_t*)in)->n_chunks);
             kt_for(p->n_threads, call_var_worker_for, in, ((call_var_step_t*)in)->n_chunks);
         }
         return in;
@@ -205,27 +213,31 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
                             //         2) update phase set and haplotype (flip if needed)
         if (LONGCALLD_VERBOSE >= 1) _err_info("Step 2: stitch variants.\n");
         // XXX stitch all results using 1 thread?
-        if (((call_var_step_t*)in)->n_chunks > 1) {
-            kt_for(p->n_threads, stitch_var_worker_for, in, ((call_var_step_t*)in)->n_chunks-1);
-        }
+        // if (((call_var_step_t*)in)->n_chunks > 1) {
+        kt_for(p->n_threads, stitch_var_worker_for, in, ((call_var_step_t*)in)->n_chunks);
+        // }
         // stitch all the results, or not necessary ?
         return in;
     } else if (step == 3) { // step 3: write the buffer to output
         if (LONGCALLD_VERBOSE >= 1) _err_info("Step 3: output variants.\n");
         call_var_step_t *s = (call_var_step_t*)in;
         for (int i = 0; i < s->n_chunks; ++i) {
+            // if (i != 0) continue;
             bam_chunk_t *c = s->chunks + i;
-            for (int j = 0; j < c->n_reads; ++j) {
+            for (int j = c->n_up_ovlp_reads; j < c->n_reads; ++j) {
+                if (c->is_skipped[j]) continue;
                 // chrome, pos, qname, hap, rlen
-                // if (LONGCALLD_VERBOSE >= 2)
-                    // fprintf(stderr, "%d\t%s\t%ld\t%s\t%d\t%d\t%ld\n", j, c->tname, c->reads[j]->core.pos+1, bam_get_qname(c->reads[j]), c->reads[j]->core.flag, c->haps[j], bam_cigar2rlen(c->reads[j]->core.n_cigar, bam_get_cigar(c->reads[j])));
-                if (p->opt->out_bam != NULL)
+                if (LONGCALLD_VERBOSE >= 2)
+                    fprintf(stderr, "%d\t%s\t%ld\t%s\t%d\t%d\t%ld\n", j, c->tname, c->reads[j]->core.pos+1, bam_get_qname(c->reads[j]), c->reads[j]->core.flag, c->haps[j], bam_cigar2rlen(c->reads[j]->core.n_cigar, bam_get_cigar(c->reads[j])));
+                if (p->opt->out_bam != NULL) 
                     if (sam_write1(p->opt->out_bam, p->header, c->reads[j]) < 0) _err_error_exit("Failed to write BAM record.");
             }
-            bam_chunk_free(c); // free input
+            write_var_to_vcf(s->vars+i, p->opt->out_vcf, c->tname);
+            // bam_chunk_free(c); // free input
             var_free(s->vars + i);  // free output
         }
-        free(s->chunks); free(s->vars); free(s);
+        bam_chunks_free(s->chunks, s->n_chunks); // free input
+        free(s->vars); free(s);
     }
     return 0;
 }
@@ -235,16 +247,16 @@ static int call_var_usage(void) {//main usage
     fprintf(stderr, "Program: %s (%s)\n", PROG, DESCRIP);
     fprintf(stderr, "Version: %s\tContact: %s\n\n", VERSION, CONTACT); 
 
-    fprintf(stderr, "Usage:   %s call [options] input.bam [region ...] > phased.vcf\n", PROG);
-    // fprintf(stderr, "            Note: \'ref.fa\' needs to contain the same contig/chromosome names as \'input.bam\'\n");
+    fprintf(stderr, "Usage: %s call [options] <ref.fa> <input.bam> [region ...] > phased.vcf\n", PROG);
+    fprintf(stderr, "       Note: \'ref.fa\' should contain the same contig/chromosome names as \'input.bam\'\n");
     // fprintf(stderr, "                  \'ref.fa\' is not needed if 1) BAM contains CIGARS with =/X, or 2) BAM contain MD tags\n");
     fprintf(stderr, "\n");
 
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "  Intput and output:\n");
-    fprintf(stderr, "    -r --ref-fa      STR    reference genome, FASTA(.gz) file\n");
-    fprintf(stderr, "                            Note: \'ref.fa\' must to contain the same contig/chromosome names as \'input.bam\'\n");
-    fprintf(stderr, "                                  \'ref.fa\' is not needed if input BAM contains 1) =/X CIGARS, or 2) MD tags\n");
+    // fprintf(stderr, "    -r --ref-fa      STR    reference genome, FASTA(.gz) file\n");
+    // fprintf(stderr, "                            Note: \'ref.fa\' must to contain the same contig/chromosome names as \'input.bam\'\n");
+    // fprintf(stderr, "                                  \'ref.fa\' is not needed if input BAM contains 1) =/X CIGARS, or 2) MD tags\n");
     fprintf(stderr, "    -n --sample-name STR  sample name. if not provided, input BAM file name will be used as sample name in output VCF [NULL]\n");
     fprintf(stderr, "    -o --out-vcf     STR  output phased VCF file [stdout]\n");
     fprintf(stderr, "    -b --out-bam     STR  output phased BAM file [NULL]\n");
@@ -261,7 +273,7 @@ static int call_var_usage(void) {//main usage
     fprintf(stderr, "    -F --clip-flank  INT  flanking mask window size for noisy clipping region [%d]\n", LONGCALLD_NOISY_END_CLIP_WIN);
     fprintf(stderr, "\n");
     fprintf(stderr, "  General:\n");
-    fprintf(stderr, "    -t --thread      INT  number of threads to use [%d]\n", MIN_OF_TWO(CALL_VAR_THREAD_N, get_nprocs()));
+    fprintf(stderr, "    -t --threads     INT  number of threads to use [%d]\n", MIN_OF_TWO(CALL_VAR_THREAD_N, get_nprocs()));
     fprintf(stderr, "    -h --help             print this help usage\n");
     fprintf(stderr, "    -v --version          print version number\n");
     fprintf(stderr, "    -V --verbose     INT  verbose level (0-2). 0: none, 1: information, 2: debug [0]\n");
@@ -272,12 +284,12 @@ static int call_var_usage(void) {//main usage
 }
 
 int call_var_main(int argc, char *argv[]) {
-    _err_cmd("%s\n", CMD);
+    // _err_cmd("%s\n", CMD);
     int c, op_idx; call_var_opt_t *opt = call_var_init_para();
     double realtime0 = realtime();
     while ((c = getopt_long(argc, argv, "r:o:b:d:n:s:w:f:F:c:t:hvV:", call_var_opt, &op_idx)) >= 0) {
         switch(c) {
-            case 'r': opt->ref_fa_fn = strdup(optarg); break;
+            // case 'r': opt->ref_fa_fn = strdup(optarg); break;
             // case 'b': cgp->var_block_size = atoi(optarg); break;
             case 'o': opt->out_vcf = fopen(optarg, "w"); break;
             case 'b': opt->out_bam = hts_open(optarg, "wb"); break;
@@ -298,13 +310,19 @@ int call_var_main(int argc, char *argv[]) {
 
     if (!isatty(STDIN_FILENO)) {
         opt->in_bam_fn = "-";
-    } else {
         if (argc - optind < 1) {
-            _err_error("Input BAM is required.\n");
+            _err_error("Reference FASTA is required.\n");
             call_var_free_para(opt); return call_var_usage();
         } else {
+            opt->ref_fa_fn = argv[optind++];
+        }
+    } else {
+        if (argc - optind < 2) {
+            _err_error("Reference FASTA and BAM are required.\n");
+            call_var_free_para(opt); return call_var_usage();
+        } else {
+            opt->ref_fa_fn = argv[optind++];
             opt->in_bam_fn = argv[optind++];
-            // opt->ref_fa_fn = argv[optind+1];
         }
     }
     // threads
@@ -321,18 +339,17 @@ int call_var_main(int argc, char *argv[]) {
     call_var_pl_t pl;
     memset(&pl, 0, sizeof(call_var_pl_t));
     // read reference genome
-    if (opt->ref_fa_fn) {
-        pl.ref_seq = read_ref_seq(opt->ref_fa_fn);
-        if (pl.ref_seq == NULL) {
-            _err_error("Failed to read reference genome: %s.\n", opt->ref_fa_fn);
-            call_var_free_para(opt); hts_close(opt->out_bam); call_var_free_pl(pl);
-            return 1;
-        }
-    }
+    call_var_pl_open_ref_fa(opt->ref_fa_fn, &pl);
+    // if (opt->ref_fa_fn) {
+    //     pl.ref_seq = read_ref_seq(opt->ref_fa_fn);
+    //     if (pl.ref_seq == NULL) {
+    //         _err_error("Failed to read reference genome: %s.\n", opt->ref_fa_fn);
+    //         call_var_free_para(opt); hts_close(opt->out_bam); call_var_free_pl(pl);
+    //         return 1;
+    //     }
+    // }
     // open BAM file
     call_var_pl_open_bam(opt, &pl, argv+optind, argc-optind);
-    // call_var_pl_open_ref_fa(opt->ref_fa_fn, &pl); // XXX
-
 
     // write VCF/BAM header
     if (opt->out_bam != NULL) call_var_pl_write_bam_header(opt->out_bam, pl.header);

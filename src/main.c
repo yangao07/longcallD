@@ -5,10 +5,10 @@
 #include "call_var.h"
 #include "htslib/kstring.h"
 
-const char PROG[20] = "longcallD";
+const char PROG[20] = "longCallD";
 const char DESCRIP[100] = "";
 const char VERSION[20] = "0.0.1";
-const char CONTACT[30] = "gaoy1@chop.edu";
+const char CONTACT[30] = "yangao@ds.dfci.harvard.edu";
 int LONGCALLD_VERBOSE = 0;
 char *CMD;
 

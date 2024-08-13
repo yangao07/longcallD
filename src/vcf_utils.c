@@ -5,6 +5,7 @@
 #include "main.h"
 #include "bam_utils.h"
 #include "collect_var.h"
+#include "call_var.h"
 #include "htslib/vcf.h"
 #include "htslib/sam.h"
 
@@ -89,6 +90,33 @@ int write_snp_to_vcf(cand_snp_t *cand_snps, int n_cand_snps, FILE *out_vcf, char
         // Write SNP information to VCF
         fprintf(out_vcf, "%s\t%ld\t.\t%c\t%s\t.\t.\t.\tGT:PS\t%s:%ld\n", 
                           chrom, snp.pos, ref_base, alt_bases, gt, snp.phase_set);
+    }
+    return ret;
+}
+
+int write_var_to_vcf(var_t *vars, FILE *out_vcf, char *chrom) {
+    int n_vars = vars->n;
+    int ret = 0;
+    // Write each SNP to VCF
+    // XXX correct phase set if needed: set it as leftmost SNP position within the same phase block
+    for (int i = 0; i < n_vars; i++) {
+        var1_t var = vars->vars[i];
+        // Write SNP information to VCF
+        fprintf(out_vcf, "%s\t%ld\t.\t", chrom, var.pos);
+        // ref bases
+        for (int j = 0; j < var.ref_len; j++) {
+            fprintf(out_vcf, "%c", "ACGTN"[var.ref_bases[j]]);
+        }
+        // alt bases
+        fprintf(out_vcf, "\t");
+        for (int j = 0; j < var.n_alt_allele; j++) {
+            for (int k = 0; k < var.alt_len[j]; k++) {
+                fprintf(out_vcf, "%c", "ACGTN"[var.alt_bases[j][k]]);
+            }
+            if (j < var.n_alt_allele - 1) fprintf(out_vcf, ",");
+        }
+        // QUAL, FILTER, INFO
+        fprintf(out_vcf, "\t%d\tPASS\tEND=%ld\tGT:PS\t%d|%d:%ld\n", var.QUAL, var.pos + var.ref_len - 1, var.GT[0], var.GT[1], var.PS);
     }
     return ret;
 }

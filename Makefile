@@ -68,7 +68,7 @@ $(SRC_DIR)/collect_var.o: $(SRC_DIR)/collect_var.c $(SRC_DIR)/collect_var.h $(SR
 $(SRC_DIR)/kalloc.o: $(SRC_DIR)/kalloc.c $(SRC_DIR)/kalloc.h
 $(SRC_DIR)/kthread.o: $(SRC_DIR)/kthread.c
 $(SRC_DIR)/main.o: $(SRC_DIR)/main.c $(SRC_DIR)/call_var.h
-$(SRC_DIR)/call_var.o: $(SRC_DIR)/call_var.c $(SRC_DIR)/call_var.h $(SRC_DIR)/main.h $(SRC_DIR)/utils.h $(SRC_DIR)/seq.h \
+$(SRC_DIR)/call_var.o: $(SRC_DIR)/bam_utils.c $(SRC_DIR)/call_var.c $(SRC_DIR)/call_var.h $(SRC_DIR)/main.h $(SRC_DIR)/utils.h $(SRC_DIR)/seq.h \
                         $(SRC_DIR)/collect_var.h
 $(SRC_DIR)/seq.o: $(SRC_DIR)/seq.c $(SRC_DIR)/seq.h $(SRC_DIR)/utils.h
 $(SRC_DIR)/utils.o: $(SRC_DIR)/utils.c $(SRC_DIR)/utils.h $(SRC_DIR)/ksort.h $(SRC_DIR)/kseq.h
