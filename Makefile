@@ -5,8 +5,15 @@ EXTRA_FLAGS = -Wall -Wno-unused-function -Wno-misleading-indentation
 
 HTSLIB_DIR  = ./htslib
 HTSLIB      = $(HTSLIB_DIR)/libhts.a
-LIB         = $(HTSLIB) -lm -lz -lpthread #-llzma -lbz2 -lcurl
-INCLUDE     = -I $(HTSLIB_DIR)
+
+ABPOA_DIR   = ./abPOA
+ABPOA_LIB   = ./lib/libabpoa.a
+ABPOA_INC_DIR = $(ABPOA_DIR)/include
+
+WFA2_DIR    = ./WFA2-lib
+WFA2_LIB    = $(WFA2_DIR)/lib/libwfa.a
+LIB         = $(HTSLIB) $(ABPOA_LIB) $(WFA2_LIB) -lm -lz -lpthread #-llzma -lbz2 -lcurl
+INCLUDE     = -I $(HTSLIB_DIR) -I $(ABPOA_INC_DIR)  -I $(WFA2_DIR)
 
 # for debug
 ifneq ($(debug),)
@@ -49,18 +56,25 @@ endif
 .c.o:
 	$(CC) -c $(CFLAGS) $(INCLUDE) $< -o $@
 
-all: $(HTS_ALL) $(BIN)
+all: $(HTS_ALL) $(ABPOA_LIB) $(WFA2_LIB) $(BIN)
 
 # disable lzma, bz2 (CRAM), and libcurl (network protocol support)
 $(HTS_ALL): $(HTSLIB)
 
 $(HTSLIB): $(HTSLIB_DIR)/configure.ac
-	cd $(HTSLIB_DIR); autoreconf -i; ./configure --disable-lzma --disable-bz2 --disable-libcurl; make;
+	cd $(HTSLIB_DIR); autoreconf -i; ./configure --disable-lzma --disable-bz2 --disable-libcurl --without-libdeflate; make;
+
+$(ABPOA_LIB): 
+	cd $(ABPOA_DIR); make libabpoa PREFIX=$(PWD) CC=gcc
+
+$(WFA2_LIB):
+	cd $(WFA2_DIR); make CC=gcc
 
 $(BIN): $(OBJS)
 	if [ ! -d $(BIN_DIR) ]; then mkdir $(BIN_DIR); fi
 	$(CC) $(OBJS) -o $@ $(LIB) $(PG_FLAG)
 
+$(SRC_DIR)/align.o: $(SRC_DIR)/align.c $(SRC_DIR)/align.h $(SRC_DIR)/utils.h
 $(SRC_DIR)/assign_aln_hap.o: $(SRC_DIR)/assign_aln_hap.c $(SRC_DIR)/assign_aln_hap.h $(SRC_DIR)/utils.h $(SRC_DIR)/bam_utils.h
 $(SRC_DIR)/bam_utils.o: $(SRC_DIR)/bam_utils.c $(SRC_DIR)/bam_utils.h $(SRC_DIR)/utils.h
 $(SRC_DIR)/cgranges.o: $(SRC_DIR)/cgranges.c $(SRC_DIR)/cgranges.h $(SRC_DIR)/khash.h
@@ -70,6 +84,7 @@ $(SRC_DIR)/kthread.o: $(SRC_DIR)/kthread.c
 $(SRC_DIR)/main.o: $(SRC_DIR)/main.c $(SRC_DIR)/call_var.h
 $(SRC_DIR)/call_var.o: $(SRC_DIR)/bam_utils.c $(SRC_DIR)/call_var.c $(SRC_DIR)/call_var.h $(SRC_DIR)/main.h $(SRC_DIR)/utils.h $(SRC_DIR)/seq.h \
                         $(SRC_DIR)/collect_var.h
+$(SRC_DIR)/phase_based_call_var.o: $(SRC_DIR)/phase_based_call_var.c $(SRC_DIR)/phase_based_call_var.h $(SRC_DIR)/align.h $(SRC_DIR)/utils.h
 $(SRC_DIR)/seq.o: $(SRC_DIR)/seq.c $(SRC_DIR)/seq.h $(SRC_DIR)/utils.h
 $(SRC_DIR)/utils.o: $(SRC_DIR)/utils.c $(SRC_DIR)/utils.h $(SRC_DIR)/ksort.h $(SRC_DIR)/kseq.h
 $(SRC_DIR)/vcf_utils.o: $(SRC_DIR)/vcf_utils.c $(SRC_DIR)/vcf_utils.h $(SRC_DIR)/utils.h

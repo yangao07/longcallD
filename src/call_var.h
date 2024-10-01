@@ -7,20 +7,27 @@
 #include "seq.h"
 #include "htslib/vcf.h"
 #include "htslib/sam.h"
+#include "htslib/thread_pool.h"
 
 #define CALL_VAR_PL_THREAD_N 3
-#define CALL_VAR_THREAD_N 4
+#define CALL_VAR_THREAD_N 8
 
-#define LONGCALLD_MIN_CAND_SNP_MQ 0 // aln with MQ < 5 will be skipped
-#define LONGCALLD_MIN_CAND_SNP_BQ 0 // base with BQ < 10 will be skipped, only when qual is available
-#define LONGCALLD_MIN_CAND_SNP_DP 5 // site with high-qual DP < 5 will be skipped, high-qual: MQ >= 5, BQ >= 10
-#define LONGCALLD_MIN_CAND_SNP_AF 0.25 // base with AF < 0.25 will be skipped
-#define LONGCALLD_MAX_CAND_SNP_AF 0.75 // base with AF > 0.75 will be skipped
-#define LONGCALLD_MAX_LOW_QUAL_FRAC 0.25 // base with LOW_FRAC > 0.25 will be skipped
+#define LONGCALLD_MIN_CAND_MQ 0 // low-qual
+#define LONGCALLD_MIN_CAND_BQ 0 // low-qual
+#define LONGCALLD_MIN_CAND_DP 5 // total DP < 5: skipped
+#define LONGCALLD_MIN_ALT_DP 2 // max alt depth < 2: skipped
+#define LONGCALLD_MIN_SOMATIC_AF 0.05 // AF < 0.05: filtered out
+#define LONGCALLD_MIN_CAND_AF 0.25 // AF < 0.25: not germline het.
+#define LONGCALLD_MAX_CAND_AF 0.75 // AF > 0.75: not germline het.
+#define LONGCALLD_MAX_LOW_QUAL_FRAC 0.25 // LOW_FRAC > 0.25: low-qual
 #define LONGCALLD_DEF_PLOID 2 // diploid
+#define LONGCALLD_REF_ALLELE 0
+#define LONGCALLD_ALT_ALLELE1 1
+#define LONGCALLD_ALT_ALLELE2 2
+#define LONGCALLD_OTHER_ALT_ALLELE 3
 
-#define LONGCALLD_DENSE_REG_MAX_SITES 3   // dense X/gap region: more than n X/gap bases in a 100-bp window
-#define LONGCALLD_DENSE_REG_SLIDE_WIN 100 // 10
+#define LONGCALLD_DENSE_REG_MAX_XGAPS 10   // dense X/gap region: more than n X/gap bases in a 100-bp window
+#define LONGCALLD_DENSE_REG_SLIDE_WIN 100 //
 #define LONGCALLD_DENSE_FLANK_WIN 25 // 100/(3+1)
 #define LONGCALLD_NOISY_END_CLIP 100 // >= n bp clipping on both ends
 #define LONGCALLD_NOISY_END_CLIP_WIN 100 // n bp flanking end-clipping region will be considered as low-quality region
@@ -46,9 +53,9 @@ extern "C" {
 typedef struct {
     uint8_t type; // BAM_CINS/BAM_CDEL/BAM_CDIFF
     hts_pos_t pos, PS; // phase set
-    uint8_t *ref_bases; int ref_len;
+    uint8_t *ref_bases; int ref_len; // extra care needed for multi-allelic sites, e.g., GGTGT -> GGT,G
+    int n_alt_allele; // alt allele: 1 or 2
     uint8_t **alt_bases; int *alt_len;
-    int n_alt_allele; // alt allele
     int DP, AD[2]; uint8_t GT[2]; // DP/AD/GT
     int QUAL, GQ, PL[6]; // phred-scaled, QUAL/FILTER/GQ/PL
 } var1_t;
@@ -59,31 +66,29 @@ typedef struct var_t {
 } var_t;
 
 typedef struct call_var_opt_t {
-    // input files
+    // input
     char *ref_fa_fn; char *in_bam_fn; char *sample_name;
-    // int max_ploidy;
     char *region_list; uint8_t region_is_file; // for -R/--region/--region-file option
-
-    // filters for cand. SNPs used in phasing
-    int max_ploid, min_mq, min_bq, min_dp; 
-    double min_af, max_af, max_low_qual_frac;
-    int dens_reg_max_sites, dens_reg_slide_win, dens_reg_flank_win;
+    // filters for variant calling
+    int max_ploid, min_mq, min_bq, min_dp, min_alt_dp; 
+    double min_somatic_af, min_af, max_af, max_low_qual_frac;
+    int dens_reg_max_xgaps, dens_reg_slide_win, dens_reg_flank_win;
     int indel_flank_win;
     int end_clip_reg, end_clip_reg_flank_win;
-
+    // general
+    // int max_ploidy;
     int pl_threads, n_threads;
     // output
     htsFile *out_bam; // phased bam
     FILE *out_vcf; // phased vcf
-
-    // general
 } call_var_opt_t;
 
 // shared data for all threads
 typedef struct call_var_pl_t {
     // input files
     ref_seq_t *ref_seq;
-    samFile *bam; bam_hdr_t *header; hts_idx_t *idx; hts_itr_t *iter; int use_iter;
+    samFile *bam; bam_hdr_t *header; hts_tpool *p;
+    hts_idx_t *idx; hts_itr_t *iter; int use_iter;
     // parameters, output files
     const call_var_opt_t *opt;
     // m-threads

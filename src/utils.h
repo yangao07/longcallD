@@ -25,21 +25,22 @@
 
 /* Contact: Heng Li <lh3@sanger.ac.uk> */
 
-#ifndef LONGCALLD_UTILS_H
-#define LONGCALLD_UTILS_H
+#ifndef UTILS_H
+#define UTILS_H
 
 #include <stdint.h>
 #include <stdio.h>
 #include <zlib.h>
 #include <sys/resource.h>
 #include <sys/time.h>
+#include <time.h>
 
-#ifndef LCD_kroundup32
-#define LCD_kroundup32(x) (--(x), (x)|=(x)>>1, (x)|=(x)>>2, (x)|=(x)>>4, (x)|=(x)>>8, (x)|=(x)>>16, ++(x))
+#ifndef LC_kroundup32
+#define LC_kroundup32(x) (--(x), (x)|=(x)>>1, (x)|=(x)>>2, (x)|=(x)>>4, (x)|=(x)>>8, (x)|=(x)>>16, ++(x))
 #endif
 
-#ifndef LCD_kroundup64
-#define LCD_kroundup64(x) (--(x), (x)|=(x)>>1, (x)|=(x)>>2, (x)|=(x)>>4, (x)|=(x)>>8, (x)|=(x)>>16, (x)|=(x)>>32, ++(x))
+#ifndef LC_kroundup64
+#define LC_kroundup64(x) (--(x), (x)|=(x)>>1, (x)|=(x)>>2, (x)|=(x)>>4, (x)|=(x)>>8, (x)|=(x)>>16, (x)|=(x)>>32, ++(x))
 #endif
  
 #ifdef __GNUC__
@@ -49,8 +50,9 @@
 #define ATTRIBUTE(list)
 #endif
 
-#define _err_fatal(fmt, ...) err_fatal(__func__, fmt, ##__VA_ARGS__)
-#define _err_fatal_core(fmt, ...) err_fatal_core(__func__, fmt, ##__VA_ARGS__)
+#define err_fatal_simple(msg) _err_fatal_simple(__func__, msg)
+#define err_fatal_simple_core(msg) _err_fatal_simple_core(__func__, msg)
+
 #define _err_func_printf(fmt, ...) err_func_format_printf(__func__, fmt, ##__VA_ARGS__)
 #define _err_color_printf(type, fmt, ...) err_color_format_printf(type, fmt, ##__VA_ARGS__)
 #define _err_warning(fmt, ...) _err_color_printf('W', fmt, ##__VA_ARGS__)
@@ -64,7 +66,7 @@
 #define xreopen(fn, mode, fp) err_xreopen_core(__func__, fn, mode, fp)
 #define xzopen(fn, mode) err_xzopen_core(__func__, fn, mode)
 
-#define xassert(cond, msg) if ((cond) == 0) err_fatal_simple_core(__func__, msg)
+#define xassert(cond, msg) if ((cond) == 0) _err_fatal_simple_core(__func__, msg)
 
 #define _err_simple_func_printf(msg) err_func_printf(__func__, msg)
 
@@ -81,8 +83,8 @@ extern "C" {
 
 	void err_fatal(const char *header, const char *fmt, ...) ATTRIBUTE((noreturn));
 	void err_fatal_core(const char *header, const char *fmt, ...) ATTRIBUTE((noreturn));
-	void err_fatal_simple(const char *func, const char *msg) ATTRIBUTE((noreturn));
-	void err_fatal_simple_core(const char *func, const char *msg) ATTRIBUTE((noreturn));
+	void _err_fatal_simple(const char *func, const char *msg) ATTRIBUTE((noreturn));
+	void _err_fatal_simple_core(const char *func, const char *msg) ATTRIBUTE((noreturn));
 	FILE *err_xopen_core(const char *func, const char *fn, const char *mode);
 	FILE *err_xreopen_core(const char *func, const char *fn, const char *mode, FILE *fp);
 	gzFile err_xzopen_core(const char *func, const char *fn, const char *mode);
@@ -146,97 +148,90 @@ extern "C" {
 
 #define _realloc(p, m, type) {(m) <<= 1; p = (type*)_err_realloc(p, (m) * sizeof(type));}
 
-// append v to p
-#define _simple_append_utils(v, p, n, m, type) { \
+#define _sim_insert_abpoa_utils(v, p, n, m, type) { \
     if (n == m) {               \
         _realloc(p, m, type)    \
     }                           \
     p[n++] = v;                 \
 }
 
-// append v into p, if v is not in p
-#define _append_utils(v, p, n, m, type) { \
-    int _i, _flag=0;             \
-    for (_i = 0; _i < n; ++_i) { \
-        if ((p)[_i] == v) {      \
-            _flag = 1;           \
-            break;               \
-        }                        \
-    }                            \
-    if (_flag == 0) {            \
-        if (n == m) {            \
-            _realloc(p, m, type) \
-        }                        \
-        (p)[n++] = v;            \
-    }                            \
-}
-
-// insert v into p, if v is not in p (p is sorted)
-// return: flat: 0: not in p; 1: in p
-//          k_i: the index of v in p
-#define _bin_insert_utils_idx(v, p, n, m, type, flag, k_i) { \
-    flag=0, k_i=-1;                            \
-    int _left=0,_right=n-1,_mid;               \
-    type _mid_v, _tmp_v;                       \
-    if (_right == -1) k_i = 0;                 \
-    else {                                     \
-        while (_left <= _right) {              \
-            _mid = (_left+_right) >> 1;        \
-            _mid_v = (p)[_mid];                \
-            if (_mid_v == v) {                 \
-                k_i = _mid;                    \
-                flag = 1; break;               \
-            } else if (_mid_v > v) {           \
-                if (_mid != 0) {               \
-                    _tmp_v = p[_mid-1];        \
-                }                              \
-                if (_mid == 0 || v > _tmp_v) { \
-                    k_i = _mid;                \
-                    break;                     \
-                }                              \
-                else _right = _mid-1;          \
-            } else _left = _mid+1;             \
-        }                                      \
-    }                                          \
-    if (k_i == -1) k_i = n;                    \
-}
-
-// insert v into p, if v is not in p (p is sorted)
-#define _bin_insert_utils(v, p, n, m, type) {                 \
-    int _k_i, _flag;                                          \
-    _bin_insert_utils_idx(v, p, n, m, type, _flag, _k_i)      \
-    if (_flag == 0) {                                         \
-        if (n == m) {                                         \
-            _realloc(p, m, type)                              \
-        }                                                     \
-        if (_k_i <= n-1)                                      \
-            memmove(p+_k_i+1, p+_k_i, (n-_k_i)*sizeof(type)); \
-        (p)[_k_i] = v;                                        \
-        (n)++;                                                \
-    }                                                         \
-}
-
-// binary search v in p
-// return: hit: 0: not found; 1: found
-//           i: the index of v in p
-#define _bin_search(v, p, n, type, hit, i) { \
-    if (n == 0) return 0;              \
-    int _left = 0, _right = n-1, _mid; \
-    type _mid_v;                       \
-    hit = 0;                           \
-    while (_left <= _right) {       \
-        _mid = (_left+_right) >> 1; \
-        _mid_v = p[_mid];           \
-        if (_mid_v == v) {          \
-            i = _mid;               \
-            hit = 1;                \
+#define _insert_abpoa_utils(v, p, n, m, type) { \
+    int _i, _flag=0;                  \
+    for (_i = 0; _i < n; ++_i) {       \
+        if (p[_i] == v) {            \
+            _flag = 1;               \
             break;                  \
-        } else if (_mid_v > v) {    \
-            _right = _mid-1;        \
-        } else {                    \
-            _left = _mid+1;         \
         }                           \
     }                               \
+    if (_flag == 0) {                \
+        if (n == m) {               \
+            _realloc(p, m, type)    \
+        }                           \
+        p[n++] = v;                 \
+    }                               \
+}
+
+#define _bin_insert_abpoa_utils_idx(v, p, n, m, type, flag, k_i) { \
+    flag=0, k_i=-1;   \
+    int _left=0,_right=n-1,_mid;    \
+    type _mid_v, _tmp_v;                 \
+    if (_right == -1) k_i = 0;   \
+    else {                      \
+        while (_left <= _right) { \
+            _mid = (_left+_right) >> 1;    \
+            _mid_v = p[_mid];             \
+            if (_mid_v == v) {           \
+                k_i = _mid; \
+                flag = 1; break;        \
+            } else if (_mid_v > v) {     \
+                if (_mid != 0) {         \
+                    _tmp_v = p[_mid-1];   \
+                }                       \
+                if (_mid == 0 || v > _tmp_v) { \
+                    k_i = _mid;          \
+                    break;              \
+                }                       \
+                else _right = _mid-1;     \
+            } else _left = _mid+1;        \
+        }                               \
+    }                                   \
+    if (k_i == -1) k_i = n;         \
+}
+     
+#define _bin_insert_abpoa_utils(v, p, n, m, type) { \
+    int _k_i, _flag;    \
+    _bin_insert_abpoa_utils_idx(v, p, n, m, type, _flag, _k_i)   \
+    if (_flag == 0) {                \
+        if (n == m) {               \
+            _realloc(p, m, type)    \
+        }                           \
+        if (_k_i <= n-1)             \
+            memmove(p+_k_i+1, p+_k_i, (n-_k_i)*sizeof(type));  \
+        (p)[_k_i] = v;               \
+        (n)++;                      \
+    }                               \
+}
+
+#define _bin_search(v, p, n, type, hit, i) { \
+    int _left =0,_right=n-1,_mid; \
+    type _mid_v;    \
+    hit = 0;               \
+    if (_right == -1) hit=0;   \
+    else {  \
+        while (_left <= _right) {   \
+            _mid = (_left+_right) >> 1; \
+            _mid_v = p[_mid];       \
+            if (_mid_v == v) {  \
+                i = _mid;   \
+                hit = 1;   \
+                break;      \
+            } else if (_mid_v > v) {   \
+                _right = _mid-1;    \
+            } else {    \
+                _left = _mid+1; \
+            }   \
+        }   \
+    }   \
 } 
 
 #define MIN_OF_TWO(a, b) ((a) < (b) ? (a) : (b))
@@ -257,6 +252,7 @@ static inline uint64_t hash_64(uint64_t key)
 	key ^= (key >> 31);
 	return key;
 }
+
 #ifndef _PRINT_FORMAT_H_
 #define _PRINT_FORMAT_H_
 
@@ -286,6 +282,7 @@ static inline uint64_t hash_64(uint64_t key)
 #define CLEAR "\e[2J" // clear
 #define CLRLINE "\r\e[K" // clear line
 
+// from https://blog.csdn.net/MoDa_Li/java/article/details/82156888
 
 // #define _RED(string) "\x1b[31m" string "\x1b[0m"
 #define _RED(string) "\x1b[91m" string "\x1b[0m"
@@ -314,6 +311,6 @@ static inline uint64_t hash_64(uint64_t key)
 
 // from https://blog.csdn.net/MoDa_Li/java/article/details/82156888
 
-#endif // _PRINT_FORMAT_H_
+#endif
 
-#endif // LONGCALLD_UTILS_H
+#endif

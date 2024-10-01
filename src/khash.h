@@ -114,8 +114,8 @@ int main() {
 */
 
 
-#ifndef LONGCALLD_AC_KHASH_H
-#define LONGCALLD_AC_KHASH_H
+#ifndef __AC_KHASH_H
+#define __AC_KHASH_H
 
 /*!
   @header

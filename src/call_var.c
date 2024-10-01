@@ -11,6 +11,7 @@
 #include "seq.h"
 #include "collect_var.h"
 #include "kthread.h"
+#include "align.h"
 
 extern int LONGCALLD_VERBOSE;
 
@@ -20,7 +21,8 @@ const struct option call_var_opt [] = {
     { "out-bam", 1, NULL, 'b' },
     { "sample-name", 1, NULL, 'n'},
     { "min-depth", 1, NULL, 'd' },
-    // { "max-ploidy", 1, NULL, 'p' },
+    { "min-alt-depth", 1, NULL, 'D' },
+    { "max-ploidy", 1, NULL, 'p' },
     { "max-sites", 1, NULL, 's' },
     { "win-size", 1, NULL, 'w'},
     { "noisy-flank", 1, NULL, 'f' },
@@ -42,11 +44,12 @@ call_var_opt_t *call_var_init_para(void) {
     opt->region_list = NULL; opt->region_is_file = 0;
 
     opt->max_ploid = LONGCALLD_DEF_PLOID;
-    opt->min_mq = LONGCALLD_MIN_CAND_SNP_MQ;
-    opt->min_bq = LONGCALLD_MIN_CAND_SNP_BQ;
-    opt->min_dp = LONGCALLD_MIN_CAND_SNP_DP;
+    opt->min_mq = LONGCALLD_MIN_CAND_MQ;
+    opt->min_bq = LONGCALLD_MIN_CAND_BQ;
+    opt->min_dp = LONGCALLD_MIN_CAND_DP;
+    opt->min_alt_dp = LONGCALLD_MIN_ALT_DP;
 
-    opt->dens_reg_max_sites = LONGCALLD_DENSE_REG_MAX_SITES;
+    opt->dens_reg_max_xgaps = LONGCALLD_DENSE_REG_MAX_XGAPS;
     opt->dens_reg_slide_win = LONGCALLD_DENSE_REG_SLIDE_WIN;
     opt->dens_reg_flank_win = LONGCALLD_DENSE_FLANK_WIN;
     opt->indel_flank_win = LONGCALLD_INDEL_FLANK_WIN;
@@ -54,8 +57,9 @@ call_var_opt_t *call_var_init_para(void) {
     opt->end_clip_reg = LONGCALLD_NOISY_END_CLIP;
     opt->end_clip_reg_flank_win = LONGCALLD_NOISY_END_CLIP_WIN;
 
-    opt->min_af = LONGCALLD_MIN_CAND_SNP_AF;
-    opt->max_af = LONGCALLD_MAX_CAND_SNP_AF;
+    opt->min_somatic_af = LONGCALLD_MIN_SOMATIC_AF;
+    opt->min_af = LONGCALLD_MIN_CAND_AF;
+    opt->max_af = LONGCALLD_MAX_CAND_AF;
     opt->max_low_qual_frac = LONGCALLD_MAX_LOW_QUAL_FRAC;
 
     opt->pl_threads = MIN_OF_TWO(CALL_VAR_PL_THREAD_N, get_nprocs());
@@ -79,6 +83,7 @@ void call_var_free_pl(call_var_pl_t pl) {
         if (pl.idx) hts_idx_destroy(pl.idx);
         bam_hdr_destroy(pl.header);
         sam_close(pl.bam); 
+        hts_tpool_destroy(pl.p);
     }
 }
 
@@ -86,12 +91,12 @@ void var_free(var_t *v) {
     if (v->vars) {
         for (int i = 0; i < v->n; ++i) {
             if (v->vars[i].ref_bases) free(v->vars[i].ref_bases);
+            if (v->vars[i].alt_len) free(v->vars[i].alt_len);
             if (v->vars[i].alt_bases) {
-                for (int j = 0; j < v->vars[i].n_alt_allele; ++j)
-                    free(v->vars[i].alt_bases[j]);
+                for (int j = 0; j < v->vars[i].n_alt_allele; ++j) free(v->vars[i].alt_bases[j]);
                 free(v->vars[i].alt_bases);
-                free(v->vars[i].alt_len);
             }
+
         }
         free(v->vars);
     }
@@ -103,29 +108,28 @@ static void call_var_worker_for(void *_data, long ii, int tid) {
     bam_chunk_t *c = step->chunks + ii; var_t *v = step->vars + ii;
     if (LONGCALLD_VERBOSE >= 1) fprintf(stderr, "[%s] tid: %d, chunk: %ld n_reads: %d\n", __func__, tid, ii, c->n_reads);
     collect_var_main(step->pl, c, v);
-    // Add HP tag
-    if (step->pl->opt->out_bam != NULL) {
-        for (int i = 0; i < c->n_reads; ++i) {
-            bam1_t *b = c->reads[i];
-            if (c->is_skipped[i] || c->haps[i] <= 0) continue;
-            bam_aux_append(b, "XP", 'i', 4, (uint8_t*)&(c->haps[i]));
-        }
-    }
 }
 
 // merge variants from two chunks
 static void stitch_var_worker_for(void *_data, long ii, int tid) {
     call_var_step_t *step = (call_var_step_t*)_data;
     bam_chunk_t *c = step->chunks+ii; var_t *var = step->vars+ii;
-    if (LONGCALLD_VERBOSE >= 1) fprintf(stderr, "[%s] tid: %d, chunk: %ld (%d), n_reads: %d\n", __func__, tid, ii, step->n_chunks, (c+ii)->n_reads);
+    if (LONGCALLD_VERBOSE >= 1) fprintf(stderr, "[%s] tid: %d, chunk: %ld (%d), n_reads: %d\n", __func__, tid, ii, step->n_chunks, c->n_reads);
     stitch_var_main(step, c, var, ii);
 }
 
 static void call_var_pl_open_bam(call_var_opt_t *opt, call_var_pl_t *pl, char **regions, int n_regions) {
     // input BAM file
     pl->bam = sam_open(opt->in_bam_fn, "r"); if (pl->bam == NULL) _err_error_exit("Failed to open BAM file \'%s\'\n", opt->in_bam_fn);
+    // multi-threading
+    pl->p = hts_tpool_init(MAX_OF_TWO(1, pl->n_threads));
+    // pl->p = hts_tpool_init(3);
+    htsThreadPool thread_pool = {pl->p, 0};
+    if (hts_set_thread_pool(pl->bam, &thread_pool) != 0) _err_error_exit("Failed to set thread pool.\n");
+
     pl->header = sam_hdr_read(pl->bam); if (pl->header == NULL) {
-        sam_close(pl->bam); _err_error_exit("Failed to read BAM header \'%s\'\n", opt->in_bam_fn);
+        sam_close(pl->bam); hts_tpool_destroy(pl->p);
+        _err_error_exit("Failed to read BAM header \'%s\'\n", opt->in_bam_fn);
     }
     // collect sample name (SM) from BAM header
     if (opt->sample_name == NULL) opt->sample_name = extract_sample_name_from_bam_header(pl->header); // extract sample names from BAM header
@@ -167,11 +171,12 @@ static void call_var_pl_write_bam_header(samFile *out_bam, bam_hdr_t *header) {
 
 static void call_var_pl_open_ref_fa(const char *ref_fa_fn, call_var_pl_t *pl) {
     if (ref_fa_fn) {
-        if (LONGCALLD_VERBOSE >= 1) _err_info("Reading reference genome: %s.\n", ref_fa_fn);
+        _err_info("Loading reference genome: %s\n", ref_fa_fn);
         pl->ref_seq = read_ref_seq(ref_fa_fn);
-        if (pl->ref_seq == NULL) _err_error_exit("Failed to read reference genome: %s.\n", ref_fa_fn);
+        if (pl->ref_seq == NULL) _err_error_exit("Failed to read reference genome: %s\n", ref_fa_fn);
+        _err_info("Done: %s\n", ref_fa_fn);
     } else {
-        _err_error_exit("No reference genome provided.\n");
+        _err_error_exit("No reference genome provided\n");
     }
 }
 
@@ -185,13 +190,14 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
         s->max_chunks = 64; s->chunks = calloc(s->max_chunks, sizeof(bam_chunk_t));
         int r, n_last_chunk_reads=0, *last_chunk_read_i=NULL; hts_pos_t cur_reg_beg = -1;
         // for each round, collect s->max_chunks of reads
+        // TODO:
         // XXX use the variant calling result of current round to guide the reg_beg of next round 
         // adjacent rounds: try to overlap at least one high-quality variant
         // XXX (maybe not necessary) if overlapping part is too large, enlarge the total chunk size for the next round
         // if there is a variant gap, simply start with the first read of the next round
         // this enables the phasing across multiple rounds
         // XXX add a tmp_bam_chunk to store the last chunk of last round, stitch it with the first chunk of current round
-        while ((r = collect_bam_chunk(p->bam, p->header, p->iter, p->use_iter, p->max_reg_len_per_chunk, &last_chunk_read_i, &n_last_chunk_reads, &cur_reg_beg, s->chunks+s->n_chunks)) > 0) {
+        while ((r = collect_bam_chunk(p, &last_chunk_read_i, &n_last_chunk_reads, &cur_reg_beg, s->chunks+s->n_chunks)) > 0) {
             if (++s->n_chunks >= s->max_chunks) break;
         }
         if (last_chunk_read_i != NULL) free(last_chunk_read_i);
@@ -212,11 +218,7 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
                             //         1) merge overlapping variants
                             //         2) update phase set and haplotype (flip if needed)
         if (LONGCALLD_VERBOSE >= 1) _err_info("Step 2: stitch variants.\n");
-        // XXX stitch all results using 1 thread?
-        // if (((call_var_step_t*)in)->n_chunks > 1) {
         kt_for(p->n_threads, stitch_var_worker_for, in, ((call_var_step_t*)in)->n_chunks);
-        // }
-        // stitch all the results, or not necessary ?
         return in;
     } else if (step == 3) { // step 3: write the buffer to output
         if (LONGCALLD_VERBOSE >= 1) _err_info("Step 3: output variants.\n");
@@ -225,13 +227,24 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
             // if (i != 0) continue;
             bam_chunk_t *c = s->chunks + i;
             for (int j = c->n_up_ovlp_reads; j < c->n_reads; ++j) {
-                if (c->is_skipped[j]) continue;
+                // if (c->is_skipped[j]) continue;
                 // chrome, pos, qname, hap, rlen
-                if (LONGCALLD_VERBOSE >= 2)
-                    fprintf(stderr, "%d\t%s\t%ld\t%s\t%d\t%d\t%ld\n", j, c->tname, c->reads[j]->core.pos+1, bam_get_qname(c->reads[j]), c->reads[j]->core.flag, c->haps[j], bam_cigar2rlen(c->reads[j]->core.n_cigar, bam_get_cigar(c->reads[j])));
-                if (p->opt->out_bam != NULL) 
-                    if (sam_write1(p->opt->out_bam, p->header, c->reads[j]) < 0) _err_error_exit("Failed to write BAM record.");
+                // if (LONGCALLD_VERBOSE >= 2)
+                    // fprintf(stderr, "%d\t%s\t%ld\t%s\t%d\t%d\t%ld\n", j, c->tname, c->reads[j]->core.pos+1, bam_get_qname(c->reads[j]), c->reads[j]->core.flag, c->haps[j], bam_cigar2rlen(c->reads[j]->core.n_cigar, bam_get_cigar(c->reads[j])));
+                if (p->opt->out_bam != NULL) {
+                    // Add HP tag
+                    bam1_t *b = c->reads[j];
+                    // if (c->is_skipped[i] || c->haps[i] <= 0) continue;
+                    int hap = c->haps[j]; 
+                    if (hap != 0) {
+                        if (c->flip_hap) hap ^= 3;
+                        bam_aux_append(b, "XP", 'i', 4, (uint8_t*)&(hap));
+                    }
+                    if (sam_write1(p->opt->out_bam, p->header, b) < 0)
+                        _err_error_exit("Failed to write BAM record.");
+                }
             }
+            // fprintf(stdout, "beg: %ld, end: %ld\n", c->beg, c->end);
             write_var_to_vcf(s->vars+i, p->opt->out_vcf, c->tname);
             // bam_chunk_free(c); // free input
             var_free(s->vars + i);  // free output
@@ -262,9 +275,10 @@ static int call_var_usage(void) {//main usage
     fprintf(stderr, "    -b --out-bam     STR  output phased BAM file [NULL]\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "  Variant:\n");
-    fprintf(stderr, "    -d --min-depth   INT  min. depth to call a SNP [%d]\n", LONGCALLD_MIN_CAND_SNP_DP);
+    fprintf(stderr, "    -d --min-depth   INT  min. depth to call a variant [%d]\n", LONGCALLD_MIN_CAND_DP);
+    fprintf(stderr, "    -D --alt-depth   INT  min. alt. depth to call a variant[%d]\n", LONGCALLD_MIN_ALT_DP);
     // fprintf(stderr, "    -p --max-ploidy  INT  max. ploidy [%d]\n", LONGCALLD_DEF_PLOID);
-    fprintf(stderr, "    -s --max-sites   INT  max. number of substitutions/gaps in a window(-w/--win-size) [%d]\n", LONGCALLD_DENSE_REG_MAX_SITES);
+    fprintf(stderr, "    -s --max-sites   INT  max. number of substitutions/gaps in a window(-w/--win-size) [%d]\n", LONGCALLD_DENSE_REG_MAX_XGAPS);
     fprintf(stderr, "    -w --win-size    INT  window size for noisy region [%d]\n", LONGCALLD_DENSE_REG_SLIDE_WIN);
     fprintf(stderr, "                          noisy region with more than -s subs/gaps in a window of -w bases will be skipped for initial haplotype assignment\n");
     fprintf(stderr, "    -f --noisy-flank INT  flanking mask window size for noisy region [%d]\n", LONGCALLD_DENSE_FLANK_WIN);
@@ -287,15 +301,16 @@ int call_var_main(int argc, char *argv[]) {
     // _err_cmd("%s\n", CMD);
     int c, op_idx; call_var_opt_t *opt = call_var_init_para();
     double realtime0 = realtime();
-    while ((c = getopt_long(argc, argv, "r:o:b:d:n:s:w:f:F:c:t:hvV:", call_var_opt, &op_idx)) >= 0) {
+    while ((c = getopt_long(argc, argv, "r:o:b:d:D:n:s:w:f:F:c:t:hvV:", call_var_opt, &op_idx)) >= 0) {
         switch(c) {
             // case 'r': opt->ref_fa_fn = strdup(optarg); break;
             // case 'b': cgp->var_block_size = atoi(optarg); break;
             case 'o': opt->out_vcf = fopen(optarg, "w"); break;
             case 'b': opt->out_bam = hts_open(optarg, "wb"); break;
             case 'd': opt->min_dp = atoi(optarg); break;
+            case 'D': opt->min_alt_dp = atoi(optarg); break;
             case 'n': opt->sample_name = strdup(optarg); break;
-            case 's': opt->dens_reg_max_sites = atoi(optarg); break;
+            case 's': opt->dens_reg_max_xgaps = atoi(optarg); break;
             case 'w': opt->dens_reg_slide_win = atoi(optarg); break;
             case 'f': opt->dens_reg_flank_win = atoi(optarg); break;
             case 'c': opt->end_clip_reg = atoi(optarg); break;
@@ -318,7 +333,7 @@ int call_var_main(int argc, char *argv[]) {
         }
     } else {
         if (argc - optind < 2) {
-            _err_error("Reference FASTA and BAM are required.\n");
+            _err_error("Reference genome FASTA and alignment BAM are required.\n");
             call_var_free_para(opt); return call_var_usage();
         } else {
             opt->ref_fa_fn = argv[optind++];
@@ -330,7 +345,7 @@ int call_var_main(int argc, char *argv[]) {
         opt->n_threads = 1; opt->pl_threads = 1;
     } else {
         opt->n_threads = MIN_OF_TWO(opt->n_threads, get_nprocs());
-        opt->pl_threads = MIN_OF_TWO(opt->n_threads, CALL_VAR_PL_THREAD_N);
+        opt->pl_threads = opt->n_threads; // MIN_OF_TWO(opt->n_threads, CALL_VAR_PL_THREAD_N);
     }
     // if (opt->out_bam == NULL) // output to stdout
         // opt->out_bam = hts_open("-", "wb");
@@ -338,16 +353,10 @@ int call_var_main(int argc, char *argv[]) {
     // set up m-threading
     call_var_pl_t pl;
     memset(&pl, 0, sizeof(call_var_pl_t));
-    // read reference genome
+    pl.max_reg_len_per_chunk = LONGCALLD_BAM_CHUNK_REG_SIZE; // pl.max_reads_per_chunk = LONGCALLD_BAM_CHUNK_READ_COUNT; 
+    pl.n_threads = opt->n_threads;
+    // open reference genome
     call_var_pl_open_ref_fa(opt->ref_fa_fn, &pl);
-    // if (opt->ref_fa_fn) {
-    //     pl.ref_seq = read_ref_seq(opt->ref_fa_fn);
-    //     if (pl.ref_seq == NULL) {
-    //         _err_error("Failed to read reference genome: %s.\n", opt->ref_fa_fn);
-    //         call_var_free_para(opt); hts_close(opt->out_bam); call_var_free_pl(pl);
-    //         return 1;
-    //     }
-    // }
     // open BAM file
     call_var_pl_open_bam(opt, &pl, argv+optind, argc-optind);
 
@@ -356,8 +365,6 @@ int call_var_main(int argc, char *argv[]) {
     if (opt->out_vcf != NULL) write_vcf_header(pl.header, opt->out_vcf, opt->sample_name);
     // start to work !!!
     pl.opt = opt;
-    pl.max_reg_len_per_chunk = LONGCALLD_BAM_CHUNK_REG_SIZE; // pl.max_reads_per_chunk = LONGCALLD_BAM_CHUNK_READ_COUNT; 
-    pl.n_threads = opt->n_threads;
     kt_pipeline(opt->pl_threads, call_var_worker_pipeline, &pl, 4);
     if (opt->out_bam != NULL) hts_close(opt->out_bam);
     if (opt->out_vcf != NULL) fclose(opt->out_vcf);

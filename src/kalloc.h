@@ -1,5 +1,5 @@
-#ifndef LONGCALLD_KALLOC_H_
-#define LONGCALLD_KALLOC_H_
+#ifndef _KALLOC_H_
+#define _KALLOC_H_
 
 #include <stddef.h> /* for size_t */
 

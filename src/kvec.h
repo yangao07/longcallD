@@ -45,8 +45,8 @@ int main() {
 
 */
 
-#ifndef LONGCALLD_AC_KVEC_H
-#define LONGCALLD_AC_KVEC_H
+#ifndef AC_KVEC_H
+#define AC_KVEC_H
 
 #include <stdlib.h>
 #include "kalloc.h"

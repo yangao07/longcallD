@@ -25,8 +25,8 @@
 
 /* Last Modified: 05MAR2012 */
 
-#ifndef LONGCALLD_AC_KSEQ_H
-#define LONGCALLD_AC_KSEQ_H
+#ifndef AC_KSEQ_H
+#define AC_KSEQ_H
 
 #include <ctype.h>
 #include <string.h>

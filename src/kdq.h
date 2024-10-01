@@ -1,5 +1,5 @@
-#ifndef LONGCALLD_AC_KDQ_H
-#define LONGCALLD_AC_KDQ_H
+#ifndef __AC_KDQ_H
+#define __AC_KDQ_H
 
 #include <stdlib.h>
 #include <string.h>

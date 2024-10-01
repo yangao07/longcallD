@@ -110,13 +110,13 @@ void err_fatal_core(const char *header, const char *fmt, ...)
 	abort();
 }
 
-void err_fatal_simple(const char *func, const char *msg)
+void _err_fatal_simple(const char *func, const char *msg)
 {
 	fprintf(stderr, "[%s] %s\n", func, msg);
 	exit(EXIT_FAILURE);
 }
 
-void err_fatal_simple_core(const char *func, const char *msg)
+void _err_fatal_simple_core(const char *func, const char *msg)
 {
 	fprintf(stderr, "[%s] %s Abort!\n", func, msg);
 	abort();
@@ -126,7 +126,7 @@ size_t err_fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream)
 {
 	size_t ret = fwrite(ptr, size, nmemb, stream);
 	if (ret != nmemb) 
-		err_fatal_simple("fwrite", strerror(errno));
+		_err_fatal_simple("fwrite", strerror(errno));
 	return ret;
 }
 
@@ -135,7 +135,7 @@ size_t err_fread_noeof(void *ptr, size_t size, size_t nmemb, FILE *stream)
 	size_t ret = fread(ptr, size, nmemb, stream);
 	if (ret != nmemb)
 	{
-		err_fatal_simple("fread", ferror(stream) ? strerror(errno) : "Unexpected end of file");
+		_err_fatal_simple("fread", ferror(stream) ? strerror(errno) : "Unexpected end of file");
 	}
 	return ret;
 }
@@ -148,7 +148,7 @@ int err_gzread(gzFile file, void *ptr, unsigned int len)
 	{
 		int errnum = 0;
 		const char *msg = gzerror(file, &errnum);
-		err_fatal_simple("gzread", Z_ERRNO == errnum ? strerror(errno) : msg);
+		_err_fatal_simple("gzread", Z_ERRNO == errnum ? strerror(errno) : msg);
 	}
 
 	return ret;
@@ -159,7 +159,7 @@ int err_fseek(FILE *stream, long offset, int whence)
 	int ret = fseek(stream, offset, whence);
 	if (0 != ret)
 	{
-		err_fatal_simple("fseek", strerror(errno));
+		_err_fatal_simple("fseek", strerror(errno));
 	}
 	return ret;
 }
@@ -169,7 +169,7 @@ long err_ftell(FILE *stream)
 	long ret = ftell(stream);
 	if (-1 == ret)
 	{
-		err_fatal_simple("ftell", strerror(errno));
+		_err_fatal_simple("ftell", strerror(errno));
 	}
 	return ret;
 }
@@ -184,7 +184,7 @@ int err_func_printf(const char *func, const char *format, ...)
     fprintf(stderr, "\n");
 	int saveErrno = errno;
 	va_end(arg);
-	if (done < 0) err_fatal_simple("vfprintf(stderr)", strerror(saveErrno));
+	if (done < 0) _err_fatal_simple("vfprintf(stderr)", strerror(saveErrno));
 	return done;
 }
 
@@ -196,7 +196,7 @@ int err_printf(const char *format, ...)
 	done = vfprintf(stderr, format, arg);
 	int saveErrno = errno;
 	va_end(arg);
-	if (done < 0) err_fatal_simple("vfprintf(stderr)", strerror(saveErrno));
+	if (done < 0) _err_fatal_simple("vfprintf(stderr)", strerror(saveErrno));
 	return done;
 }
 
@@ -208,7 +208,7 @@ int stdout_printf(const char *format, ...)
 	done = vfprintf(stdout, format, arg);
 	int saveErrno = errno;
 	va_end(arg);
-	if (done < 0) err_fatal_simple("vfprintf(stdout)", strerror(saveErrno));
+	if (done < 0) _err_fatal_simple("vfprintf(stdout)", strerror(saveErrno));
 	return done;
 }
 
@@ -220,7 +220,7 @@ int err_fprintf(FILE *stream, const char *format, ...)
 	done = vfprintf(stream, format, arg);
 	int saveErrno = errno;
 	va_end(arg);
-	if (done < 0) err_fatal_simple("vfprintf", strerror(saveErrno));
+	if (done < 0) _err_fatal_simple("vfprintf", strerror(saveErrno));
 	return done;
 }
 
@@ -229,7 +229,7 @@ int err_fputc(int c, FILE *stream)
 	int ret = putc(c, stream);
 	if (EOF == ret)
 	{
-		err_fatal_simple("fputc", strerror(errno));
+		_err_fatal_simple("fputc", strerror(errno));
 	}
 
 	return ret;
@@ -240,7 +240,7 @@ int err_fputs(const char *s, FILE *stream)
 	int ret = fputs(s, stream);
 	if (EOF == ret)
 	{
-		err_fatal_simple("fputs", strerror(errno));
+		_err_fatal_simple("fputs", strerror(errno));
 	}
 
 	return ret;
@@ -249,7 +249,7 @@ int err_fputs(const char *s, FILE *stream)
 void err_fgets(char *buff, size_t s, FILE *fp)
 {
     if (fgets(buff, s, fp) == NULL) {
-        err_fatal_simple("fgets", "fgets error.");
+        err_fatal_simple("fgets error.\n");
     }
 }
 
@@ -258,7 +258,7 @@ int err_puts(const char *s)
 	int ret = puts(s);
 	if (EOF == ret)
 	{
-		err_fatal_simple("puts", strerror(errno));
+		_err_fatal_simple("puts", strerror(errno));
 	}
 
 	return ret;
@@ -267,7 +267,7 @@ int err_puts(const char *s)
 int err_fflush(FILE *stream) 
 {
     int ret = fflush(stream);
-    if (ret != 0) err_fatal_simple("fflush", strerror(errno));
+    if (ret != 0) _err_fatal_simple("fflush", strerror(errno));
 
 #ifdef FSYNC_ON_FLUSH
 	/* Calling fflush() ensures that all the data has made it to the
@@ -279,12 +279,12 @@ int err_fflush(FILE *stream)
 	{
 		struct stat sbuf;
 		if (0 != fstat(fileno(stream), &sbuf))
-			err_fatal_simple("fstat", strerror(errno));
+			_err_fatal_simple("fstat", strerror(errno));
 		
 		if (S_ISREG(sbuf.st_mode))
 		{
 			if (0 != fsync(fileno(stream)))
-				err_fatal_simple("fsync", strerror(errno));
+				_err_fatal_simple("fsync", strerror(errno));
 		}
 	}
 #endif
@@ -294,7 +294,7 @@ int err_fflush(FILE *stream)
 int err_fclose(FILE *stream) 
 {
 	int ret = fclose(stream);
-	if (ret != 0) err_fatal_simple("fclose", strerror(errno));
+	if (ret != 0) _err_fatal_simple("fclose", strerror(errno));
 	return ret;
 }
 
@@ -303,7 +303,7 @@ int err_gzclose(gzFile file)
 	int ret = gzclose(file);
 	if (Z_OK != ret)
 	{
-		err_fatal_simple("gzclose", Z_ERRNO == ret ? strerror(errno) : zError(ret));
+		_err_fatal_simple("gzclose", Z_ERRNO == ret ? strerror(errno) : zError(ret));
 	}
 
 	return ret;
@@ -387,19 +387,8 @@ void print_format_time(FILE *out)
 
     time(&rawtime);
     info = localtime( &rawtime );
-    strftime(buffer,80,"%Y/%m/%d %X", info);
-    fprintf(out, "==%s== ", buffer);
-}
-
-char *get_format_time(void) {
-    time_t rawtime;
-    struct tm *info;
-    char *buffer = (char *)malloc(80 * sizeof(char));
-
-    time(&rawtime);
-    info = localtime( &rawtime );
-    strftime(buffer, 80, "%Y/%m/%d %X", info);
-    return buffer;
+    strftime(buffer,80,"%m-%d-%Y %X", info);
+    fprintf(out, "== %s == ", buffer);
 }
 
 int err_func_format_printf(const char *func, const char *format, ...)
@@ -410,11 +399,23 @@ int err_func_format_printf(const char *func, const char *format, ...)
 	int done;
 	va_start(arg, format);
 	done = vfprintf(stderr, format, arg);
-    // fprintf(stderr, "\n");
+    fprintf(stderr, "\n");
 	int saveErrno = errno;
 	va_end(arg);
-	if (done < 0) err_fatal_simple("vfprintf(stderr)", strerror(saveErrno));
+	if (done < 0) _err_fatal_simple("vfprintf(stderr)", strerror(saveErrno));
 	return done;
+}
+
+
+static char *get_format_time(void) {
+    time_t rawtime;
+    struct tm *info;
+    char *buffer = (char *)malloc(80 * sizeof(char));
+
+    time(&rawtime);
+    info = localtime( &rawtime );
+    strftime(buffer, 80, "%Y/%m/%d %X", info);
+    return buffer;
 }
 
 int err_color_format_printf(const char type, const char *format, ...) {
@@ -441,6 +442,6 @@ int err_color_format_printf(const char type, const char *format, ...) {
     free(time_str);
 	int saveErrno = errno;
 	va_end(arg);
-	if (done < 0) err_fatal_simple("sprintf", strerror(saveErrno));
+	if (done < 0) _err_fatal_simple("sprintf", strerror(saveErrno));
 	return done;
 }

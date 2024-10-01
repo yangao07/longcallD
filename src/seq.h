@@ -1,5 +1,5 @@
-#ifndef SEQ_H
-#define SEQ_H
+#ifndef LONGCALLD_SEQ_H
+#define LONGCALLD_SEQ_H
 #include <stdint.h>
 #include <zlib.h>
 #include "kseq.h"

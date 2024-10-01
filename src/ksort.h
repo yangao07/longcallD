@@ -25,8 +25,8 @@
 
 // This is a simplified version of ksort.h
 
-#ifndef LONGCALLD_AC_KSORT_H
-#define LONGCALLD_AC_KSORT_H
+#ifndef AC_KSORT_H
+#define AC_KSORT_H
 
 #include <stdlib.h>
 #include <string.h>

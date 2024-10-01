@@ -6,18 +6,6 @@
 
 extern int LONGCALLD_VERBOSE;
 
-read_snp_profile_t *init_read_snp_profile(int n_reads, int n_total_snps) {
-    read_snp_profile_t *p = (read_snp_profile_t*)malloc(n_reads * sizeof(read_snp_profile_t));
-    for (int i = 0; i < n_reads; ++i) {
-        p[i].read_id = i;
-        p[i].start_snp_idx = -1; p[i].end_snp_idx = -2;
-        p[i].snp_is_used = (uint8_t*)calloc(n_total_snps, sizeof(uint8_t));
-        p[i].snp_bases = (uint8_t*)malloc(n_total_snps * sizeof(uint8_t));
-        p[i].snp_qual = (uint8_t*)malloc(n_total_snps * sizeof(uint8_t));
-    }
-    return p;
-}
-
 read_var_profile_t *init_read_var_profile(int n_reads, int n_total_vars) {
     read_var_profile_t *p = (read_var_profile_t*)malloc(n_reads * sizeof(read_var_profile_t));
     for (int i = 0; i < n_reads; ++i) {
@@ -27,16 +15,6 @@ read_var_profile_t *init_read_var_profile(int n_reads, int n_total_vars) {
         p[i].alleles = (int*)malloc(n_total_vars * sizeof(int));
     }
     return p;
-}
-
-
-void free_read_snp_profile(read_snp_profile_t *p, int n_reads) {
-    for (int i = 0; i < n_reads; ++i) {
-        if (p[i].snp_is_used) free(p[i].snp_is_used);
-        if (p[i].snp_bases) free(p[i].snp_bases);
-        if (p[i].snp_qual) free(p[i].snp_qual);
-    }
-    free(p);
 }
 
 void free_read_var_profile(read_var_profile_t *p, int n_reads) {
@@ -172,14 +150,6 @@ int get_x_site_index(hts_pos_t *x_sites, int cur_site_i, int n_total_pos, hts_po
 //     return mis_i;
 // }
 
-int get_snp_start(cand_snp_t *snp_sites, int cur_site_i, int n_total_pos, hts_pos_t start) {
-    int i;
-    for (i = cur_site_i; i < n_total_pos; ++i) {
-        if (snp_sites[i].pos >= start) return i;
-    }
-    return i;
-}
-
 int get_var_start(cand_var_t *var_sites, int cur_site_i, int n_total_pos, hts_pos_t start) {
     int i;
     for (i = cur_site_i; i < n_total_pos; ++i) {
@@ -198,83 +168,6 @@ int get_x_site_start(hts_pos_t *pos, int cur_site_i, int n_total_pos, hts_pos_t 
 
 // for high-qual sites: update both depth and base
 // for low-qual sites: only update depth
-void merge_site1(cand_snp_t *snp_site, uint8_t base, uint8_t is_low_qual) {
-    if (is_low_qual) {
-        snp_site->n_low_depth++;
-        return;
-    }
-    snp_site->n_depth++;
-    int base_i = snp_site->n_uniq_bases, exist=0;
-    for (int i = 0; i < snp_site->n_uniq_bases; ++i) {
-        if (snp_site->bases[i] == base) {
-            exist = 1; base_i = i;
-        }
-    }
-    if (exist == 0) {
-        snp_site->bases[base_i] = base;
-        snp_site->base_covs[base_i] = 1;
-        snp_site->base_to_i[base] = base_i;
-        snp_site->n_uniq_bases += 1;
-    } else {
-        snp_site->base_covs[base_i] += 1;
-    }
-}
-
-int merge_diff_site(cand_snp_t *cand_snps, hts_pos_t *x_sites, int cur_site_i, int n_total_x_sites, hts_pos_t pos, uint8_t base, uint8_t is_low_qual) {
-    int new_site_i = get_x_site_index(x_sites, cur_site_i, n_total_x_sites, pos);
-    if (new_site_i == -1) return cur_site_i;
-    merge_site1(cand_snps+new_site_i, base, is_low_qual);
-    return new_site_i;
-}
-
-int merge_equal_sites(cand_snp_t *snp_sites, hts_pos_t *x_sites, int cur_site_i, int n_total_pos, hts_pos_t pos_start, hts_pos_t pos_end, int qi, const uint8_t *bam_seq, uint8_t is_low_qual) {
-    int new_site_i = cur_site_i;
-    for (int i = cur_site_i; i < n_total_pos; i++) {
-        if (x_sites[i] >= pos_start && x_sites[i] < pos_end) {
-            merge_site1(snp_sites+i, LONGCALLD_BAM_REF_BASE_IDX, is_low_qual);
-            if (snp_sites[i].ref_base == -1)
-                snp_sites[i].ref_base = seq_nt16_int[bam_seqi(bam_seq, qi + snp_sites[i].pos - pos_start)];
-            // printf("Merge ref site: %ld (%d): %d\n", snp_sites[i].pos, i, snp_sites[i].n_depth);
-            new_site_i = i+1;
-        } else if (x_sites[i] >= pos_end) {
-            break;
-        }
-    }
-    return new_site_i;
-}
-
-int merge_del_sites(cand_snp_t *snp_sites, hts_pos_t *x_sites, int cur_site_i, int n_total_pos, hts_pos_t pos_start, hts_pos_t pos_end, int qi) {
-    int new_site_i = cur_site_i;
-    for (int i = cur_site_i; i < n_total_pos; i++) {
-        if (x_sites[i] >= pos_start && x_sites[i] < pos_end) {
-            merge_site1(snp_sites+i, LONGCALLD_BAM_DEL_BASE_IDX, 1);
-            // printf("Merge ref site: %ld (%d): %d\n", snp_sites[i].pos, i, snp_sites[i].n_depth);
-            new_site_i = i+1;
-        } else if (x_sites[i] >= pos_end) {
-            break;
-        }
-    }
-    return new_site_i;
-}
-
-
-int update_cand_snps_from_digar(digar_t *digar, bam1_t *read, int n_x_sites, hts_pos_t *x_sites, int start_i, cand_snp_t *cand_snps) {
-    int cur_start_i = -1, site_i = -1;
-    const uint8_t *bam_seq = bam_get_seq(read);
-
-    for (int i = 0; i < digar->n_digar; ++i) {
-        if (cur_start_i == -1) site_i = cur_start_i = get_x_site_start(x_sites, start_i, n_x_sites, digar->digars[i].pos);
-        // if (digar->digars[i].is_low_qual) continue;
-        if (digar->digars[i].type == BAM_CDIFF) {
-            site_i = merge_diff_site(cand_snps, x_sites, site_i, n_x_sites, digar->digars[i].pos, bam_bseq2base(digar->bseq, digar->digars[i].qi), digar->digars[i].is_low_qual);
-        } else if (digar->digars[i].type == BAM_CEQUAL) {
-            site_i = merge_equal_sites(cand_snps, x_sites, site_i, n_x_sites, digar->digars[i].pos, digar->digars[i].pos+digar->digars[i].len, digar->digars[i].qi, bam_seq, digar->digars[i].is_low_qual);
-        } else if (digar->digars[i].type == BAM_CDEL) {
-            site_i = merge_del_sites(cand_snps, x_sites, site_i, n_x_sites, digar->digars[i].pos, digar->digars[i].pos+digar->digars[i].len, digar->digars[i].qi);
-        }
-   }
-    return cur_start_i;
-}
 
 // int merge_var_sites(cand_var_t *cand_vars, var_site_t *var_sites, int cur_site_i, int n_total_var_sites, hts_pos_t pos, uint8_t base, uint8_t is_low_qual) {
     // int new_site_i = get_var_site_index(var_sites, cur_site_i, n_total_var_sites, pos);
@@ -291,31 +184,6 @@ int get_var_site_start(var_site_t *var_sites, int cur_site_i, int n_total_pos, h
     return i;
 }
 
-void update_var_site_with_ref_allele(cand_var_t *cand_var) {
-    cand_var->n_depth++;
-    cand_var->alle_covs[0] += 1;
-}
-
-void update_read_var_profile_with_ref_allele(cand_var_t *cand_vars, int var_i, read_var_profile_t *read_var_profile) {
-    if (read_var_profile->start_var_idx == -1) read_var_profile->start_var_idx = var_i;
-    read_var_profile->end_var_idx = var_i;
-    int _var_i = var_i - read_var_profile->start_var_idx;
-    read_var_profile->var_is_used[_var_i] = 1;
-    read_var_profile->alleles[_var_i] = 0;
-}
-
-void update_read_var_profile_with_alt_allele(cand_var_t *cand_vars, int var_i, read_var_profile_t *read_var_profile, int allele_i, int is_low_qual) {
-    if (read_var_profile->start_var_idx == -1) read_var_profile->start_var_idx = var_i;
-    read_var_profile->end_var_idx = var_i;
-    int _var_i = var_i - read_var_profile->start_var_idx;
-    read_var_profile->alleles[_var_i] = allele_i; // -1 for all low-qual sites
-    if (is_low_qual) {
-        read_var_profile->var_is_used[_var_i] = 0;
-    } else {
-        read_var_profile->var_is_used[_var_i] = 1;
-    }
-}
-
 // only for mismatch and insertion
 uint8_t *make_alt_seq(digar1_t *digar, const uint8_t *bseq) {
     if (digar->type == BAM_CDEL) return NULL;
@@ -326,23 +194,9 @@ uint8_t *make_alt_seq(digar1_t *digar, const uint8_t *bseq) {
     return alt_seq;
 }
 
-int get_alt_allele_idx(cand_var_t *cand_var, digar1_t *digar, const uint8_t *bseq) {
-    if (digar->is_low_qual) return -1;
-    if (cand_var->var_type == BAM_CDEL) return 1; // only 0/1 for deletion
-    uint8_t *alt_seq = make_alt_seq(digar, bseq);
-    int alt_len = digar->len;
-    int allele_i = -1;
-    for (int i = 0; i < cand_var->n_uniq_alles-1; ++i) {
-        if (cand_var->alt_alle_seq_len[i] == alt_len && memcmp(cand_var->alt_alle_seqs[i], alt_seq, alt_len) == 0) {
-            allele_i = i+1;
-            break;
-        }
-    }
-    free(alt_seq);
-    if (allele_i == -1) {
-        _err_error_exit("Alt allele not found: %d\n", allele_i);
-    }
-    return allele_i;
+void update_var_site_with_ref_allele(cand_var_t *cand_var) {
+    cand_var->n_depth++;
+    cand_var->alle_covs[0] += 1; // ref
 }
 
 void update_var_site_with_alt_allele(cand_var_t *cand_var, digar1_t *digar, const uint8_t *bseq, uint8_t is_low_qual) {
@@ -359,18 +213,18 @@ void update_var_site_with_alt_allele(cand_var_t *cand_var, digar1_t *digar, cons
 
     int allele_i = -1, exist=0;
     for (int i = 0; i < cand_var->n_uniq_alles-1; ++i) {
-        if (cand_var->alt_alle_seq_len[i] == alt_len && memcmp(cand_var->alt_alle_seqs[i], alt_seq, alt_len) == 0) {
+        if (cand_var->alt_lens[i] == alt_len && memcmp(cand_var->alt_seqs[i], alt_seq, alt_len) == 0) {
             exist = 1; allele_i = i+1;
         }
     }
     if (exist == 0) { // new alt allele
         cand_var->alle_covs = (int*)realloc(cand_var->alle_covs, (cand_var->n_uniq_alles+1) * sizeof(int));
-        cand_var->alt_alle_seq_len = (int*)realloc(cand_var->alt_alle_seq_len, (cand_var->n_uniq_alles) * sizeof(int));
-        cand_var->alt_alle_seqs = (uint8_t**)realloc(cand_var->alt_alle_seqs, (cand_var->n_uniq_alles) * sizeof(uint8_t*));
+        cand_var->alt_lens = (int*)realloc(cand_var->alt_lens, (cand_var->n_uniq_alles) * sizeof(int));
+        cand_var->alt_seqs = (uint8_t**)realloc(cand_var->alt_seqs, (cand_var->n_uniq_alles) * sizeof(uint8_t*));
 
         cand_var->alle_covs[cand_var->n_uniq_alles] = 1;
-        cand_var->alt_alle_seq_len[cand_var->n_uniq_alles-1] = alt_len;
-        cand_var->alt_alle_seqs[cand_var->n_uniq_alles-1] = alt_seq;
+        cand_var->alt_lens[cand_var->n_uniq_alles-1] = alt_len;
+        cand_var->alt_seqs[cand_var->n_uniq_alles-1] = alt_seq;
         cand_var->n_uniq_alles += 1;
     } else {
         cand_var->alle_covs[allele_i] += 1;
@@ -378,157 +232,145 @@ void update_var_site_with_alt_allele(cand_var_t *cand_var, digar1_t *digar, cons
     }
 }
 
+void update_var_site_with_other_alt_allele(cand_var_t *cand_var, int is_low_qual) {
+    if (is_low_qual) {
+        cand_var->n_low_depth++;
+        return;
+    }
+    cand_var->n_depth++;
+    cand_var->alle_covs[2] += 1;
+}
+
+void update_read_var_profile_with_ref_allele(int var_i, read_var_profile_t *read_var_profile) {
+    if (read_var_profile->start_var_idx == -1) read_var_profile->start_var_idx = var_i;
+    read_var_profile->end_var_idx = var_i;
+    int _var_i = var_i - read_var_profile->start_var_idx;
+    read_var_profile->alleles[_var_i] = 0; // ref
+    read_var_profile->var_is_used[_var_i] = 1;
+}
+
+void update_read_var_profile_with_allele(int var_i, int allele_i, read_var_profile_t *read_var_profile, int is_low_qual) {
+    if (read_var_profile->start_var_idx == -1) read_var_profile->start_var_idx = var_i;
+    read_var_profile->end_var_idx = var_i;
+    int _var_i = var_i - read_var_profile->start_var_idx;
+    read_var_profile->alleles[_var_i] = allele_i; // alt
+    if (is_low_qual) {
+        read_var_profile->var_is_used[_var_i] = 0;
+    } else {
+        read_var_profile->var_is_used[_var_i] = 1;
+    }
+}
+
+// cand_vars:
+// X: 1 -> M SNPs
+// I: 0 -> M INSs
+// D: M -> 1 DEL
+// XXX no minor_alt_allele here, will be used in read_var_profile
+// here, minor_alt_allele will be simply treated as non-alt, i.e., ref allele
 int update_cand_vars_from_digar(digar_t *digar, bam1_t *read, int n_var_sites, var_site_t *var_sites, int start_i, cand_var_t *cand_vars) {
     int cur_start_i, site_i, digar_i = 0;
     hts_pos_t pos_start = read->core.pos+1, pos_end = bam_endpos(read);
+    digar1_t *digars = digar->digars;
 
     cur_start_i = site_i = get_var_site_start(var_sites, start_i, n_var_sites, pos_start);
-    // loop over all var_sites falling in the read (pos_start, pos_end)
-    // if any digar matches the var_site: update var_site with alt allele
-    // if no digar matches the var_site: update var_site with ref allele
-    while (site_i < n_var_sites && var_sites[site_i].pos <= pos_end) {
-        int is_ref = 1, var_digar_i = -1;
-        while (digar_i < digar->n_digar && digar->digars[digar_i].pos < var_sites[site_i].pos) {
+    int tid = read->core.tid;
+    // compare sorted var_sites and digars
+    // both var_sites and digars are sorted by pos/type/ref_len
+    for (; site_i < n_var_sites && digar_i < digar->n_digar; ) {
+        if (digars[digar_i].type == BAM_CEQUAL) {
+            digar_i++; continue;
+        }
+        var_site_t digar_var_site = make_var_site_from_digar(tid, digar->digars+digar_i);
+        int ret = comp_var_site(var_sites+site_i, &digar_var_site);
+        if (ret < 0) { // var_site < digar_var_site
+            update_var_site_with_ref_allele(cand_vars+site_i);
+            site_i++;
+        } else if (ret == 0) { // merge together, update/add alt allele
+            update_var_site_with_alt_allele(cand_vars+site_i, digar->digars+digar_i, digar->bseq, digar->digars[digar_i].is_low_qual);
+            site_i++;
+        } else { // ret > 0, var_site > digar_var_site
             digar_i++;
         }
-        if (digar_i >= digar->n_digar) { // no digar matches the var site
-            is_ref = 1;
-        } else {
-            if (digar->digars[digar_i].pos > var_sites[site_i].pos) {
-                is_ref = 1;
-            } else { // digar->digars[digar_i].pos == var_sites[site_i].pos
-                var_site_t digar_var_site = make_var_site(-1, digar->digars+digar_i);
-                if (var_sites[site_i].var_type == digar_var_site.var_type && var_sites[site_i].ref_len == digar_var_site.ref_len) {
-                    var_digar_i = digar_i;
-                    is_ref = 0;
-                } else {
-                    is_ref = 1;
-                }
-            }
-        }
-        if (is_ref) {
-            update_var_site_with_ref_allele(cand_vars+site_i);
-        } else {
-            update_var_site_with_alt_allele(cand_vars+site_i, digar->digars+var_digar_i, digar->bseq, digar->digars[var_digar_i].is_low_qual);
-        }
-        site_i++;
+    }
+    for (; site_i < n_var_sites; ++site_i) {
+        if (var_sites[site_i].pos > pos_end) break;
+        update_var_site_with_ref_allele(cand_vars+site_i);
     }
     return cur_start_i;
 }
 
-int update_read_snp_profile_from_D_sites(cand_snp_t *snp_sites, int cur_site_i, int n_total_pos, hts_pos_t pos_start, hts_pos_t pos_end, 
-                                         uint8_t qual, read_snp_profile_t *read_snp_profile) {
-    int new_site_i = cur_site_i;
-    for (int i = cur_site_i; i < n_total_pos; ++i) {
-        if (snp_sites[i].pos >= pos_start && snp_sites[i].pos < pos_end) {
-            if (read_snp_profile->start_snp_idx == -1) read_snp_profile->start_snp_idx = i;
-            read_snp_profile->end_snp_idx = i;
-            /* 6(D): ref allele */
-            int snp_idx = i - read_snp_profile->start_snp_idx;
-            read_snp_profile->snp_bases[snp_idx] = LONGCALLD_BAM_DEL_BASE_IDX; 
-            read_snp_profile->snp_qual[snp_idx] = qual;
-            new_site_i = i+1;
-            read_snp_profile->snp_is_used[snp_idx] = 0; // D sites: not used
-        } else if (snp_sites[i].pos >= pos_end) {
+int get_alt_allele_idx(cand_var_t *cand_var, digar1_t *digar, const uint8_t *bseq) {
+    if (digar->is_low_qual) return -1;
+    if (cand_var->var_type == BAM_CDEL) return 1; // only 0/1 for deletion
+    uint8_t *alt_seq = make_alt_seq(digar, bseq);
+    int alt_len = digar->len;
+    int allele_i = -1;
+    for (int i = 0; i < cand_var->n_uniq_alles-1; ++i) {
+        if (cand_var->alt_lens[i] == alt_len && memcmp(cand_var->alt_seqs[i], alt_seq, alt_len) == 0) {
+            allele_i = i+1;
             break;
         }
     }
-    return new_site_i;
-}
-
-int udpate_read_snp_profile_from_equal_sites(cand_snp_t *snp_sites, int cur_site_i, int n_total_pos, hts_pos_t pos_start, hts_pos_t pos_end, 
-                                             const uint8_t *qual, read_snp_profile_t *read_snp_profile, uint8_t is_low_qual) {
-    int new_site_i = cur_site_i;
-    for (int i = cur_site_i; i < n_total_pos; ++i) {
-        if (snp_sites[i].pos >= pos_start && snp_sites[i].pos < pos_end) {
-            if (read_snp_profile->start_snp_idx == -1) read_snp_profile->start_snp_idx = i;
-            read_snp_profile->end_snp_idx = i;
-            int snp_idx = i - read_snp_profile->start_snp_idx;
-             /* 5(.): ref allele */
-            read_snp_profile->snp_bases[snp_idx] = LONGCALLD_BAM_REF_BASE_IDX; 
-            read_snp_profile->snp_qual[snp_idx] = qual[snp_sites[i].pos-pos_start];
-            new_site_i = i+1;
-            if (!is_low_qual) read_snp_profile->snp_is_used[snp_idx] = 1;
-        } else if (snp_sites[i].pos >= pos_end) {
-            break;
-        }
+    free(alt_seq);
+    return allele_i;
+    if (allele_i == -1) {
+        // _err_error_exit("Alt allele not found: %d\n", allele_i);
+        allele_i = cand_var->n_uniq_alles;
     }
-    return new_site_i;
-}
-
-int update_read_snp_profile_from_diff_site(cand_snp_t *snp_sites, int cur_site_i, int n_total_pos, hts_pos_t pos_start, hts_pos_t pos_end, 
-                                            int qi, const uint8_t *bam_seq, const uint8_t *qual, read_snp_profile_t *read_snp_profile, uint8_t is_low_qual) {
-    int new_site_i = cur_site_i;
-    for (int i = cur_site_i; i < n_total_pos; ++i) {
-        if (snp_sites[i].pos >= pos_start && snp_sites[i].pos < pos_end) {
-            if (read_snp_profile->start_snp_idx == -1) read_snp_profile->start_snp_idx = i;
-            read_snp_profile->end_snp_idx = i;
-            int snp_idx = i - read_snp_profile->start_snp_idx;
-            read_snp_profile->snp_bases[snp_idx] = seq_nt16_int[bam_seqi(bam_seq, qi+snp_sites[i].pos-pos_start)];
-            read_snp_profile->snp_qual[snp_idx] = qual[qi+snp_sites[i].pos-pos_start];
-            new_site_i = i+1;
-            if (!is_low_qual) read_snp_profile->snp_is_used[snp_idx] = 1;
-        } else if (snp_sites[i].pos >= pos_end) {
-            break;
-        }
-    }
-    return new_site_i;
-}
-
-int update_read_snp_profile_from_digar(digar_t *digar, bam1_t *read, int n_cand_snps, cand_snp_t *cand_snps, int start_snp_i, read_snp_profile_t *read_snp_profile) {
-    int cur_start_i = -1, snp_i = -1;
-    const uint8_t *qual = digar->qual, *bam_seq = digar->bseq;
-    for (int i = 0; i < digar->n_digar; ++i) {
-        if (cur_start_i == -1) snp_i = cur_start_i = get_snp_start(cand_snps, start_snp_i, n_cand_snps, digar->digars[i].pos);
-        // if (digar->digars[i].is_low_qual) continue;
-        hts_pos_t pos = digar->digars[i].pos;
-        int qi = digar->digars[i].qi, len = digar->digars[i].len, type = digar->digars[i].type;
-        int is_low_qual = digar->digars[i].is_low_qual;
-        if (type == BAM_CDIFF) {
-            snp_i = update_read_snp_profile_from_diff_site(cand_snps, snp_i, n_cand_snps, pos, pos+1, qi, bam_seq, qual, read_snp_profile, is_low_qual);
-        } else if (digar->digars[i].type == BAM_CEQUAL) {
-            snp_i = udpate_read_snp_profile_from_equal_sites(cand_snps, snp_i, n_cand_snps, pos, pos+len, qual+qi, read_snp_profile, is_low_qual);
-        } else if (digar->digars[i].type == BAM_CDEL) {
-            uint8_t d_qual; if (qi > 0) d_qual = (qual[qi] + qual[qi-1]) / 2; else d_qual = qual[qi];
-            snp_i = update_read_snp_profile_from_D_sites(cand_snps, snp_i, n_cand_snps, pos, pos+len, d_qual, read_snp_profile);
-        }
-    }
-    return cur_start_i;
+    return allele_i;
 }
 
 int update_read_var_profile_from_digar(digar_t *digar, bam1_t *read, int n_cand_vars, cand_var_t *cand_vars, int start_var_i, read_var_profile_t *read_var_profile) {
+    int cur_start_i, var_i, digar_i = 0, allele_i=-1;
     hts_pos_t pos_start = read->core.pos+1, pos_end = bam_endpos(read);
-    int cur_start_i, var_i, digar_i = 0; cur_start_i = var_i = get_var_start(cand_vars, start_var_i, n_cand_vars, pos_start);
-    // loop over all var_sites falling in the read (pos_start, pos_end)
-    // if any digar matches the var_site: update var_site with alt allele
-    // if no digar matches the var_site: update var_site with ref allele
-    while (var_i < n_cand_vars && cand_vars[var_i].pos <= pos_end) {
-        int allele_i = -1, is_ref = 1, var_digar_i = -1;
-        while (digar_i < digar->n_digar && digar->digars[digar_i].pos < cand_vars[var_i].pos) {
-            digar_i++;
+    digar1_t *digar1 = digar->digars;
+    cur_start_i = var_i = get_var_start(cand_vars, start_var_i, n_cand_vars, pos_start);
+    int tid = read->core.tid;
+    // if (strcmp("m84039_231005_222902_s1/235933309/ccs", bam_get_qname(read)) == 0) {
+        // fprintf(stderr, "pos_start: %ld, pos_end: %ld, var_i: %d, n_cand_vars: %d\n", pos_start, pos_end, var_i, n_cand_vars);
+    // }
+    // compare sorted cand_vars and digars
+    // both cand_vars and digars are sorted by pos/type/ref_len
+    for (; var_i < n_cand_vars && digar_i < digar->n_digar; ) {
+        if (digar1[digar_i].type == BAM_CEQUAL) {
+            digar_i++; continue;
         }
-        if (digar_i >= digar->n_digar) { // no digar matches the var site
-            is_ref = 1;
-        } else {
-            if (digar->digars[digar_i].pos > cand_vars[var_i].pos) {
-                is_ref = 1;
-            } else { // digar->digars[digar_i].pos == var_sites[site_i].pos
-                var_site_t digar_var_site = make_var_site(-1, digar->digars+digar_i);
-                if (cand_vars[var_i].var_type == digar_var_site.var_type && cand_vars[var_i].ref_len == digar_var_site.ref_len) {
-                    var_digar_i = digar_i;
-                    allele_i = get_alt_allele_idx(cand_vars+var_i, digar->digars+var_digar_i, digar->bseq);
-                    is_ref = 0;
-                } else {
-                    is_ref = 1;
+        var_site_t digar_var_site = make_var_site_from_digar(tid, digar1+digar_i);
+        var_site_t var_site0 = make_var_site_from_cand_var(cand_vars+var_i);
+        // if (cand_vars[var_i].pos == 10539691) {
+            // fprintf(stderr, "var_i: %d, digar_i: %d\n", var_i, digar_i);
+        // }
+        // ret = 0: read has the var; ret < 0: read has no var; ret > 0: read has other var
+        int is_ovlp, ret;
+        ret = comp_ovlp_var_site(&var_site0, &digar_var_site, &is_ovlp);
+        if (is_ovlp == 0) {
+            if (ret < 0) { // var_site < digar_var_site
+                update_read_var_profile_with_ref_allele(var_i, read_var_profile);
+                var_i++;
+            } else if (ret > 0) { // var_site > digar_var_site
+                digar_i++;
+            } else { // var_site == digar_var_site
+                if (var_site0.var_type != BAM_CINS || digar_var_site.var_type != BAM_CINS) {
+                    _err_error_exit("Unexpected case: is_ovlp == 0 && var_site == digar_var_site, %d-%c-%d-%d\n", cand_vars[var_i].pos, BAM_CIGAR_STR[cand_vars[var_i].var_type], digar_var_site.pos, BAM_CIGAR_STR[digar_var_site.var_type]);
                 }
+                allele_i = get_alt_allele_idx(cand_vars+var_i, digar->digars+digar_i, digar->bseq);
+                update_read_var_profile_with_allele(var_i, allele_i, read_var_profile, digar1[digar_i].is_low_qual);
+                var_i++;
+            }
+        } else { // overlap
+            if (ret == 0) { // exact the same with var_site
+                allele_i = get_alt_allele_idx(cand_vars+var_i, digar->digars+digar_i, digar->bseq);
+                update_read_var_profile_with_allele(var_i, allele_i, read_var_profile, digar1[digar_i].is_low_qual);
+                var_i++;
+            } else {
+                update_read_var_profile_with_allele(var_i, -1, read_var_profile, digar1[digar_i].is_low_qual);
+                var_i++;
             }
         }
-        if (is_ref) {
-            update_read_var_profile_with_ref_allele(cand_vars, var_i, read_var_profile);
-        } else {
-            update_read_var_profile_with_alt_allele(cand_vars, var_i, read_var_profile, allele_i, digar->digars[var_digar_i].is_low_qual);
-        }
-        var_i++;
+    }
+    for (; var_i < n_cand_vars; ++var_i) {
+        if (cand_vars[var_i].pos > pos_end) break;
+        update_read_var_profile_with_ref_allele(var_i, read_var_profile);
     }
     return cur_start_i;
 }
@@ -694,7 +536,7 @@ void post_update_digar(digar1_t *_digars, int _n_digar, const struct call_var_op
 void collect_digar_from_eqx_cigar(bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar) {
     hts_pos_t pos = read->core.pos+1, qi = 0;
     const uint32_t *cigar = bam_get_cigar(read); int n_cigar = read->core.n_cigar;
-    int max_s = opt->dens_reg_max_sites, win = opt->dens_reg_slide_win;
+    int max_s = opt->dens_reg_max_xgaps, win = opt->dens_reg_slide_win;
     digar->n_digar = 0; digar->m_digar = 2 * n_cigar; digar->digars = (digar1_t*)malloc(n_cigar * 2 * sizeof(digar1_t));
     digar->bseq = bam_get_seq(read); digar->qual = bam_get_qual(read);
     int _n_digar = 0, _m_digar = 2 * n_cigar; digar1_t *_digars = (digar1_t*)malloc(_m_digar * sizeof(digar1_t));
@@ -757,7 +599,7 @@ void collect_digar_from_MD_tag(bam1_t *read, const struct call_var_opt_t *opt, d
     if (s == NULL) { _err_error_exit("MD tag not found in the BAM file: %s", bam_get_qname(read)); }
     hts_pos_t pos = read->core.pos+1, qi = 0;
     const uint32_t *cigar = bam_get_cigar(read); int n_cigar = read->core.n_cigar;
-    int max_s = opt->dens_reg_max_sites, win = opt->dens_reg_slide_win;
+    int max_s = opt->dens_reg_max_xgaps, win = opt->dens_reg_slide_win;
 
     digar->n_digar = 0; digar->m_digar = 2 * n_cigar; digar->digars = (digar1_t*)malloc(n_cigar * 2 * sizeof(digar1_t));
     digar->bseq = bam_get_seq(read); digar->qual = bam_get_qual(read);
@@ -857,7 +699,7 @@ void collect_digar_from_MD_tag(bam1_t *read, const struct call_var_opt_t *opt, d
 void collect_digar_from_ref_seq(bam1_t *read, const call_var_opt_t *opt, kstring_t *ref_seq, digar_t *digar) {
     hts_pos_t pos = read->core.pos+1, qi = 0;
     const uint32_t *cigar = bam_get_cigar(read); int n_cigar = read->core.n_cigar;
-    int max_s = opt->dens_reg_max_sites, win = opt->dens_reg_slide_win;
+    int max_s = opt->dens_reg_max_xgaps, win = opt->dens_reg_slide_win;
 
     digar->n_digar = 0; digar->m_digar = 2 * n_cigar; digar->digars = (digar1_t*)malloc(n_cigar * 2 * sizeof(digar1_t));
     digar->bseq = bam_get_seq(read); digar->qual = bam_get_qual(read);
@@ -967,7 +809,8 @@ int bam_chunk_init(bam_chunk_t *chunk, int n_reads, int *last_chunk_read_i, int 
     }
     // variant
     chunk->n_cand_vars = 0; chunk->cand_vars = NULL;
-    chunk->read_var_profile = NULL;
+    chunk->var_cate_counts = NULL; chunk->var_cate_idx = NULL; chunk->var_i_to_cate = NULL;
+    chunk->read_var_profile = NULL; chunk->read_var_cr = NULL;
     // output
     chunk->haps = (int*)calloc(n_reads, sizeof(int));
     chunk->flip_hap = 0;
@@ -1003,7 +846,15 @@ void bam_chunk_free(bam_chunk_t *chunk) {
         bam_destroy1(chunk->reads[i]);
     }
     if (chunk->cand_vars != NULL) free_cand_vars(chunk->cand_vars, chunk->n_cand_vars);
+    if (chunk->var_cate_counts != NULL) free(chunk->var_cate_counts);
+    if (chunk->var_i_to_cate != NULL) free(chunk->var_i_to_cate);
+    if (chunk->var_cate_idx != NULL) {
+        for (int i = 0; i < LONGCALLD_VAR_CATE_N; i++)
+            free(chunk->var_cate_idx[i]);
+        free(chunk->var_cate_idx);
+    }
     if (chunk->read_var_profile != NULL) free_read_var_profile(chunk->read_var_profile, chunk->n_reads);
+    if (chunk->read_var_cr != NULL) cr_destroy(chunk->read_var_cr);
     free(chunk->reads); free(chunk->digars);
     free(chunk->is_skipped); free(chunk->is_ovlp); free(chunk->haps);
     if (chunk->up_ovlp_read_i != NULL) free(chunk->up_ovlp_read_i);
@@ -1025,8 +876,9 @@ void bam_chunks_free(bam_chunk_t *chunks, int n_chunks) {
 // **last_chunk_read_i: indices of reads from the last chunk that will be collected in current chunk
 // *n_last_chunk_reads: number of reads in the last chunk that will be collected in current chunk
 // int collect_bam_chunk(samFile *in_bam, bam_hdr_t *header, hts_itr_t *iter, int use_iter, int max_reg_len_per_chunk, int **last_chunk_read_i, int *n_last_chunk_reads, hts_pos_t *last_reg_end, bam_chunk_t *chunk) {
-int collect_bam_chunk(samFile *in_bam, bam_hdr_t *header, hts_itr_t *iter, int use_iter, int max_reg_len_per_chunk, 
-                      int **last_chunk_read_i, int *n_last_chunk_reads, hts_pos_t *cur_reg_beg, bam_chunk_t *chunk) {
+int collect_bam_chunk(call_var_pl_t *pl, int **last_chunk_read_i, int *n_last_chunk_reads, hts_pos_t *cur_reg_beg, bam_chunk_t *chunk) {
+    samFile *in_bam = pl->bam; bam_hdr_t *header = pl->header; hts_itr_t *iter = pl->iter; 
+    int use_iter = pl->use_iter; int max_reg_len_per_chunk = pl->max_reg_len_per_chunk;
     int r, has_eqx_cigar=0, has_MD=0;
     int reg_tid=-1, tid0;
     hts_pos_t beg0=-1, end0=-1; // read-wise, end: end of all reads in current chunk, beg0/end0: start/end of the current read

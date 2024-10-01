@@ -3,9 +3,11 @@
 
 #include "htslib/sam.h"
 #include "htslib/kstring.h"
+#include "cgranges.h"
 
 #define LONGCALLD_BAM_CHUNK_READ_COUNT 4000
-#define LONGCALLD_BAM_CHUNK_REG_SIZE 1000000 // 1M
+#define LONGCALLD_BAM_CHUNK_REG_SIZE 1000000 // 1M XXX smaller or bigger?
+// XXX use LONGCALLD_BAM_CHUNK_READ_COUNT ???
                            ///  012345678
 #define LONGCALLD_BAM_BASE_STR "ACGTN.DIU"
 #define LONGCALLD_BAM_BASE_N 9
@@ -30,14 +32,16 @@ extern "C" {
 typedef struct cand_var_t {
     // static information
     int tid; hts_pos_t pos, phase_set;
+    // XXX check if is_rep_reg
+    int is_rep_reg; hts_pos_t non_rep_beg, non_rep_end; // non-repetitive window, used for alignment-based variant calling 
     int var_type; // BAM_CINS/BAM_CDEL/BAM_CDIFF
-    int n_depth; // ref+alt, used in variant calling & haplotype assignment
+    int n_depth; // ref+alt, used in variant calling & haplotype assignment, excluding low-qual bases
     int n_low_depth; // including bases/regions with low quality, only count depth, not seq
-    int n_uniq_alles; // including ref+alt (≥1, ref)
+    int n_uniq_alles; // up ot 4: ref, alt1, alt2, minor_alt
                       // snp/ins: could be >2, del: ≤2
-    int *alle_covs;
-    int ref_len;
-    uint8_t **alt_alle_seqs; int *alt_alle_seq_len; // all candidate genotype sequences
+                      // minor_alt: not ref and not main alt alleles (mostly sequencing errors)
+    int *alle_covs; // size: n_uniq_alles
+    int ref_len, *alt_lens; uint8_t **alt_seqs; // all candidate alt alleles, ''/0 for minor_alt
     // XXX keep up to 2 alleles for each variant site
 
     // dynamic information, update during haplotype assignment
@@ -76,6 +80,8 @@ typedef struct {
     const uint8_t *bseq, *qual;
 } digar_t; // detailed CIGAR for each read
 
+// a chunk of BAM reads, and auxiliary information for variant calling/phasing
+// the very basic unit where variants are called and haplotypes are assigned
 typedef struct bam_chunk_t {
     // input
     int tid; char *tname; hts_pos_t beg, end; // for each chunk, only variants between (beg, end] will be considered
@@ -83,44 +89,40 @@ typedef struct bam_chunk_t {
     int n_reads, m_reads;
     int n_up_ovlp_reads; // number of reads overlapping with upstream bam chunk
                          // for each chunk, only output [n_up_ovlp_reads, n_reads]'s reads
-    int *up_ovlp_read_i; // size: n_up_ovlp_reads
+    int *up_ovlp_read_i; // read_i in upstream bam chunk; size: n_up_ovlp_reads
     bam1_t **reads; 
     // intermidiate
     uint8_t *is_ovlp; // size: m_reads, is_ovlp: overlap with other chunks
     uint8_t *is_skipped; // size: m_reads, is_skipped: wrong mapping, low qual, etc.
     digar_t *digars;
-    // variants
+    // variant-related
     int n_cand_vars; cand_var_t *cand_vars;
-    read_var_profile_t *read_var_profile;
+    int **var_cate_idx, *var_cate_counts; // size: LONGCALLD_VAR_CATE_N
+    int *var_i_to_cate; // size: n_cand_vars
+    read_var_profile_t *read_var_profile; cgranges_t *read_var_cr;
     // output
     uint8_t flip_hap; // XXX flip haplotype for this chunk, chromosome-wise global parameter, flip_hap ^= pre_flip
                       // so all the haplotypes need to be output sequentially to keep consistency
     int *haps; // size: m_reads
 } bam_chunk_t;
 
+struct call_var_pl_t;
 struct call_var_opt_t;
-struct cand_snp_t;
 struct cand_var_t;
 struct var_site_t;
-struct read_snp_profile_t;
 struct read_var_profile_t;
 
 void check_eqx_cigar_MD_tag(samFile *in_bam, bam_hdr_t *header, uint8_t *has_eqx, uint8_t *has_MD);
 void collect_digar_from_eqx_cigar(bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar);
 void collect_digar_from_MD_tag(bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar);
 void collect_digar_from_ref_seq(bam1_t *read, const struct call_var_opt_t *opt, kstring_t *ref_seq, digar_t *digar);
-int update_cand_snps_from_digar(digar_t *digar, bam1_t *read, int n_x_sites, hts_pos_t *x_sites, int start_i, struct cand_snp_t *cand_snps);
 int update_cand_vars_from_digar(digar_t *digar, bam1_t *read, int n_var_sites, struct var_site_t *var_sites, int start_i, struct cand_var_t *cand_vars);
-int update_read_snp_profile_from_digar(digar_t *digar, bam1_t *read, int n_cand_snps, struct cand_snp_t *cand_snps, int start_snp_i, struct read_snp_profile_t *read_snp_profile);
 int update_read_var_profile_from_digar(digar_t *digar, bam1_t *read, int n_cand_vars, struct cand_var_t *cand_vars, int start_var_i, struct read_var_profile_t *read_var_profile);
 
-int collect_bam_chunk(samFile *in_bam, bam_hdr_t *header, hts_itr_t *iter, int use_iter, int max_reg_len_per_chunk,
-                      int **last_chunk_read_i, int *n_last_chunk_reads, hts_pos_t *cur_reg_beg, bam_chunk_t *chunk);
+int collect_bam_chunk(struct call_var_pl_t *pl, int **last_chunk_read_i, int *n_last_chunk_reads, hts_pos_t *cur_reg_beg, bam_chunk_t *chunk);
 void bam_chunk_free(bam_chunk_t *chunk);
 void bam_chunks_free(bam_chunk_t *chunks, int n_chunks);
-struct read_snp_profile_t *init_read_snp_profile(int n_reads, int n_total_snps);
 struct read_var_profile_t *init_read_var_profile(int n_reads, int n_total_vars);
-void free_read_snp_profile(struct read_snp_profile_t *p, int n_reads);
 void free_read_var_profile(struct read_var_profile_t *p, int n_reads);
 char *extract_sample_name_from_bam_header(bam_hdr_t *header);
 
