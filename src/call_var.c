@@ -303,7 +303,7 @@ int call_var_main(int argc, char *argv[]) {
     double realtime0 = realtime();
     while ((c = getopt_long(argc, argv, "r:o:b:d:D:n:s:w:f:F:c:t:hvV:", call_var_opt, &op_idx)) >= 0) {
         switch(c) {
-            // case 'r': opt->ref_fa_fn = strdup(optarg); break;
+            case 'r': opt->ref_fa_fn = strdup(optarg); break;
             // case 'b': cgp->var_block_size = atoi(optarg); break;
             case 'o': opt->out_vcf = fopen(optarg, "w"); break;
             case 'b': opt->out_bam = hts_open(optarg, "wb"); break;

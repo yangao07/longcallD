@@ -615,11 +615,11 @@ int make_variants(bam_chunk_t *bam_chunk, kstring_t *ref_seq, var_t *var) {
         // if (hap_alles[1] == -1) hap_alles[1] = LONGCALLD_REF_ALLELE;
         // only keep het. vars
         if (hap_alles[0] == -1 && hap_alles[1] == -1) {
-            fprintf(stderr, "skipped pos(-1): %ld, %d-%c-%d\n", (long) cand_vars[cand_i].pos, cand_vars[cand_i].ref_len, BAM_CIGAR_STR[cand_vars[cand_i].var_type], cand_vars[cand_i].ref_len);
+            fprintf(stderr, "skipped pos(-1): %ld, %d-%c-%d\n", (long) cand_vars[cand_i].pos, cand_vars[cand_i].ref_len, BAM_CIGAR_STR[cand_vars[cand_i].var_type]);
             continue;
         }
         if (hap_alles[0] == hap_alles[1]) { // potential hom var
-            fprintf(stderr, "skipped pos(==): %ld, %d-%c-%d\n", (long) cand_vars[cand_i].pos, BAM_CIGAR_STR[cand_vars[cand_i].var_type], cand_vars[cand_i].ref_len);
+            fprintf(stderr, "skipped pos(==): %ld, %d-%c\n", (long) cand_vars[cand_i].pos, cand_vars[cand_i].ref_len, BAM_CIGAR_STR[cand_vars[cand_i].var_type]);
             continue;
         }
 

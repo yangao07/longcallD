@@ -7,19 +7,6 @@
 
 #define LONGCALLD_BAM_CHUNK_READ_COUNT 4000
 #define LONGCALLD_BAM_CHUNK_REG_SIZE 1000000 // 1M XXX smaller or bigger?
-// XXX use LONGCALLD_BAM_CHUNK_READ_COUNT ???
-                           ///  012345678
-#define LONGCALLD_BAM_BASE_STR "ACGTN.DIU"
-#define LONGCALLD_BAM_BASE_N 9
-#define LONGCALLD_BAM_REF_BASE '.'
-#define LONGCALLD_BAM_REF_BASE_IDX 5
-#define LONGCALLD_BAM_DEL_BASE 'D'
-#define LONGCALLD_BAM_DEL_BASE_IDX 6
-#define LONGCALLD_BAM_INS_BASE 'I'
-#define LONGCALLD_BAM_INS_BASE_IDX 7
-#define LONGCALLD_BAM_UNSET_BASE 'U'
-#define LONGCALLD_BAM_UNSET_BASE_IDX 8
-
 #define bam_bseq2base(bseq, qi) seq_nt16_str[bam_seqi(bseq, qi)]
 
 #ifdef __cplusplus

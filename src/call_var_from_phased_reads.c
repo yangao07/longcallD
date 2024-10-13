@@ -91,10 +91,14 @@ int digar_based_call_var_from_phased_reads(bam_chunk_t *bam_chunk, int var_cate_
     return 0;
 }
 
+// only do this for hard-to-call variants, e.g., supporting count is not enough
+// for easy-to-call ones, i.e., supporting count is enough, we can use count-based method
 // for larger number of alt. alleles within each phased cluster, or top 2 haplotypes are too close, we need to use align-based method
-// input: phased bam
-// process: WFA-based, align phased reads to ref/alt allele sequences, pick the best allele with higher score
-// output: genotype for each variant
+// @input: phased reads, candidate variants
+// @process: WFA/edlib-based, align phased reads to ref/alt allele sequences, pick the best allele with higher score
+//           for each variant, collect all reads covering the variant, use phased reads first, then use unphased reads
+// @output: genotype for each variant
+//          update read-var-profile after alignment
 int align_based_call_var_from_phased_reads(bam_chunk_t *bam_chunk, int var_cate_i, kstring_t *ref_seq, const call_var_opt_t *opt) {
     read_var_profile_t *p = bam_chunk->read_var_profile;
     int *var_idx = bam_chunk->var_cate_idx[var_cate_i];

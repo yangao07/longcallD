@@ -5,6 +5,18 @@
 #include <string.h>
 #include <stdint.h>
 #include "abpoa.h"
+#include "/homes2/yangao/programs/longcallD/edlib/include/edlib.h"
+
+
+int test_edlib(char *pattern, char *text) {
+    // 
+    int k = -1;
+    const EdlibAlignConfig config = edlibNewAlignConfig(k, EDLIB_MODE_NW, EDLIB_TASK_DISTANCE, NULL, 0);
+    EdlibAlignResult result = edlibAlign(pattern, strlen(pattern), text, strlen(text), config);
+    fprintf(stderr, "Edlib-Alignment returns score %d\n",result.editDistance);
+    edlibFreeAlignResult(result);
+    return 0;
+}
 
 int test_abpoa(uint8_t **bseqs, int n_seqs, int *seq_lens) {
     // Init abpoa graph

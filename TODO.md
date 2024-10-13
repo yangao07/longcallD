@@ -14,8 +14,14 @@ TODO:
 - [ ] MSA for noisy regions
 - [ ] Phasing using both SNPs and indels
 - [ ] Rescue SNPs near gaps, they were considered as low-qual and ignored in the first round
-
+- [ ] Large insertions -> re-alignment for clipping sequence: >30%(>2) Large INS around a candidate long INS/DEL, triger re-alignment (including clipping sequence)
 - [ ] Only phase bam with/without input VCF
+- [ ] Output assembly?
+- [ ] LV instead of edlib for short seq.?
+- [ ] Edlib: return path only if ED > 0?
+- [ ] No candidate SVs (count > 2): do MSA (abPOA), use phase-based consensus as candidate
+- [ ] Around SV: check left/right for longer match, extend/re-align the other side
+- [ ] Annotation of inserted sequence? L1/Alu, etc.
 
 ---
 

@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "seq.h"
+#include "cgranges.h"
 #include "htslib/vcf.h"
 #include "htslib/sam.h"
 #include "htslib/thread_pool.h"
@@ -12,7 +13,7 @@
 #define CALL_VAR_PL_THREAD_N 3
 #define CALL_VAR_THREAD_N 8
 
-#define LONGCALLD_MIN_CAND_MQ 0 // low-qual
+#define LONGCALLD_MIN_CAND_MQ 5 // low-qual
 #define LONGCALLD_MIN_CAND_BQ 0 // low-qual
 #define LONGCALLD_MIN_CAND_DP 5 // total DP < 5: skipped
 #define LONGCALLD_MIN_ALT_DP 2 // max alt depth < 2: skipped
@@ -67,7 +68,7 @@ typedef struct var_t {
 
 typedef struct call_var_opt_t {
     // input
-    char *ref_fa_fn; char *in_bam_fn; char *sample_name;
+    char *ref_fa_fn; char *rep_bed_fn; char *in_bam_fn; char *sample_name;
     char *region_list; uint8_t region_is_file; // for -R/--region/--region-file option
     // filters for variant calling
     int max_ploid, min_mq, min_bq, min_dp, min_alt_dp; 
@@ -86,7 +87,7 @@ typedef struct call_var_opt_t {
 // shared data for all threads
 typedef struct call_var_pl_t {
     // input files
-    ref_seq_t *ref_seq;
+    ref_seq_t *ref_seq; cgranges_t *rep_regs;
     samFile *bam; bam_hdr_t *header; hts_tpool *p;
     hts_idx_t *idx; hts_itr_t *iter; int use_iter;
     // parameters, output files
