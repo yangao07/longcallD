@@ -628,7 +628,7 @@ void collect_digar_from_eqx_cigar(bam1_t *read, const struct call_var_opt_t *opt
     }
     for (int i = 0; i < _n_digar; ++i) _digars[i].is_low_qual = q->is_dense[i];
     post_update_digar(_digars, _n_digar, opt, digar);
-    cr_add(digar->noisy_regs, "cr", noisy_start, noisy_end+1, 0);
+    if (noisy_start != -1) cr_add(digar->noisy_regs, "cr", noisy_start, noisy_end+1, 0);
     cr_index(digar->noisy_regs);
     if (LONGCALLD_VERBOSE >= 2) {
         fprintf(stderr, "DIGAR1: %s\n", bam_get_qname(read));
