@@ -27,7 +27,7 @@
 #define LONGCALLD_ALT_ALLELE2 2
 #define LONGCALLD_OTHER_ALT_ALLELE 3
 
-#define LONGCALLD_DENSE_REG_MAX_XGAPS 10   // dense X/gap region: more than n X/gap bases in a 100-bp window
+#define LONGCALLD_DENSE_REG_MAX_XGAPS 10 // 5?  // dense X/gap region: more than n X/gap bases in a 100-bp window
 #define LONGCALLD_DENSE_REG_SLIDE_WIN 100 //
 #define LONGCALLD_DENSE_FLANK_WIN 25 // 100/(3+1)
 #define LONGCALLD_NOISY_END_CLIP 100 // >= n bp clipping on both ends

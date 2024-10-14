@@ -64,6 +64,8 @@ typedef struct digar1_t {
 typedef struct {
     int n_digar, m_digar;
     digar1_t *digars;
+    // read-wise noisy region: active region for re-alignment
+    cgranges_t *noisy_regs; // merge low_qual digar1_t if they are next to each other
     const uint8_t *bseq, *qual;
 } digar_t; // detailed CIGAR for each read
 

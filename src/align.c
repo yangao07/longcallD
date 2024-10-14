@@ -5,7 +5,7 @@
 #include <string.h>
 #include <stdint.h>
 #include "abpoa.h"
-#include "/homes2/yangao/programs/longcallD/edlib/include/edlib.h"
+#include "edlib.h"
 
 
 int test_edlib(char *pattern, char *text) {

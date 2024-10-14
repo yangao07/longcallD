@@ -101,6 +101,39 @@ void push_xid_queue(xid_queue_t *q, hts_pos_t pos, int len, int count) {
     }
 }
 
+void push_xid_queue_win(xid_queue_t *q, hts_pos_t pos, int len, int count, cgranges_t *cr, int *cr_cur_start, int *cr_cur_end) {
+    q->pos[++q->rear] = pos; // left-most pos of the region
+    q->lens[q->rear] = len; q->counts[q->rear] = count;
+    q->count += count;
+
+    int noisy_start = -1, noisy_end = -1;
+    while (q->pos[q->front]+q->lens[q->front]-1 <= pos - q->win) {
+        q->count -= q->counts[q->front]; // q->lens[q->front];
+        q->front++;
+    }
+    // fprintf(stderr, "pos: %ld, len: %d, count: %d, front: %d, rear: %d, count: %d\n", pos, len, count, q->front, q->rear, q->count);
+    if (count > 0) {
+        if (q->count > q->max_s) {
+            for (int j = q->front; j <= q->rear; j++) {
+                q->is_dense[j] = 1; // mark all dense regions
+            }
+            noisy_start = q->pos[q->front]; noisy_end = q->pos[q->rear]+q->lens[q->rear]-1;
+            if (*cr_cur_start == -1) {
+                *cr_cur_start = noisy_start; *cr_cur_end = noisy_end;
+            } else {
+                if (noisy_start <= *cr_cur_end) { // merge
+                    *cr_cur_end = noisy_end;
+                } else {
+                    // add the previous region
+                    cr_add(cr, "cr", *cr_cur_start, (*cr_cur_end)+1, 0);
+                    *cr_cur_start = noisy_start; *cr_cur_end = noisy_end;
+                }
+            }
+            fprintf(stderr, "noisy region: %ld-%ld\n", noisy_start, noisy_end);
+        }
+    }
+}
+
 void check_eqx_cigar_MD_tag(samFile *in_bam, bam_hdr_t *header, uint8_t *has_eqx, uint8_t *has_MD) {
     int n_to_check_reads = 10;
     // if any of n_to_check_reads reads do NOT have eqx or MD tag
@@ -538,10 +571,12 @@ void collect_digar_from_eqx_cigar(bam1_t *read, const struct call_var_opt_t *opt
     const uint32_t *cigar = bam_get_cigar(read); int n_cigar = read->core.n_cigar;
     int max_s = opt->dens_reg_max_xgaps, win = opt->dens_reg_slide_win;
     digar->n_digar = 0; digar->m_digar = 2 * n_cigar; digar->digars = (digar1_t*)malloc(n_cigar * 2 * sizeof(digar1_t));
+    digar->noisy_regs = cr_init();
     digar->bseq = bam_get_seq(read); digar->qual = bam_get_qual(read);
     int _n_digar = 0, _m_digar = 2 * n_cigar; digar1_t *_digars = (digar1_t*)malloc(_m_digar * sizeof(digar1_t));
     int rlen = bam_cigar2rlen(n_cigar, cigar);
     xid_queue_t *q = init_xid_queue(rlen, max_s, win);
+    int noisy_start = -1, noisy_end = -1;
 
     for (int i = 0; i < n_cigar; i++) {
         int op = bam_cigar_op(cigar[i]), len = bam_cigar_oplen(cigar[i]);
@@ -551,34 +586,40 @@ void collect_digar_from_eqx_cigar(bam1_t *read, const struct call_var_opt_t *opt
                 // if (qual[qi] >= min_bq) {
                 _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
                 set_digar(_digars+_n_digar, pos, op, 1, qi);
-                _n_digar++; push_xid_queue(q, pos, 1, 1);
+                _n_digar++; // push_xid_queue(q, pos, 1, 1);
+                push_xid_queue_win(q, pos, 1, 1, digar->noisy_regs, &noisy_start, &noisy_end);
                 // }
                 pos++; qi++;
             }
         } else if (op == BAM_CEQUAL) {
             _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
             set_digar(_digars+_n_digar, pos, op, len, qi);
-            _n_digar++; push_xid_queue(q, pos, 0, 0);
+            _n_digar++; // push_xid_queue(q, pos, 0, 0);
+            push_xid_queue_win(q, pos, len, 0, digar->noisy_regs, &noisy_start, &noisy_end);
             pos += len; qi += len;
         } else if (op == BAM_CDEL) {
             _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
             set_digar(_digars+_n_digar, pos, op, len, qi);
-            _n_digar++; push_xid_queue(q, pos, len, 1);
+            _n_digar++; // push_xid_queue(q, pos, len, 1);
+            push_xid_queue_win(q, pos, len, 1, digar->noisy_regs, &noisy_start, &noisy_end);
             pos += len;
         } else if (op == BAM_CINS) {
             _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
             set_digar(_digars+_n_digar, pos, op, len, qi); // insertion, unset XXX
-            _n_digar++; push_xid_queue(q, pos, 0, 1);
+            _n_digar++; // push_xid_queue(q, pos, 0, 1);
+            push_xid_queue_win(q, pos, 0, 1, digar->noisy_regs, &noisy_start, &noisy_end);
             qi += len;
         } else if (op == BAM_CSOFT_CLIP) {
             _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
             set_digar(_digars+_n_digar, pos, op, len, qi); // clipping
-            _n_digar++; push_xid_queue(q, pos, 0, 0);
+            _n_digar++; // push_xid_queue(q, pos, 0, 0);
+            push_xid_queue_win(q, pos, 0, 0, digar->noisy_regs, &noisy_start, &noisy_end);
             qi += len;
         } else if (op == BAM_CHARD_CLIP) {
             _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
             set_digar(_digars+_n_digar, pos, op, len, qi); // clipping
-            _n_digar++; push_xid_queue(q, pos, 0, 0);
+            _n_digar++; // push_xid_queue(q, pos, 0, 0);
+            push_xid_queue_win(q, pos, 0, 0, digar->noisy_regs, &noisy_start, &noisy_end);
         } else if (op == BAM_CREF_SKIP) { // XXX no action for N op
             pos += len;
         } else if (op == BAM_CMATCH) {
@@ -587,9 +628,14 @@ void collect_digar_from_eqx_cigar(bam1_t *read, const struct call_var_opt_t *opt
     }
     for (int i = 0; i < _n_digar; ++i) _digars[i].is_low_qual = q->is_dense[i];
     post_update_digar(_digars, _n_digar, opt, digar);
+    cr_add(digar->noisy_regs, "cr", noisy_start, noisy_end+1, 0);
+    cr_index(digar->noisy_regs);
     if (LONGCALLD_VERBOSE >= 2) {
-        fprintf(stderr, "DIGAR: %s\n", bam_get_qname(read));
+        fprintf(stderr, "DIGAR1: %s\n", bam_get_qname(read));
         print_digar(digar, stderr);
+        for (int i = 0; i < digar->noisy_regs->n_r; ++i) {
+            fprintf(stderr, "Noisy: %d-%d\n", cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i));
+        }
     }
     free(_digars); free_xid_queue(q);
 }
@@ -602,6 +648,7 @@ void collect_digar_from_MD_tag(bam1_t *read, const struct call_var_opt_t *opt, d
     int max_s = opt->dens_reg_max_xgaps, win = opt->dens_reg_slide_win;
 
     digar->n_digar = 0; digar->m_digar = 2 * n_cigar; digar->digars = (digar1_t*)malloc(n_cigar * 2 * sizeof(digar1_t));
+    digar->noisy_regs = cr_init();
     digar->bseq = bam_get_seq(read); digar->qual = bam_get_qual(read);
     int _n_digar = 0, _m_digar = 2 * n_cigar; digar1_t *_digars = (digar1_t*)malloc(_m_digar * sizeof(digar1_t));
     char *md = bam_aux2Z(s); int md_i = 0;
@@ -690,10 +737,11 @@ void collect_digar_from_MD_tag(bam1_t *read, const struct call_var_opt_t *opt, d
     for (int i = 0; i < _n_digar; ++i) _digars[i].is_low_qual = q->is_dense[i];
     post_update_digar(_digars, _n_digar, opt, digar);
     if (LONGCALLD_VERBOSE >= 2) {
-        fprintf(stderr, "DIGAR: %s\n", bam_get_qname(read));
+        fprintf(stderr, "DIGAR2: %s\n", bam_get_qname(read));
         print_digar(digar, stderr);
     }
     free(_digars); free_xid_queue(q);
+    cr_index(digar->noisy_regs);
 }
 
 void collect_digar_from_ref_seq(bam1_t *read, const call_var_opt_t *opt, kstring_t *ref_seq, digar_t *digar) {
@@ -702,6 +750,7 @@ void collect_digar_from_ref_seq(bam1_t *read, const call_var_opt_t *opt, kstring
     int max_s = opt->dens_reg_max_xgaps, win = opt->dens_reg_slide_win;
 
     digar->n_digar = 0; digar->m_digar = 2 * n_cigar; digar->digars = (digar1_t*)malloc(n_cigar * 2 * sizeof(digar1_t));
+    digar->noisy_regs = cr_init();
     digar->bseq = bam_get_seq(read); digar->qual = bam_get_qual(read);
     int _n_digar = 0, _m_digar = 2 * n_cigar; digar1_t *_digars = (digar1_t*)malloc(_m_digar * sizeof(digar1_t));
     int rlen = bam_cigar2rlen(n_cigar, cigar);
@@ -771,10 +820,11 @@ void collect_digar_from_ref_seq(bam1_t *read, const call_var_opt_t *opt, kstring
     // }
     post_update_digar(_digars, _n_digar, opt, digar);
     if (LONGCALLD_VERBOSE >= 2) {
-        fprintf(stderr, "DIGAR: %s\n", bam_get_qname(read));
+        fprintf(stderr, "DIGAR3: %s\n", bam_get_qname(read));
         print_digar(digar, stderr);
     }
     free(_digars); free_xid_queue(q);
+    cr_index(digar->noisy_regs);
 }
 
 void copy_bam_chunk(bam_chunk_t *from_chunk, bam_chunk_t *to_chunk, int *last_chunk_read_i, int n_reads) {
@@ -840,7 +890,10 @@ int bam_chunk_realloc(bam_chunk_t *chunk) {
 
 void bam_chunk_free(bam_chunk_t *chunk) {
     for (int i = 0; i < chunk->m_reads; i++) {
-        if (chunk->digars[i].m_digar > 0) free(chunk->digars[i].digars);
+        if (chunk->digars[i].m_digar > 0) {
+            free(chunk->digars[i].digars);
+            cr_destroy(chunk->digars[i].noisy_regs);
+        }
     }
     for (int i = 0; i < chunk->m_reads; i++) {
         bam_destroy1(chunk->reads[i]);

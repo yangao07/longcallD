@@ -17,7 +17,7 @@ ABPOA_INC_DIR = $(ABPOA_DIR)/include
 
 WFA2_DIR    = ./WFA2-lib
 WFA2_LIB    = $(WFA2_DIR)/lib/libwfa.a
-LIB         = $(HTSLIB) $(ABPOA_LIB) $(WFA2_LIB) -lm -lz -lpthread #-llzma -lbz2 -lcurl
+LIB         = $(HTSLIB) $(ABPOA_LIB) $(WFA2_LIB) -lm -lz -lpthread -llzma -lbz2 -lcurl
 INCLUDE     = -I $(HTSLIB_DIR) -I $(EDLIB_INC_DIR) -I $(ABPOA_INC_DIR) -I $(WFA2_DIR)
 
 # for debug
@@ -69,11 +69,11 @@ all: $(HTS_ALL) $(EDLIB) $(ABPOA_LIB) $(WFA2_LIB) $(BIN)
 $(HTS_ALL): $(HTSLIB)
 
 $(HTSLIB): $(HTSLIB_DIR)/configure.ac
-	cd $(HTSLIB_DIR); autoreconf -i; ./configure --disable-lzma --disable-bz2 --disable-libcurl --without-libdeflate; make;
+	cd $(HTSLIB_DIR); autoreconf -i; ./configure --disable-lzma --disable-bz2 --disable-libcurl --without-libdeflate; make CC=gcc
 
 # edlib
 $(EDLIB): $(EDLIB_DIR)/src/edlib.cpp $(EDLIB_DIR)/include/edlib.h
-	$(CXX) $(CFLAGS) -c $< $(INCLUDE) -o $@
+	$(CXX) $(CFLAGS) -std=c++11 -stdlib=libc++ -c $< $(INCLUDE) -o $@
 
 $(ABPOA_LIB): 
 	cd $(ABPOA_DIR); make libabpoa PREFIX=$(PWD) CC=gcc
@@ -86,7 +86,7 @@ $(BIN): $(OBJS)
 	$(CXX) $(OBJS) -o $@ $(LIB) $(PG_FLAG)
 
 $(SRC_DIR)/align.o: $(SRC_DIR)/align.c $(SRC_DIR)/align.h $(SRC_DIR)/utils.h
-	$(CC) -c $(CFLAGS) $< $(INCLUDE) -o $@
+	$(CC) -c -DUSE_SIMDE -DSIMDE_ENABLE_NATIVE_ALIASES $(CFLAGS) $< $(INCLUDE) -o $@
 
 $(SRC_DIR)/assign_aln_hap.o: $(SRC_DIR)/assign_aln_hap.c $(SRC_DIR)/assign_aln_hap.h $(SRC_DIR)/utils.h $(SRC_DIR)/bam_utils.h
 $(SRC_DIR)/bam_utils.o: $(SRC_DIR)/bam_utils.c $(SRC_DIR)/bam_utils.h $(SRC_DIR)/utils.h
@@ -106,3 +106,5 @@ $(SRC_DIR)/vcf_utils.o: $(SRC_DIR)/vcf_utils.c $(SRC_DIR)/vcf_utils.h $(SRC_DIR)
 
 clean:
 	rm -f $(SRC_DIR)/*.o $(BIN)
+clean_all:
+	rm -f $(SRC_DIR)/*.o $(BIN) $(HTSLIB) $(EDLIB) $(ABPOA_LIB) $(WFA2_LIB)

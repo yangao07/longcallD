@@ -2,7 +2,15 @@
 #include <stdlib.h>
 #include <getopt.h>
 #include <string.h>
-#include <sys/sysinfo.h>
+#ifdef __linux__
+#include <sys/sysinfo.h>  // Linux-specific
+#elif __APPLE__
+#include <sys/types.h>
+#include <sys/sysctl.h>    // macOS-specific
+#include <mach/mach.h>     // For memory information
+#else
+#error "Unsupported platform"
+#endif
 #include "main.h"
 #include "call_var.h"
 #include "bam_utils.h"
@@ -35,6 +43,25 @@ const struct option call_var_opt [] = {
     { 0, 0, 0, 0}
 };
 
+int get_num_processors() {
+#ifdef __linux__
+    return get_nprocs();
+#elif __APPLE__
+    int nm[2] = {CTL_HW, HW_AVAILCPU};
+    int ncpu;
+    size_t len = sizeof(ncpu);
+
+    if (sysctl(nm, 2, &ncpu, &len, NULL, 0) == -1 || ncpu < 1) {
+        nm[1] = HW_NCPU;
+        sysctl(nm, 2, &ncpu, &len, NULL, 0);
+        if (ncpu < 1) ncpu = 1;
+    }
+    return ncpu;
+#else
+    #error "Unsupported platform"
+#endif
+}
+
 call_var_opt_t *call_var_init_para(void) {
     call_var_opt_t *opt = (call_var_opt_t*)_err_malloc(sizeof(call_var_opt_t));
 
@@ -62,8 +89,8 @@ call_var_opt_t *call_var_init_para(void) {
     opt->max_af = LONGCALLD_MAX_CAND_AF;
     opt->max_low_qual_frac = LONGCALLD_MAX_LOW_QUAL_FRAC;
 
-    opt->pl_threads = MIN_OF_TWO(CALL_VAR_PL_THREAD_N, get_nprocs());
-    opt->n_threads = MIN_OF_TWO(CALL_VAR_THREAD_N, get_nprocs());
+    opt->pl_threads = MIN_OF_TWO(CALL_VAR_PL_THREAD_N, get_num_processors());
+    opt->n_threads = MIN_OF_TWO(CALL_VAR_THREAD_N, get_num_processors());
 
     opt->out_vcf = NULL; opt->out_bam = NULL;
     // opt->verbose = 0;
@@ -287,7 +314,7 @@ static int call_var_usage(void) {//main usage
     fprintf(stderr, "    -F --clip-flank  INT  flanking mask window size for noisy clipping region [%d]\n", LONGCALLD_NOISY_END_CLIP_WIN);
     fprintf(stderr, "\n");
     fprintf(stderr, "  General:\n");
-    fprintf(stderr, "    -t --threads     INT  number of threads to use [%d]\n", MIN_OF_TWO(CALL_VAR_THREAD_N, get_nprocs()));
+    fprintf(stderr, "    -t --threads     INT  number of threads to use [%d]\n", MIN_OF_TWO(CALL_VAR_THREAD_N, get_num_processors()));
     fprintf(stderr, "    -h --help             print this help usage\n");
     fprintf(stderr, "    -v --version          print version number\n");
     fprintf(stderr, "    -V --verbose     INT  verbose level (0-2). 0: none, 1: information, 2: debug [0]\n");
@@ -344,7 +371,7 @@ int call_var_main(int argc, char *argv[]) {
     if (opt->n_threads <= 0) {
         opt->n_threads = 1; opt->pl_threads = 1;
     } else {
-        opt->n_threads = MIN_OF_TWO(opt->n_threads, get_nprocs());
+        opt->n_threads = MIN_OF_TWO(opt->n_threads, get_num_processors());
         opt->pl_threads = opt->n_threads; // MIN_OF_TWO(opt->n_threads, CALL_VAR_PL_THREAD_N);
     }
     // if (opt->out_bam == NULL) // output to stdout

@@ -788,6 +788,7 @@ void collect_var_main(const call_var_pl_t *pl, bam_chunk_t *bam_chunk, var_t *va
     // merge var sites from all reads
     var_site_t *var_sites = NULL; int n_var_sites;
     if ((n_var_sites = collect_cand_var_sites(bam_chunk, &var_sites)) <= 0) return;
+    return;
 
     // collect reference and alternative alleles for all var sites
     // all cand vars, including true/false germline/somatic variants
