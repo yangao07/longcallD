@@ -100,7 +100,7 @@ cand_var_t *collect_cand_vars(bam_chunk_t *bam_chunk, int n_var_sites, var_site_
     }
     if (LONGCALLD_VERBOSE >= 2) {
         for (int i = 0; i < n_var_sites; ++i) {
-            fprintf(stderr, "CandVar: %ld\t", var_sites[i].pos);
+            fprintf(stderr, "CandVar: %" PRId64 "\t", var_sites[i].pos);
             fprintf(stderr, "Type: %c\t", BAM_CIGAR_STR[var_sites[i].var_type]);
             fprintf(stderr, "RefLen: %d\t", var_sites[i].ref_len);
             fprintf(stderr, "Depth: %d\t", cand_vars[i].n_depth);
@@ -152,7 +152,7 @@ int is_homopolymer(kstring_t *ref_seq, cand_var_t *var) {
         }
     }
     if (is_homopolymer) {
-        if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "Homopolymer: %ld, %d-%c\n", pos, ref_len, BAM_CIGAR_STR[var_type]);
+        if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "Homopolymer: %" PRId64 ", %d-%c\n", pos, ref_len, BAM_CIGAR_STR[var_type]);
     }
     return is_homopolymer;
 }
@@ -190,7 +190,7 @@ int is_repeat_region(kstring_t *ref_seq, cand_var_t *var) {
         }
     }
     if (is_repeat) {
-        if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "RepeatRegion: %ld, type: %c, refLen: %d\n", pos, BAM_CIGAR_STR[var_type], ref_len);
+        if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "RepeatRegion: %" PRId64 ", type: %c, refLen: %d\n", pos, BAM_CIGAR_STR[var_type], ref_len);
     }
     return is_repeat;
 }
@@ -278,7 +278,9 @@ int classify_var_cate(cand_var_t *var, int min_dp_thres, int min_alt_dp_thres, d
     // indels in repeat regions
     // if ((var->var_type == BAM_CINS || var->var_type == BAM_CDEL) && is_homopolymer(ref_seq, var)) return LONGCALLD_REP_HET_VAR; // require basic phasing info, MSA, provide additional phasing info
     // if ((var->var_type == BAM_CINS || var->var_type == BAM_CDEL) && (is_homopolymer(ref_seq, var) || is_repeat_region(ref_seq, var))) return LONGCALLD_REP_HET_VAR; // require basic phasing info, MSA, provide additional phasing info
-    return LONGCALLD_EASY_HET_VAR;
+    if (var->var_type == BAM_CDIFF) return LONGCALLD_EASY_HET_SNP;
+    else return LONGCALLD_EASY_HET_INDEL;
+    // return LONGCALLD_EASY_HET_VAR;
 }
 
 void copy_var(cand_var_t *to_var, cand_var_t *from_var) {
@@ -328,7 +330,7 @@ int classify_cand_vars(bam_chunk_t *bam_chunk, int n_var_sites, kstring_t *ref_s
         var_cate = classify_var_cate(var, min_dp, min_alt_dp, min_somatic_af, min_af, max_af, max_low_qual_frac, ref_seq);
         if (var_cate == LONGCALLD_LOW_COV_VAR) continue; // skipped
         if (LONGCALLD_VERBOSE >= 2) {
-            fprintf(stderr, "CandVarCate-%c: %s:%ld, type: %c, refLen: %d, depth: %d\t", LONGCALLD_VAR_CATE_STR[var_cate], bam_chunk->tname, cand_vars[i].pos, BAM_CIGAR_STR[cand_vars[i].var_type], cand_vars[i].ref_len, cand_vars[i].n_depth);
+            fprintf(stderr, "CandVarCate-%c: %s:%" PRId64 ", type: %c, refLen: %d, depth: %d\t", LONGCALLD_VAR_CATE_STR[var_cate], bam_chunk->tname, cand_vars[i].pos, BAM_CIGAR_STR[cand_vars[i].var_type], cand_vars[i].ref_len, cand_vars[i].n_depth);
             fprintf(stderr, "Low-Depth: %d\t", cand_vars[i].n_low_depth);
             for (int j = 0; j < cand_vars[i].n_uniq_alles; ++j) {
                 fprintf(stderr, "%d ", j);
@@ -422,11 +424,11 @@ int classify_cand_vars(bam_chunk_t *bam_chunk, int n_var_sites, kstring_t *ref_s
 void collect_digars_from_bam(bam_chunk_t *bam_chunk, const call_var_pl_t *pl) {
     const call_var_opt_t *opt = pl->opt;
     if (LONGCALLD_VERBOSE >= 2)
-        fprintf(stderr, "CHUNK: %s\tbeg: %ld, end: %ld, total_n: %d, ovlp_n: %d\n", bam_chunk->tname, (long) bam_chunk->beg, (long) bam_chunk->end, bam_chunk->n_reads, bam_chunk->n_up_ovlp_reads);
+        fprintf(stderr, "CHUNK: %s\tbeg: %" PRId64 ", end: %" PRId64 ", total_n: %d, ovlp_n: %d\n", bam_chunk->tname, bam_chunk->beg, bam_chunk->end, bam_chunk->n_reads, bam_chunk->n_up_ovlp_reads);
     for (int i = 0; i < bam_chunk->n_reads; ++i) {
         if (bam_chunk->is_skipped[i]) continue;
         bam1_t *read = bam_chunk->reads[i];
-        if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "%d: qname: %s, flag: %d, pos: %ld, end: %ld\n", i, bam_get_qname(read), read->core.flag, (long) read->core.pos+1, (long) bam_endpos(read));
+        if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "%d: qname: %s, flag: %d, pos: %" PRId64 ", end: %" PRId64 "\n", i, bam_get_qname(read), read->core.flag, read->core.pos+1, bam_endpos(read));
         // if (strcmp(test_read_name, bam_get_qname(read)) == 0)
             // fprintf(stderr, "Read: %s\n", bam_get_qname(read));
         if (read->core.qual < opt->min_mq) {
@@ -554,7 +556,7 @@ int collect_cand_var_sites(bam_chunk_t *bam_chunk, var_site_t **var_sites) {
     if (LONGCALLD_VERBOSE >= 2) {
         fprintf(stderr, "Total candidate variant sites: %d\n", n_total_var_sites);
         for (int i = 0; i < n_total_var_sites; ++i) {
-            fprintf(stderr, "CandVarSite: %s:%ld-%c\n", bam_chunk->tname, (*var_sites)[i].pos, BAM_CIGAR_STR[(*var_sites)[i].var_type]);
+            fprintf(stderr, "CandVarSite: %s:%" PRId64 "-%c\n", bam_chunk->tname, (*var_sites)[i].pos, BAM_CIGAR_STR[(*var_sites)[i].var_type]);
         }
     }
     return n_total_var_sites;
@@ -580,7 +582,7 @@ read_var_profile_t *collect_read_var_profile(bam_chunk_t *bam_chunk) {
                 fprintf(stderr, "Read: %s, start_var_i: %d, end_var_i: %d\n", bam_get_qname(read), p[i].start_var_idx, p[i].end_var_idx);
                 for (int j = 0; j <= p[i].end_var_idx-p[i].start_var_idx; ++j) {
                     if (p[i].var_is_used[j] == 0) continue;
-                    fprintf(stderr, "P\tVar: (%d) %ld", j, cand_vars[j+p[i].start_var_idx].pos);
+                    fprintf(stderr, "P\tVar: (%d) %" PRId64 "", j, cand_vars[j+p[i].start_var_idx].pos);
                     fprintf(stderr, " %d-%c, allele: %d\n", cand_vars[j+p[i].start_var_idx].ref_len, BAM_CIGAR_STR[cand_vars[j+p[i].start_var_idx].var_type], p[i].alleles[j]);
                 }
             }
@@ -615,11 +617,11 @@ int make_variants(bam_chunk_t *bam_chunk, kstring_t *ref_seq, var_t *var) {
         // if (hap_alles[1] == -1) hap_alles[1] = LONGCALLD_REF_ALLELE;
         // only keep het. vars
         if (hap_alles[0] == -1 && hap_alles[1] == -1) {
-            fprintf(stderr, "skipped pos(-1): %ld, %d-%c-%d\n", (long) cand_vars[cand_i].pos, cand_vars[cand_i].ref_len, BAM_CIGAR_STR[cand_vars[cand_i].var_type]);
+            fprintf(stderr, "skipped pos(-1): %" PRId64 ", %d-%c\n", cand_vars[cand_i].pos, cand_vars[cand_i].ref_len, BAM_CIGAR_STR[cand_vars[cand_i].var_type]);
             continue;
         }
         if (hap_alles[0] == hap_alles[1]) { // potential hom var
-            fprintf(stderr, "skipped pos(==): %ld, %d-%c\n", (long) cand_vars[cand_i].pos, cand_vars[cand_i].ref_len, BAM_CIGAR_STR[cand_vars[cand_i].var_type]);
+            fprintf(stderr, "skipped pos(==): %" PRId64 ", %d-%c\n", cand_vars[cand_i].pos, cand_vars[cand_i].ref_len, BAM_CIGAR_STR[cand_vars[cand_i].var_type]);
             continue;
         }
 
@@ -747,7 +749,7 @@ int flip_variant_hap(bam_chunk_t *prev_bam_chunk, bam_chunk_t *cur_bam_chunk) {
         }
     }
     free(used_ovlp_read_i);
-    fprintf(stderr, "pos: %ld, keep_hap_score: %d\n", prev_bam_chunk->end, keep_hap_score);
+    fprintf(stderr, "pos: %" PRId64 ", keep_hap_score: %d\n", prev_bam_chunk->end, keep_hap_score);
     int flip = (keep_hap_score > 0 ? 0 : 1);
     // 4) update HP tag for the overlapping reads (in prev_bam_chunk, not cur_bam_chunk, to maintain the order in output bam file)
     // since only part of the variants (either prev or cur variants) are used to determine the HP in previous step
@@ -788,7 +790,6 @@ void collect_var_main(const call_var_pl_t *pl, bam_chunk_t *bam_chunk, var_t *va
     // merge var sites from all reads
     var_site_t *var_sites = NULL; int n_var_sites;
     if ((n_var_sites = collect_cand_var_sites(bam_chunk, &var_sites)) <= 0) return;
-    return;
 
     // collect reference and alternative alleles for all var sites
     // all cand vars, including true/false germline/somatic variants
@@ -801,7 +802,8 @@ void collect_var_main(const call_var_pl_t *pl, bam_chunk_t *bam_chunk, var_t *va
     // 1st round: easy-to-call het.
     //   0) easy-to-call germline het. variants here to determine the haplotype
     // XXX here
-    assign_hap_based_on_het_vars(bam_chunk, LONGCALLD_EASY_HET_VAR, pl->opt);
+    assign_hap_based_on_het_vars(bam_chunk, LONGCALLD_EASY_HET_SNP, pl->opt);
+    // assign_hap_based_on_het_vars(bam_chunk, LONGCALLD_EASY_HET_VAR, pl->opt);
 
     // 2nd round: difficult-to-call het.
     // LONGCALLD_REP_HET_VAR:

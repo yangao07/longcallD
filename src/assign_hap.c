@@ -4,6 +4,7 @@
 #include "call_var.h"
 #include "bam_utils.h"
 #include "collect_var.h"
+#include <inttypes.h>
 
 extern int LONGCALLD_VERBOSE;
 // 1st round operations: update base_to_hap -> {1/2/0}
@@ -12,7 +13,7 @@ extern int LONGCALLD_VERBOSE;
 // potential start of a PhaseSet, could be merged with others (intra- or inter-blocks)
 hts_pos_t assign_var_init_hap(cand_var_t *var) {
     if (LONGCALLD_VERBOSE >= 2)
-        fprintf(stderr, "Init Var hap: %ld, %d-%c\n", var->pos, var->ref_len, BAM_CIGAR_STR[var->var_type]);
+        fprintf(stderr, "Init Var hap: %" PRId64 ", %d-%c\n", var->pos, var->ref_len, BAM_CIGAR_STR[var->var_type]);
     var->phase_set = var->pos; // potential start of a PhaseSet
     // if (snp->pos == 10737188)
         // printf("ok");
@@ -26,7 +27,7 @@ hts_pos_t assign_var_init_hap(cand_var_t *var) {
             hap2_alle_i = i; hap2_cov = var->alle_covs[i];
         }
     }
-    if (hap1_alle_i == -1) _err_error_exit("No candidate allele in Var: %d-%ld, %d-%c\n", var->tid, var->pos, var->ref_len, BAM_CIGAR_STR[var->var_type]);
+    if (hap1_alle_i == -1) _err_error_exit("No candidate allele in Var: %d-%" PRId64 ", %d-%c\n", var->tid, var->pos, var->ref_len, BAM_CIGAR_STR[var->var_type]);
     if (hap2_alle_i == -1) { // only one allele
         var->alle_to_hap[hap1_alle_i] = 1; var->alle_to_hap[hap1_alle_i] = 2;
     } else {
@@ -69,7 +70,7 @@ hts_pos_t assign_var_hap_based_on_pre_reads1(cand_var_t *var) {
     }
     if (first_hap == sec_hap || first_hap_alle_i == sec_hap_alle_i) {
         if (LONGCALLD_VERBOSE >= 2)
-            _err_func_printf("Var: %ld, %d-%c, first_hap: %d (%d: %d), sec_hap: %d (%d: %d)\n", var->pos, var->ref_len, BAM_CIGAR_STR[var->var_type], first_hap, first_hap_alle_i, first_hap_cnt, sec_hap, sec_hap_alle_i, sec_hap_cnt);
+            _err_func_printf("Var: %" PRId64 ", %d-%c, first_hap: %d (%d: %d), sec_hap: %d (%d: %d)\n", var->pos, var->ref_len, BAM_CIGAR_STR[var->var_type], first_hap, first_hap_alle_i, first_hap_cnt, sec_hap, sec_hap_alle_i, sec_hap_cnt);
         assign_var_init_hap(var);
     } else {
         for (int i = 0; i < var->n_uniq_alles; ++i) {
@@ -99,7 +100,7 @@ void var_init_hap_profile(cand_var_t *vars, int n_cand_vars, int *var_cate_list)
 
 void var_init_hap_cons_alle0(cand_var_t *var, int min_alt_dp) {
     // select the most common allele as the consensus allele, based on hap_to_alle_profile
-    int n_depth = var->n_depth;
+    // int n_depth = var->n_depth;
     for (int hap = 1; hap <= LONGCALLD_DEF_PLOID; ++hap) {
         int max_cov = 0, max_cov_alle_i = -1;
         for (int i = 0; i < var->n_uniq_alles; ++i) {
@@ -179,7 +180,7 @@ int collect_tmp_hap_cons_allele_by_deduct_read(cand_var_t *var, int hap, int all
                     max_cov = cov; max_cov_alle_i = j;
                 }
             }
-            if (max_cov_alle_i == -1 && LONGCALLD_VERBOSE >= 2) _err_func_printf("No HAP %d allele in SNP: %ld, %d-%c\n", i, var->pos, var->ref_len, BAM_CIGAR_STR[var->var_type]);
+            if (max_cov_alle_i == -1 && LONGCALLD_VERBOSE >= 2) _err_func_printf("No HAP %d allele in SNP: %" PRId64 ", %d-%c\n", i, var->pos, var->ref_len, BAM_CIGAR_STR[var->var_type]);
             tmp_hap_to_cons_alle[i] = max_cov_alle_i;
         }
     }
@@ -224,11 +225,11 @@ int update_var_aln_hap1(int target_var_cate, int target_read_i, int cur_hap,  ba
     free(hap_match_cnt); free(tmp_hap_to_cons_alle);
     if (max_cnt == 0) {
         if (LONGCALLD_VERBOSE >= 2)
-            _err_func_printf("Read %s max_cnt == 0 (pos: %ld)\n", bam_get_qname(bam_chunk->reads[target_read_i]), bam_chunk->reads[target_read_i]->core.pos);
+            _err_func_printf("Read %s max_cnt == 0 (pos: %" PRId64 ")\n", bam_get_qname(bam_chunk->reads[target_read_i]), bam_chunk->reads[target_read_i]->core.pos);
         return 0; // unknown
     } else if (max_cnt == sec_cnt) {
         if (LONGCALLD_VERBOSE >= 2)
-            _err_func_printf("Read %s max_cnt == sec_cnt (%ld)\n", bam_get_qname(bam_chunk->reads[target_read_i]), bam_chunk->reads[target_read_i]->core.pos);
+            _err_func_printf("Read %s max_cnt == sec_cnt (%" PRId64 ")\n", bam_get_qname(bam_chunk->reads[target_read_i]), bam_chunk->reads[target_read_i]->core.pos);
         max_hap = cur_hap;
     }
     return max_hap;
@@ -244,7 +245,7 @@ int update_var_hap_profile_based_on_changed_hap(int target_var_cate, int new_hap
         if (allele_i == -1) continue;
         cand_var_t *var = cand_vars+var_i;
         if (LONGCALLD_VERBOSE >= 2)
-            fprintf(stderr, "pos: %ld, old_hap: %d, new_hap: %d, var: %d\n", var->pos, old_hap, new_hap, allele_i);
+            fprintf(stderr, "pos: %" PRId64 ", old_hap: %d, new_hap: %d, var: %d\n", var->pos, old_hap, new_hap, allele_i);
         var->hap_to_alle_profile[old_hap][allele_i] -= 1;
         var->hap_to_alle_profile[new_hap][allele_i] += 1;
         var_init_hap_cons_alle0(var, min_alt_dp);
@@ -288,7 +289,7 @@ int assign_hap_based_on_het_vars(bam_chunk_t *bam_chunk, int target_var_cate, co
                     // first time assign hap to the read (update bam_haps)
                     bam_chunk->haps[read_i] = hap;
                     if (LONGCALLD_VERBOSE >= 2)
-                        fprintf(stderr, "read: %s, cur_var: %ld, %d-%c, alle: %d, hap: %d\n", bam_get_qname(bam_chunk->reads[read_i]), var->pos, var->ref_len, BAM_CIGAR_STR[var->var_type], var_alle_i, hap);
+                        fprintf(stderr, "read: %s, cur_var: %" PRId64 ", %d-%c, alle: %d, hap: %d\n", bam_get_qname(bam_chunk->reads[read_i]), var->pos, var->ref_len, BAM_CIGAR_STR[var->var_type], var_alle_i, hap);
                     // update hap_to_alle_profile for all Vars covered by this read, based on its assigned haplotype
                     // udpated profile will then be used for following Vars (assign_var_hap_based_on_pre_reads)
                     update_var_hap_profile_based_on_aln_hap(target_var_cate, hap, phase_set, cand_vars, var_i_to_cate, p, read_i);
@@ -316,7 +317,7 @@ int assign_hap_based_on_het_vars(bam_chunk_t *bam_chunk, int target_var_cate, co
             int new_hap = update_var_aln_hap1(target_var_cate, read_i, cur_hap, bam_chunk, p, cand_vars, var_i_to_cate);
             if (new_hap != cur_hap) { // update bam_haps, hap_to_base_profile, hap_to_cons_base
                 if (LONGCALLD_VERBOSE >= 2) {
-                    fprintf(stderr, "read (%d): %s, pos: %ld\t", read_i, bam_get_qname(bam_chunk->reads[read_i]), bam_chunk->reads[read_i]->core.pos);
+                    fprintf(stderr, "read (%d): %s, pos: %" PRId64 "\t", read_i, bam_get_qname(bam_chunk->reads[read_i]), bam_chunk->reads[read_i]->core.pos);
                     fprintf(stderr, "\t\t cur_hap: %d, new_hap: %d\n", cur_hap, new_hap);
                 }
                 changed_hap = 1;

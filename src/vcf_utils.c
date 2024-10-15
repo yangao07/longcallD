@@ -53,7 +53,7 @@ int write_var_to_vcf(var_t *vars, FILE *out_vcf, char *chrom) {
     // XXX correct phase set if needed: set it as leftmost position within the same phase block
     for (int i = 0; i < n_vars; i++) {
         var1_t var = vars->vars[i];
-        fprintf(out_vcf, "%s\t%ld\t.\t", chrom, var.pos);
+        fprintf(out_vcf, "%s\t%" PRId64 "\t.\t", chrom, var.pos);
         // ref bases
         for (int j = 0; j < var.ref_len; j++) {
             fprintf(out_vcf, "%c", "ACGTN"[var.ref_bases[j]]);
@@ -67,7 +67,7 @@ int write_var_to_vcf(var_t *vars, FILE *out_vcf, char *chrom) {
             if (j < var.n_alt_allele - 1) fprintf(out_vcf, ",");
         }
         // QUAL, FILTER, INFO
-        fprintf(out_vcf, "\t%d\tPASS\tEND=%ld\tGT:PS\t%d|%d:%ld\n", var.QUAL, var.pos + var.ref_len - 1, var.GT[0], var.GT[1], var.PS);
+        fprintf(out_vcf, "\t%d\tPASS\tEND=%" PRId64 "\tGT:PS\t%d|%d:%" PRId64 "\n", var.QUAL, var.pos + var.ref_len - 1, var.GT[0], var.GT[1], var.PS);
     }
     return ret;
 }

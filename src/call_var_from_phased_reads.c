@@ -57,7 +57,7 @@ int call_var_from_phased_reads(bam_chunk_t *bam_chunk, int var_cate_i, const cal
                 }
             }
             genotype_prob_from_phased_counts(n10, n11, n20, n21, &p_ref_call, &p_hom_call, &p_h1_call, &p_h2_call);
-            fprintf(stderr, "VarCate-%c: %s:%ld\t%c\t%d,%d,%d,%d\t", LONGCALLD_VAR_CATE_STR[var_cate_i], bam_chunk->tname, pos, BAM_CIGAR_STR[var->var_type], n10, n11, n20, n21);
+            fprintf(stderr, "VarCate-%c: %s:%" PRId64 "\t%c\t%d,%d,%d,%d\t", LONGCALLD_VAR_CATE_STR[var_cate_i], bam_chunk->tname, pos, BAM_CIGAR_STR[var->var_type], n10, n11, n20, n21);
             fprintf(stderr, "p_ref_call: %f, p_hom_call: %f, p_h1_call: %f, p_h2_call: %f\n", p_ref_call, p_hom_call, p_h1_call, p_h2_call);
             // double p = fisher_exact_test_p(n10, n11, n20, n21);
             // fprintf(stderr, "VarCate-%c: %s:%lld\t%c\t%f\n", LONGCALLD_VAR_CATE_STR[var_cate_i], bam_chunk->tname, pos, BAM_CIGAR_STR[var->var_type], p);
