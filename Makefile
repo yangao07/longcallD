@@ -1,8 +1,16 @@
 CC          = gcc
 CXX         = g++
+
+# Check if gcc is linked to clang
+GCC_CHECK := $(shell gcc --version | head -n 1 | grep -i "clang")
+ifeq ($(GCC_CHECK),)
+	CXXFLAGS = -std=c++11
+else
+	CXXFLAGS = -std=c++11 -stdlib=libc++
+endif
 # add -fno-tree-vectorize to avoid certain vectorization errors in O3 optimization
 # right now, we are using -O3 for the best performance, and no vectorization errors were found
-EXTRA_FLAGS = -Wall -Wno-unused-function -Wno-misleading-indentation
+EXTRA_FLAGS = -Wall -Wno-unused-function -Wno-misleading-indentation 
 
 HTSLIB_DIR  = ./htslib
 HTSLIB      = $(HTSLIB_DIR)/libhts.a
@@ -74,7 +82,7 @@ $(HTSLIB): $(HTSLIB_DIR)/configure.ac
 
 # edlib
 $(EDLIB): $(EDLIB_DIR)/src/edlib.cpp $(EDLIB_DIR)/include/edlib.h
-	$(CXX) $(CFLAGS) -std=c++11 -stdlib=libc++ -c $< $(INCLUDE) -o $@
+	$(CXX) $(CFLAGS) $(CXXFLAGS) -c $< $(INCLUDE) -o $@
 
 $(ABPOA_LIB): 
 	cd $(ABPOA_DIR); make libabpoa PREFIX=$(PWD) CC=gcc
