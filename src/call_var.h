@@ -13,7 +13,7 @@
 #define CALL_VAR_PL_THREAD_N 3
 #define CALL_VAR_THREAD_N 8
 
-#define LONGCALLD_MIN_CAND_MQ 5 // low-qual
+#define LONGCALLD_MIN_CAND_MQ 30 // low-qual
 #define LONGCALLD_MIN_CAND_BQ 0 // low-qual
 #define LONGCALLD_MIN_CAND_DP 5 // total DP < 5: skipped
 #define LONGCALLD_MIN_ALT_DP 2 // max alt depth < 2: skipped
@@ -29,7 +29,7 @@
 
 #define LONGCALLD_DENSE_REG_MAX_XGAPS 10 // 5?  // dense X/gap region: more than n X/gap bases in a 100-bp window
 #define LONGCALLD_DENSE_REG_SLIDE_WIN 100 //
-#define LONGCALLD_DENSE_FLANK_WIN 25 // 100/(3+1)
+#define LONGCALLD_DENSE_FLANK_WIN 0 // 25: 100/(3+1)
 #define LONGCALLD_NOISY_END_CLIP 100 // >= n bp clipping on both ends
 #define LONGCALLD_NOISY_END_CLIP_WIN 100 // n bp flanking end-clipping region will be considered as low-quality region
 #define LONGCALLD_INDEL_FLANK_WIN 0 // n bp around indel will be considered as low-quality region
@@ -81,13 +81,15 @@ typedef struct call_var_opt_t {
     int pl_threads, n_threads;
     // output
     htsFile *out_bam; // phased bam
-    FILE *out_vcf; // phased vcf
+    FILE *out_vcf;
+    int8_t no_vcf_header, no_bam_header; // phased vcf
 } call_var_opt_t;
 
 // shared data for all threads
 typedef struct call_var_pl_t {
     // input files
-    ref_seq_t *ref_seq; cgranges_t *rep_regs;
+    // ref_seq_t *ref_seq; 
+    faidx_t *fai; ref_reg_seq_t *ref_reg_seq; // cgranges_t *rep_regs;
     samFile *bam; bam_hdr_t *header; hts_tpool *p;
     hts_idx_t *idx; hts_itr_t *iter; int use_iter;
     // parameters, output files

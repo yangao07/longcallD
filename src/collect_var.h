@@ -1,18 +1,33 @@
 #ifndef LONGCALLD_COLLECT_VAR_H
 #define LONGCALLD_COLLECT_VAR_H
 
+#include <math.h>
+
 
 // category of candidate variants
-#define LONGCALLD_VAR_CATE_N 8
+// #define LONGCALLD_VAR_CATE_N 8
 #define LONGCALLD_VAR_CATE_STR "LENIRDSH"
-#define LONGCALLD_LOW_COV_VAR 0   // low coverage, skipped directly
-#define LONGCALLD_EASY_HET_VAR 1  // easy-to-call germline het. variants
-#define LONGCALLD_EASY_HET_SNP 2  // easy-to-call germline het. variants
-#define LONGCALLD_EASY_HET_INDEL 3  // easy-to-call germline het. variants
-#define LONGCALLD_REP_HET_VAR 4   // repetitive region, germline het. variants
-#define LONGCALLD_DENSE_REG_VAR 5 // dense region, het./hom. variants
-#define LONGCALLD_CAND_SOMA_VAR 6 // candidate somatic variants
-#define LONGCALLD_CAND_HOM_VAR 7  // canddidate hom. variants
+// #define LONGCALLD_LOW_COV_VAR 0    // L low coverage, skipped directly
+// #define LONGCALLD_EASY_HET_VAR 1   // E easy-to-call germline het. variants
+// #define LONGCALLD_EASY_HET_SNP 2   // N easy-to-call germline het. variants
+// #define LONGCALLD_EASY_HET_INDEL 3 // I easy-to-call germline het. variants
+// #define LONGCALLD_REP_HET_VAR 4    // R repetitive region, germline het. variants
+// #define LONGCALLD_DENSE_REG_VAR 5  // D dense region, het./hom. variants
+// #define LONGCALLD_CAND_SOMA_VAR 6  // S candidate somatic variants
+// #define LONGCALLD_CAND_HOM_VAR 7   // H canddidate hom. variants
+
+#define LONGCALLD_LOW_COV_VAR 0x001
+#define LONGCALLD_EASY_HET_VAR 0x002
+#define LONGCALLD_EASY_HET_SNP 0x004
+#define LONGCALLD_EASY_HET_INDEL 0x008
+#define LONGCALLD_REP_HET_VAR 0x010
+#define LONGCALLD_DENSE_REG_VAR 0x020
+#define LONGCALLD_CAND_SOMA_VAR 0x040
+#define LONGCALLD_CAND_HOM_VAR 0x080
+
+// 0x001 -> "L", 0x002 -> "E", 0x004 -> "N", 0x008 -> "I", 0x010 -> "R", 0x020 -> "D", 0x040 -> "S", 0x080 -> "H"
+#define LONGCALLD_VAR_CATE_TYPE(var_cate) LONGCALLD_VAR_CATE_STR[(int)(log2(var_cate))]
+
 
 #ifdef __cplusplus
 extern "C" {

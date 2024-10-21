@@ -53,6 +53,9 @@ int write_var_to_vcf(var_t *vars, FILE *out_vcf, char *chrom) {
     // XXX correct phase set if needed: set it as leftmost position within the same phase block
     for (int i = 0; i < n_vars; i++) {
         var1_t var = vars->vars[i];
+        // if (var.pos == 49735305)
+            // fprintf(stderr, "OK\n");
+        if (var.n_alt_allele == 0) continue;
         fprintf(out_vcf, "%s\t%" PRId64 "\t.\t", chrom, var.pos);
         // ref bases
         for (int j = 0; j < var.ref_len; j++) {

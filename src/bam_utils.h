@@ -69,11 +69,26 @@ typedef struct {
     const uint8_t *bseq, *qual;
 } digar_t; // detailed CIGAR for each read
 
+// coordinate system: ACGT: 1234
+//   samtools view/longCallD call: 1-based, [beg, end]: [1,4]
+//   bam_chunk beg/end, ref_beg/ref_end: 1-based, [beg, end]:[1,4]
+//   ref_reg_seq_t: 1-based, [beg, end]: [1,4]
+//   cgranges: 0-based, (beg, end]: (0, 4]
 // a chunk of BAM reads, and auxiliary information for variant calling/phasing
-// the very basic unit where variants are called and haplotypes are assigned
+// the very basic working unit where variants are called and haplotypes are assigned
 typedef struct bam_chunk_t {
     // input
-    int tid; char *tname; hts_pos_t beg, end; // for each chunk, only variants between (beg, end] will be considered
+    int tid; char *tname;
+    // ref_seq: 
+    //   reference sequence for this chunk, size: ref_end-ref_beg
+    //   if reg_reg_cr contain >1 regions, ref_seq will be concatenated, including additonal gaps between regions
+    char *ref_seq; uint8_t need_free_ref_seq; hts_pos_t ref_beg, ref_end; // [ref_beg, ref_end]
+    // ref_reg_cr: 
+    //   reference region for this chunk. usually just 1 region, but maybe multiple regions when regions are small, or reads are long
+    //   only variants within regions will be considered, variants outside will be skipped
+    //   for variants across boundaries/spaning multiple regions, they will be processed during stitching
+    //   ref_beg <= reg_beg < reg_end <= ref_end, ref_seq may include additional flanking regions (1kb)
+    cgranges_t *ref_reg_cr; hts_pos_t reg_beg, reg_end; // [reg_beg, reg_end]
     uint8_t bam_has_eqx_cigar, bam_has_md_tag;
     int n_reads, m_reads;
     int n_up_ovlp_reads; // number of reads overlapping with upstream bam chunk
@@ -86,7 +101,7 @@ typedef struct bam_chunk_t {
     digar_t *digars;
     // variant-related
     int n_cand_vars; cand_var_t *cand_vars;
-    int **var_cate_idx, *var_cate_counts; // size: LONGCALLD_VAR_CATE_N
+    // int **var_cate_idx, *var_cate_counts; // size: LONGCALLD_VAR_CATE_N
     int *var_i_to_cate; // size: n_cand_vars
     read_var_profile_t *read_var_profile; cgranges_t *read_var_cr;
     // output
@@ -101,10 +116,18 @@ struct cand_var_t;
 struct var_site_t;
 struct read_var_profile_t;
 
+static inline int is_low_qual(hts_pos_t pos, cgranges_t *noisy_regs) {
+    int64_t ovlp_n, *ovlp_b = 0, max_b = 0;
+    ovlp_n = cr_overlap(noisy_regs, "cr", pos, pos+1, &ovlp_b, &max_b);
+    free(ovlp_b);
+    return (ovlp_n > 0);
+}
+
 void check_eqx_cigar_MD_tag(samFile *in_bam, bam_hdr_t *header, uint8_t *has_eqx, uint8_t *has_MD);
 void collect_digar_from_eqx_cigar(bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar);
 void collect_digar_from_MD_tag(bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar);
-void collect_digar_from_ref_seq(bam1_t *read, const struct call_var_opt_t *opt, kstring_t *ref_seq, digar_t *digar);
+// (ref_beg, ref_end]
+void collect_digar_from_ref_seq(bam1_t *read, const struct call_var_opt_t *opt, char *ref_seq, hts_pos_t ref_beg, hts_pos_t ref_end, digar_t *digar);
 int update_cand_vars_from_digar(digar_t *digar, bam1_t *read, int n_var_sites, struct var_site_t *var_sites, int start_i, struct cand_var_t *cand_vars);
 int update_read_var_profile_from_digar(digar_t *digar, bam1_t *read, int n_cand_vars, struct cand_var_t *cand_vars, int start_var_i, struct read_var_profile_t *read_var_profile);
 
@@ -118,6 +141,18 @@ char *extract_sample_name_from_bam_header(bam_hdr_t *header);
 // int get_xid_from_eqx_cigar(bam1_t *read, const struct call_var_opt_t *opt, xid_t **mis_bases);
 
 // int get_mis_bases_from_MD_tag(bam1_t *read, int min_bq, x_base_t **mis_bases);
+
+// (beg, end]
+static inline int is_in_reg(cgranges_t *reg_cr, char *tname, hts_pos_t beg, hts_pos_t end) {
+    int64_t ovlp_n, *ovlp_b = 0, max_b = 0;
+    ovlp_n = cr_overlap(reg_cr, tname, beg, end, &ovlp_b, &max_b);
+    free(ovlp_b);
+    // fprintf(stderr, "is_in_reg: %s:%d-%d : %d\n", tname, beg, end, ovlp_n);
+    // for (int i = 0; i < reg_cr->n_r; ++i) {
+        // fprintf(stderr, "reg_cr: %s:%d-%d\n", reg_cr->ctg[cr_label(reg_cr, i)].name, cr_start(reg_cr, i), cr_end(reg_cr, i));
+    // }
+    return (ovlp_n > 0);
+}
 
 #ifdef __cplusplus
 }

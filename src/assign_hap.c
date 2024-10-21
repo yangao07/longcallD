@@ -82,9 +82,12 @@ hts_pos_t assign_var_hap_based_on_pre_reads1(cand_var_t *var) {
     return var->phase_set;
 } 
 
-void var_init_hap_profile(cand_var_t *vars, int n_cand_vars, int *var_cate_list) {
-    for (int i = 0; i < n_cand_vars; ++i) {
-        int var_i = var_cate_list[i];
+void var_init_hap_profile(cand_var_t *vars, int n_cand_vars, int *var_i_to_cate, int target_var_cate) {
+// void var_init_hap_profile(cand_var_t *vars, int n_cand_vars, int *var_cate_list) {
+    // for (int i = 0; i < n_cand_vars; ++i) {
+        // int var_i = var_cate_list[i];
+    for (int var_i = 0; var_i < n_cand_vars; ++var_i) {
+        if ((var_i_to_cate[var_i] & target_var_cate) == 0) continue;
         cand_var_t *var = vars+var_i;
         if (var->hap_to_alle_profile == NULL) {
             var->alle_to_hap = (uint8_t*)calloc(var->n_uniq_alles, sizeof(uint8_t)); // +1: minor_alt_allele
@@ -138,10 +141,10 @@ hts_pos_t assign_var_hap_based_on_pre_reads(cand_var_t *var, int min_dp) {
 }
 
 // after a read is assigned with hap, update hap of all other SNPs covered by this read
-void update_var_hap_profile_based_on_aln_hap(int var_cate, int hap, hts_pos_t phase_set, cand_var_t *var, int *var_i_to_cate, read_var_profile_t *p, int read_i) {
+void update_var_hap_profile_based_on_aln_hap(int hap, hts_pos_t phase_set, cand_var_t *var, int *var_i_to_cate, int target_var_cate, read_var_profile_t *p, int read_i) {
     int start_var_idx = p[read_i].start_var_idx, end_var_idx = p[read_i].end_var_idx;
     for (int var_i = start_var_idx; var_i <= end_var_idx; ++var_i) {
-        if (var_i_to_cate[var_i] != var_cate) continue;
+        if ((var_i_to_cate[var_i] & target_var_cate) == 0) continue;
         int read_var_idx = var_i - start_var_idx;
         if (p[read_i].var_is_used[read_var_idx] == 0) continue;
         int allele_i = p[read_i].alleles[read_var_idx];
@@ -191,14 +194,14 @@ int collect_tmp_hap_cons_allele_by_deduct_read(cand_var_t *var, int hap, int all
 // update haplotype for a read based on SNP profiles of all other overlapping reads
 // input: target read, SNP profiles of all reads
 // output: updated haplotype of the target read
-int update_var_aln_hap1(int target_var_cate, int target_read_i, int cur_hap,  bam_chunk_t *bam_chunk, read_var_profile_t *p, cand_var_t *cand_vars, int *var_i_to_cate) {
+int update_var_aln_hap1(int target_read_i, int cur_hap,  bam_chunk_t *bam_chunk, read_var_profile_t *p, cand_var_t *cand_vars, int *var_i_to_cate, int target_var_cate) {
     int start_var_idx = p[target_read_i].start_var_idx, end_var_idx = p[target_read_i].end_var_idx;
     // deduct target read from hap_to_alle_profile, then compare target read's var profile with hap_cons_alle
     int *hap_match_cnt = (int*)calloc((LONGCALLD_DEF_PLOID+1), sizeof(int));
     int *tmp_hap_to_cons_alle = (int*)malloc((LONGCALLD_DEF_PLOID+1) * sizeof(int));
 
     for (int var_i = start_var_idx; var_i <= end_var_idx; ++var_i) {
-        if (var_i_to_cate[var_i] != target_var_cate) continue;
+        if ((var_i_to_cate[var_i] & target_var_cate) == 0) continue;
         int read_var_idx = var_i - start_var_idx;
         if (p[target_read_i].var_is_used[read_var_idx] == 0) continue;
 
@@ -235,10 +238,10 @@ int update_var_aln_hap1(int target_var_cate, int target_read_i, int cur_hap,  ba
     return max_hap;
 }
 
-int update_var_hap_profile_based_on_changed_hap(int target_var_cate, int new_hap, int old_hap, cand_var_t *cand_vars, int *var_i_to_cate, int min_alt_dp, read_var_profile_t *p, int read_i) {
+int update_var_hap_profile_based_on_changed_hap(int new_hap, int old_hap, cand_var_t *cand_vars, int *var_i_to_cate, int target_var_cate, int min_alt_dp, read_var_profile_t *p, int read_i) {
     int start_var_idx = p[read_i].start_var_idx, end_var_idx = p[read_i].end_var_idx;
     for (int var_i = start_var_idx; var_i <= end_var_idx; ++var_i) {
-        if (var_i_to_cate[var_i] != target_var_cate) continue;
+        if ((var_i_to_cate[var_i] & target_var_cate) == 0) continue;
         int read_var_idx = var_i - start_var_idx;
         if (p[read_i].var_is_used[read_var_idx] == 0) continue;
         int allele_i = p[read_i].alleles[read_var_idx];
@@ -263,17 +266,20 @@ char read_name[1024] = "m84039_231005_222902_s1/80479720/ccs";
 
 int assign_hap_based_on_het_vars(bam_chunk_t *bam_chunk, int target_var_cate, const call_var_opt_t *opt) {
     read_var_profile_t *p = bam_chunk->read_var_profile;
-    int n_cand_vars = bam_chunk->var_cate_counts[target_var_cate];
-    int *var_cate_idx = bam_chunk->var_cate_idx[target_var_cate];
+    // int n_cand_vars = bam_chunk->var_cate_counts[target_var_cate];
+    int n_cand_vars = bam_chunk->n_cand_vars;
+    // int *var_cate_idx = bam_chunk->var_cate_idx[target_var_cate];
     int *var_i_to_cate = bam_chunk->var_i_to_cate;
     cand_var_t *cand_vars = bam_chunk->cand_vars;
     cgranges_t *read_var_cr = bam_chunk->read_var_cr;
     int64_t ovlp_i, ovlp_n, *ovlp_b = 0, max_b = 0;
 
     // 1st loop: var-wise loop
-    var_init_hap_profile(cand_vars, n_cand_vars, var_cate_idx);
-    for (int i = 0; i < n_cand_vars; ++i) {
-        int var_i = var_cate_idx[i];
+    var_init_hap_profile(cand_vars, n_cand_vars, var_i_to_cate, target_var_cate); // var_cate_idx);
+    // for (int i = 0; i < n_cand_vars; ++i) {
+        // int var_i = var_cate_idx[i];
+    for (int var_i = 0; var_i < n_cand_vars; ++var_i) {
+        if ((var_i_to_cate[var_i] & target_var_cate) == 0) continue;
         cand_var_t *var = cand_vars+var_i;
         ovlp_n = cr_overlap(read_var_cr, "cr", var_i, var_i+1, &ovlp_b, &max_b);
         hts_pos_t phase_set = assign_var_hap_based_on_pre_reads(var, opt->min_dp); // update alle_to_hap
@@ -292,7 +298,7 @@ int assign_hap_based_on_het_vars(bam_chunk_t *bam_chunk, int target_var_cate, co
                         fprintf(stderr, "read: %s, cur_var: %" PRId64 ", %d-%c, alle: %d, hap: %d\n", bam_get_qname(bam_chunk->reads[read_i]), var->pos, var->ref_len, BAM_CIGAR_STR[var->var_type], var_alle_i, hap);
                     // update hap_to_alle_profile for all Vars covered by this read, based on its assigned haplotype
                     // udpated profile will then be used for following Vars (assign_var_hap_based_on_pre_reads)
-                    update_var_hap_profile_based_on_aln_hap(target_var_cate, hap, phase_set, cand_vars, var_i_to_cate, p, read_i);
+                    update_var_hap_profile_based_on_aln_hap(hap, phase_set, cand_vars, var_i_to_cate, target_var_cate, p, read_i);
                 }
             }
         }
@@ -314,7 +320,7 @@ int assign_hap_based_on_het_vars(bam_chunk_t *bam_chunk, int target_var_cate, co
                 // fprintf(stderr, "ok\n");
             int cur_hap = bam_chunk->haps[read_i];
             // XXX TODO: potential local optima
-            int new_hap = update_var_aln_hap1(target_var_cate, read_i, cur_hap, bam_chunk, p, cand_vars, var_i_to_cate);
+            int new_hap = update_var_aln_hap1(read_i, cur_hap, bam_chunk, p, cand_vars, var_i_to_cate, target_var_cate);
             if (new_hap != cur_hap) { // update bam_haps, hap_to_base_profile, hap_to_cons_base
                 if (LONGCALLD_VERBOSE >= 2) {
                     fprintf(stderr, "read (%d): %s, pos: %" PRId64 "\t", read_i, bam_get_qname(bam_chunk->reads[read_i]), bam_chunk->reads[read_i]->core.pos);
@@ -323,7 +329,7 @@ int assign_hap_based_on_het_vars(bam_chunk_t *bam_chunk, int target_var_cate, co
                 changed_hap = 1;
                 bam_chunk->haps[read_i] = new_hap; // update intermediately
                 // bam_aux_append(bam_chunk->reads[read_i], "XT", 'i', 4, (uint8_t*)&(bam_chunk->haps[read_i]));
-                update_var_hap_profile_based_on_changed_hap(target_var_cate, new_hap, cur_hap, cand_vars, var_i_to_cate, opt->min_alt_dp, p, read_i);
+                update_var_hap_profile_based_on_changed_hap(new_hap, cur_hap, cand_vars, var_i_to_cate, target_var_cate, opt->min_alt_dp, p, read_i);
             }
         } if (changed_hap == 0) break;
     }

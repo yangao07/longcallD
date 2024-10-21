@@ -27,11 +27,13 @@ const struct option call_var_opt [] = {
     { "ref-fa", 1, NULL, 'r' },
     { "out-vcf", 1, NULL, 'o'},
     { "out-bam", 1, NULL, 'b' },
+    { "no-vcf-header", 0, NULL, 'H'},
+    // { "out-bam", 1, NULL, 'b' },
     { "sample-name", 1, NULL, 'n'},
     { "min-depth", 1, NULL, 'd' },
     { "min-alt-depth", 1, NULL, 'D' },
     { "max-ploidy", 1, NULL, 'p' },
-    { "max-sites", 1, NULL, 's' },
+    { "max-xgaps", 1, NULL, 's' },
     { "win-size", 1, NULL, 'w'},
     { "noisy-flank", 1, NULL, 'f' },
     { "end-clip", 1, NULL, 'c' },
@@ -92,7 +94,8 @@ call_var_opt_t *call_var_init_para(void) {
     opt->pl_threads = MIN_OF_TWO(CALL_VAR_PL_THREAD_N, get_num_processors());
     opt->n_threads = MIN_OF_TWO(CALL_VAR_THREAD_N, get_num_processors());
 
-    opt->out_vcf = NULL; opt->out_bam = NULL;
+    opt->out_vcf = NULL; opt->no_vcf_header = 0;
+    opt->out_bam = NULL; opt->no_bam_header = 0;
     // opt->verbose = 0;
     return opt;
 }
@@ -104,7 +107,9 @@ void call_var_free_para(call_var_opt_t *opt) {
 }
 
 void call_var_free_pl(call_var_pl_t pl) {
-    if (pl.ref_seq) ref_seq_free(pl.ref_seq);
+    // if (pl.ref_seq) ref_seq_free(pl.ref_seq);
+    if (pl.ref_reg_seq) ref_reg_seq_free(pl.ref_reg_seq);
+    if (pl.fai) fai_destroy(pl.fai);
     if (pl.bam) {
         if (pl.iter) hts_itr_destroy(pl.iter);
         if (pl.idx) hts_idx_destroy(pl.idx);
@@ -129,6 +134,31 @@ void var_free(var_t *v) {
     }
 }
 
+void call_var_pl_open_ref_reg_fa0(const char *ref_fa_fn, call_var_pl_t *pl) {
+    if (ref_fa_fn) {
+        _err_info("Loading reference genome: %s\n", ref_fa_fn);
+        pl->ref_reg_seq = read_ref_reg_seq(ref_fa_fn);
+        if (pl->ref_reg_seq == NULL) _err_error_exit("Failed to read reference genome: %s\n", ref_fa_fn);
+        _err_info("Loading done: %s\n", ref_fa_fn);
+    } else {
+        _err_error_exit("No reference genome provided\n");
+    }
+}
+
+ref_reg_seq_t *call_var_pl_open_ref_reg_fa(const char *ref_fa_fn, faidx_t *fai, hts_itr_t *iter, bam_hdr_t *header) {
+    ref_reg_seq_t *ref_reg_seq = ref_reg_seq_init();
+    _err_info("Loading region(s) from reference genome: %s\n", ref_fa_fn);
+    for (int i = 0; i < iter->n_reg; ++i) {
+        for (int j = 0; j < iter->reg_list[i].count; ++j) { // ACGT:1234, (beg, end]:(0,4]
+            // fprintf(stderr, "%ld - %ld\n", iter->reg_list[i].intervals[j].beg, iter->reg_list[i].intervals[j].end);
+            read_ref_reg_seq1(fai, ref_reg_seq, header->target_name[iter->reg_list[i].tid], iter->reg_list[i].intervals[j].beg, iter->reg_list[i].intervals[j].end);
+        }
+    }
+    cr_index(ref_reg_seq->reg_cr);
+    _err_info("Loading done!\n");
+    return ref_reg_seq;
+} 
+
 // call variants for each chunk
 static void call_var_worker_for(void *_data, long ii, int tid) {
     call_var_step_t *step = (call_var_step_t*)_data;
@@ -145,7 +175,18 @@ static void stitch_var_worker_for(void *_data, long ii, int tid) {
     stitch_var_main(step, c, var, ii);
 }
 
-static void call_var_pl_open_bam(call_var_opt_t *opt, call_var_pl_t *pl, char **regions, int n_regions) {
+// static void call_var_pl_open_ref_fa(const char *ref_fa_fn, call_var_pl_t *pl) {
+//     if (ref_fa_fn) {
+//         _err_info("Loading reference genome: %s\n", ref_fa_fn);
+//         pl->ref_seq = read_ref_seq(ref_fa_fn);
+//         if (pl->ref_seq == NULL) _err_error_exit("Failed to read reference genome: %s\n", ref_fa_fn);
+//         _err_info("Done: %s\n", ref_fa_fn);
+//     } else {
+//         _err_error_exit("No reference genome provided\n");
+//     }
+// }
+
+static void call_var_pl_open_fa_bam(call_var_opt_t *opt, call_var_pl_t *pl, char **regions, int n_regions) {
     // input BAM file
     pl->bam = sam_open(opt->in_bam_fn, "r"); if (pl->bam == NULL) _err_error_exit("Failed to open BAM file \'%s\'\n", opt->in_bam_fn);
     // multi-threading
@@ -173,8 +214,7 @@ static void call_var_pl_open_bam(call_var_opt_t *opt, call_var_pl_t *pl, char **
                 _err_error_exit("Failed to build BAM index \'%s\'\n", opt->in_bam_fn);
             } else {
                 pl->idx = sam_index_load(pl->bam, opt->in_bam_fn);
-                if (pl->idx == NULL)
-                {
+                if (pl->idx == NULL) {
                     bam_hdr_destroy(pl->header);
                     sam_close(pl->bam);
                     _err_error_exit("Failed to load BAM index \'%s\'\n", opt->in_bam_fn);
@@ -187,24 +227,28 @@ static void call_var_pl_open_bam(call_var_opt_t *opt, call_var_pl_t *pl, char **
             for (int i = 0; i < n_regions; ++i) fprintf(stderr, "%s ", regions[i]);
             fprintf(stderr, "\n");
             _err_error("Will process the whole BAM file.\n");
-        } else pl->use_iter = 1;
-    } else pl->iter = NULL;
+            call_var_pl_open_ref_reg_fa0(opt->ref_fa_fn, pl);
+        } else {
+            pl->use_iter = 1;
+            // read reference fasta based on intervals
+            pl->fai = fai_load(opt->ref_fa_fn);
+            if (pl->fai == NULL) {
+                call_var_pl_open_ref_reg_fa0(opt->ref_fa_fn, pl);
+            } else {
+                pl->ref_reg_seq = call_var_pl_open_ref_reg_fa(opt->ref_fa_fn, pl->fai, pl->iter, pl->header);
+                // fai_destroy(fai);
+            }
+        }
+    } else {
+        pl->iter = NULL;
+        // read whole reference fasta
+        call_var_pl_open_ref_reg_fa0(opt->ref_fa_fn, pl);
+    }
 }
 
 static void call_var_pl_write_bam_header(samFile *out_bam, bam_hdr_t *header) {
     if (sam_hdr_add_pg(header, PROG, "VN", VERSION, "CL", CMD, NULL) < 0) _err_error_exit("Fail to add PG line to bam header.\n");
     if (sam_hdr_write(out_bam, header) < 0) _err_error_exit("Failed to write BAM header.\n");
-}
-
-static void call_var_pl_open_ref_fa(const char *ref_fa_fn, call_var_pl_t *pl) {
-    if (ref_fa_fn) {
-        _err_info("Loading reference genome: %s\n", ref_fa_fn);
-        pl->ref_seq = read_ref_seq(ref_fa_fn);
-        if (pl->ref_seq == NULL) _err_error_exit("Failed to read reference genome: %s\n", ref_fa_fn);
-        _err_info("Done: %s\n", ref_fa_fn);
-    } else {
-        _err_error_exit("No reference genome provided\n");
-    }
 }
 
 static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_pipeline() callback
@@ -299,16 +343,17 @@ static int call_var_usage(void) {//main usage
     // fprintf(stderr, "                                  \'ref.fa\' is not needed if input BAM contains 1) =/X CIGARS, or 2) MD tags\n");
     fprintf(stderr, "    -n --sample-name STR  sample name. if not provided, input BAM file name will be used as sample name in output VCF [NULL]\n");
     fprintf(stderr, "    -o --out-vcf     STR  output phased VCF file [stdout]\n");
+    fprintf(stderr, "    -H --no-vcf-header    do not output VCF header\n");
     fprintf(stderr, "    -b --out-bam     STR  output phased BAM file [NULL]\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "  Variant:\n");
     fprintf(stderr, "    -d --min-depth   INT  min. depth to call a variant [%d]\n", LONGCALLD_MIN_CAND_DP);
     fprintf(stderr, "    -D --alt-depth   INT  min. alt. depth to call a variant[%d]\n", LONGCALLD_MIN_ALT_DP);
     // fprintf(stderr, "    -p --max-ploidy  INT  max. ploidy [%d]\n", LONGCALLD_DEF_PLOID);
-    fprintf(stderr, "    -s --max-sites   INT  max. number of substitutions/gaps in a window(-w/--win-size) [%d]\n", LONGCALLD_DENSE_REG_MAX_XGAPS);
+    fprintf(stderr, "    -s --max-xgaps    INT  max. number of substitutions/gaps in a window(-w/--win-size) [%d]\n", LONGCALLD_DENSE_REG_MAX_XGAPS);
     fprintf(stderr, "    -w --win-size    INT  window size for noisy region [%d]\n", LONGCALLD_DENSE_REG_SLIDE_WIN);
     fprintf(stderr, "                          noisy region with more than -s subs/gaps in a window of -w bases will be skipped for initial haplotype assignment\n");
-    fprintf(stderr, "    -f --noisy-flank INT  flanking mask window size for noisy region [%d]\n", LONGCALLD_DENSE_FLANK_WIN);
+    // fprintf(stderr, "    -f --noisy-flank INT  flanking mask window size for noisy region [%d]\n", LONGCALLD_DENSE_FLANK_WIN);
     fprintf(stderr, "    -c --end-clip    INT  max. number of clipping bases on both ends [%d]\n", LONGCALLD_NOISY_END_CLIP);
     fprintf(stderr, "                          end-clipping region with more than -c bases will be considered as noisy clipping region\n");
     fprintf(stderr, "    -F --clip-flank  INT  flanking mask window size for noisy clipping region [%d]\n", LONGCALLD_NOISY_END_CLIP_WIN);
@@ -328,11 +373,12 @@ int call_var_main(int argc, char *argv[]) {
     // _err_cmd("%s\n", CMD);
     int c, op_idx; call_var_opt_t *opt = call_var_init_para();
     double realtime0 = realtime();
-    while ((c = getopt_long(argc, argv, "r:o:b:d:D:n:s:w:f:F:c:t:hvV:", call_var_opt, &op_idx)) >= 0) {
+    while ((c = getopt_long(argc, argv, "r:o:Hb:d:D:n:s:w:f:F:c:t:hvV:", call_var_opt, &op_idx)) >= 0) {
         switch(c) {
             case 'r': opt->ref_fa_fn = strdup(optarg); break;
             // case 'b': cgp->var_block_size = atoi(optarg); break;
             case 'o': opt->out_vcf = fopen(optarg, "w"); break;
+            case 'H': opt->no_vcf_header = 1; break;
             case 'b': opt->out_bam = hts_open(optarg, "wb"); break;
             case 'd': opt->min_dp = atoi(optarg); break;
             case 'D': opt->min_alt_dp = atoi(optarg); break;
@@ -382,14 +428,13 @@ int call_var_main(int argc, char *argv[]) {
     memset(&pl, 0, sizeof(call_var_pl_t));
     pl.max_reg_len_per_chunk = LONGCALLD_BAM_CHUNK_REG_SIZE; // pl.max_reads_per_chunk = LONGCALLD_BAM_CHUNK_READ_COUNT; 
     pl.n_threads = opt->n_threads;
-    // open reference genome
-    call_var_pl_open_ref_fa(opt->ref_fa_fn, &pl);
-    // open BAM file
-    call_var_pl_open_bam(opt, &pl, argv+optind, argc-optind);
+    // open BAM file & reference genome
+    call_var_pl_open_fa_bam(opt, &pl, argv+optind, argc-optind);
+    // call_var_pl_open_ref_fa(opt->ref_fa_fn, &pl);
 
     // write VCF/BAM header
     if (opt->out_bam != NULL) call_var_pl_write_bam_header(opt->out_bam, pl.header);
-    if (opt->out_vcf != NULL) write_vcf_header(pl.header, opt->out_vcf, opt->sample_name);
+    if (opt->out_vcf != NULL && opt->no_vcf_header == 0) write_vcf_header(pl.header, opt->out_vcf, opt->sample_name);
     // start to work !!!
     pl.opt = opt;
     kt_pipeline(opt->pl_threads, call_var_worker_pipeline, &pl, 4);

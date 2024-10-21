@@ -3,6 +3,7 @@
 #include <getopt.h>
 #include <string.h>
 #include "call_var.h"
+#include "utils.h"
 #include "htslib/kstring.h"
 
 const char PROG[20] = "longCallD";
@@ -42,7 +43,7 @@ int main(int argc, char *argv[]) {
         // else if (strcmp(argv[1], "index") == 0)   return index_main(argc, argv);
         // else if (strcmp(argv[1], "map") == 0)   return map_main(argc, argv);
         else {
-            fprintf(stderr, "[main] Unrecognized command '%s'\n", argv[1]);
+            _err_error("Unrecognized command '%s'\n", argv[1]);
             ret = 1; usage();
         }
     }

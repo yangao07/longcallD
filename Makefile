@@ -17,7 +17,7 @@ ABPOA_INC_DIR = $(ABPOA_DIR)/include
 
 WFA2_DIR    = ./WFA2-lib
 WFA2_LIB    = $(WFA2_DIR)/lib/libwfa.a
-LIB         = $(HTSLIB) $(ABPOA_LIB) $(WFA2_LIB) -lm -lz -lpthread -llzma -lbz2 -lcurl
+LIB         = $(HTSLIB) $(ABPOA_LIB) $(WFA2_LIB) -lm -lz -lpthread -llzma -lbz2 -lcurl -lcrypto
 INCLUDE     = -I $(HTSLIB_DIR) -I $(EDLIB_INC_DIR) -I $(ABPOA_INC_DIR) -I $(WFA2_DIR)
 
 # for debug
@@ -69,7 +69,8 @@ all: $(HTS_ALL) $(EDLIB) $(ABPOA_LIB) $(WFA2_LIB) $(BIN)
 $(HTS_ALL): $(HTSLIB)
 
 $(HTSLIB): $(HTSLIB_DIR)/configure.ac
-	cd $(HTSLIB_DIR); autoreconf -i; ./configure --disable-lzma --disable-bz2 --disable-libcurl --without-libdeflate; make CC=gcc
+#	 cd $(HTSLIB_DIR); autoreconf -i; ./configure --disable-lzma --disable-bz2 --disable-libcurl --without-libdeflate; make CC=gcc
+	cd $(HTSLIB_DIR); autoreconf -i; ./configure; make CC=gcc
 
 # edlib
 $(EDLIB): $(EDLIB_DIR)/src/edlib.cpp $(EDLIB_DIR)/include/edlib.h
