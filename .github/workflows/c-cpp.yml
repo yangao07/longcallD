@@ -8,7 +8,6 @@ on:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
 
     steps:
@@ -17,7 +16,14 @@ jobs:
         submodules: 'true'
     - name: Update submodules
       run: git submodule update --init --recursive
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential libcurl4-openssl-dev
     - name: make
       run: make
+    - name: Run tests
+      run: |
+        ./bin/longcallD --version
     # - name: make check
     #  run: make check
