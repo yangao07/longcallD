@@ -33,7 +33,7 @@ const struct option call_var_opt [] = {
     { "min-depth", 1, NULL, 'd' },
     { "min-alt-depth", 1, NULL, 'D' },
     { "max-ploidy", 1, NULL, 'p' },
-    { "max-xgaps", 1, NULL, 's' },
+    { "max-xgaps", 1, NULL, 'x' },
     { "win-size", 1, NULL, 'w'},
     { "noisy-flank", 1, NULL, 'f' },
     { "end-clip", 1, NULL, 'c' },
@@ -350,7 +350,7 @@ static int call_var_usage(void) {//main usage
     fprintf(stderr, "    -d --min-depth   INT  min. depth to call a variant [%d]\n", LONGCALLD_MIN_CAND_DP);
     fprintf(stderr, "    -D --alt-depth   INT  min. alt. depth to call a variant[%d]\n", LONGCALLD_MIN_ALT_DP);
     // fprintf(stderr, "    -p --max-ploidy  INT  max. ploidy [%d]\n", LONGCALLD_DEF_PLOID);
-    fprintf(stderr, "    -s --max-xgaps    INT  max. number of substitutions/gaps in a window(-w/--win-size) [%d]\n", LONGCALLD_DENSE_REG_MAX_XGAPS);
+    fprintf(stderr, "    -x --max-xgaps    INT  max. number of substitutions/gaps in a window(-w/--win-size) [%d]\n", LONGCALLD_DENSE_REG_MAX_XGAPS);
     fprintf(stderr, "    -w --win-size    INT  window size for noisy region [%d]\n", LONGCALLD_DENSE_REG_SLIDE_WIN);
     fprintf(stderr, "                          noisy region with more than -s subs/gaps in a window of -w bases will be skipped for initial haplotype assignment\n");
     // fprintf(stderr, "    -f --noisy-flank INT  flanking mask window size for noisy region [%d]\n", LONGCALLD_DENSE_FLANK_WIN);
@@ -373,7 +373,7 @@ int call_var_main(int argc, char *argv[]) {
     // _err_cmd("%s\n", CMD);
     int c, op_idx; call_var_opt_t *opt = call_var_init_para();
     double realtime0 = realtime();
-    while ((c = getopt_long(argc, argv, "r:o:Hb:d:D:n:s:w:f:F:c:t:hvV:", call_var_opt, &op_idx)) >= 0) {
+    while ((c = getopt_long(argc, argv, "r:o:Hb:d:D:n:x:w:f:F:c:t:hvV:", call_var_opt, &op_idx)) >= 0) {
         switch(c) {
             case 'r': opt->ref_fa_fn = strdup(optarg); break;
             // case 'b': cgp->var_block_size = atoi(optarg); break;

@@ -6,12 +6,11 @@ GCC_CHECK := $(shell gcc --version | head -n 1 | grep -i "clang")
 # Check if the OS is macOS or linux
 UNAME_S := $(shell uname -s)
 
-ifeq ($(GCC_CHECK),)
+ifeq ($(GCC_CHECK),) # gcc
 	CXXFLAGS = -std=c++11
-else
+else # clang
 	CXXFLAGS = -std=c++11 -stdlib=libc++
 endif
-
 
 # add -fno-tree-vectorize to avoid certain vectorization errors in O3 optimization
 # right now, we are using -O3 for the best performance, and no vectorization errors were found
@@ -102,7 +101,7 @@ $(ABPOA_LIB):
 	cd $(ABPOA_DIR); make libabpoa PREFIX=$(PWD) CC=gcc
 
 $(WFA2_LIB):
-	cd $(WFA2_DIR); make CC=gcc
+	cd $(WFA2_DIR); make setup lib_wfa CC=gcc
 
 $(BIN): $(OBJS)
 	if [ ! -d $(BIN_DIR) ]; then mkdir $(BIN_DIR); fi
@@ -125,7 +124,7 @@ $(SRC_DIR)/seq.o: $(SRC_DIR)/seq.c $(SRC_DIR)/seq.h $(SRC_DIR)/utils.h
 $(SRC_DIR)/utils.o: $(SRC_DIR)/utils.c $(SRC_DIR)/utils.h $(SRC_DIR)/ksort.h $(SRC_DIR)/kseq.h
 $(SRC_DIR)/vcf_utils.o: $(SRC_DIR)/vcf_utils.c $(SRC_DIR)/vcf_utils.h $(SRC_DIR)/utils.h
 
-.PHONY: clean
+.PHONY: clean clean_all
 
 clean:
 	rm -f $(SRC_DIR)/*.o $(BIN)
