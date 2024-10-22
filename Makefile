@@ -3,11 +3,16 @@ CXX         = g++
 
 # Check if gcc is linked to clang
 GCC_CHECK := $(shell gcc --version | head -n 1 | grep -i "clang")
+# Check if the OS is macOS or linux
+UNAME_S := $(shell uname -s)
+
 ifeq ($(GCC_CHECK),)
 	CXXFLAGS = -std=c++11
 else
 	CXXFLAGS = -std=c++11 -stdlib=libc++
 endif
+
+
 # add -fno-tree-vectorize to avoid certain vectorization errors in O3 optimization
 # right now, we are using -O3 for the best performance, and no vectorization errors were found
 EXTRA_FLAGS = -Wall -Wno-unused-function -Wno-misleading-indentation 
@@ -25,8 +30,13 @@ ABPOA_INC_DIR = $(ABPOA_DIR)/include
 
 WFA2_DIR    = ./WFA2-lib
 WFA2_LIB    = $(WFA2_DIR)/lib/libwfa.a
-LIB         = $(HTSLIB) $(ABPOA_LIB) $(WFA2_LIB) -lm -lz -lpthread -llzma -lbz2 -lcurl -lcrypto
+LIB         = $(HTSLIB) $(ABPOA_LIB) $(WFA2_LIB) -lm -lz -lpthread -llzma -lbz2 -lcurl -ldeflate
 INCLUDE     = -I $(HTSLIB_DIR) -I $(EDLIB_INC_DIR) -I $(ABPOA_INC_DIR) -I $(WFA2_DIR)
+
+ifeq ($(UNAME_S),Linux)
+	# Linux
+	LIB += -lcrypto
+endif
 
 # for debug
 ifneq ($(debug),)
