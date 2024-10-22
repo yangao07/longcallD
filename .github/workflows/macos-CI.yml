@@ -1,0 +1,27 @@
+name: MacOS CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: macos-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: 'true'
+    - name: Update submodules
+      run: git submodule update --init --recursive
+    - name: Install dependencies
+      run: |
+        brew update
+        brew install autoconf automake make gcc perl zlib libbz2 liblzma curl openssl libdeflate
+    - name: make
+      run: make
+    - name: Run tests
+      run: |
+        ./bin/longcallD call --version

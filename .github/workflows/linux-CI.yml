@@ -1,4 +1,4 @@
-name: C/C++ CI
+name: Linux CI
 
 on:
   push:
@@ -24,6 +24,4 @@ jobs:
       run: make
     - name: Run tests
       run: |
-        ./bin/longcallD --version
-    # - name: make check
-    #  run: make check
+        ./bin/longcallD call --version

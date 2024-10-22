@@ -30,12 +30,16 @@ ABPOA_INC_DIR = $(ABPOA_DIR)/include
 
 WFA2_DIR    = ./WFA2-lib
 WFA2_LIB    = $(WFA2_DIR)/lib/libwfa.a
-LIB         = $(HTSLIB) $(ABPOA_LIB) $(WFA2_LIB) -lm -lz -lpthread -llzma -lbz2 -lcurl -ldeflate
+LIB         = $(HTSLIB) $(ABPOA_LIB) $(WFA2_LIB) -lm -lz -lpthread -llzma -lbz2 -lcurl
 INCLUDE     = -I $(HTSLIB_DIR) -I $(EDLIB_INC_DIR) -I $(ABPOA_INC_DIR) -I $(WFA2_DIR)
 
-ifeq ($(UNAME_S),Linux)
-	# Linux
+ifeq ($(UNAME_S),Linux) # Linux
 	LIB += -lcrypto
+endif
+
+# Try linking against libdeflate
+ifeq ($(shell echo "int main() {return 0;}" | gcc -x c - -ldeflate >/dev/null 2>&1 && echo "yes"),yes)
+	LIB += -ldeflate
 endif
 
 # for debug
