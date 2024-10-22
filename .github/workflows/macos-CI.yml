@@ -19,7 +19,7 @@ jobs:
     - name: Install dependencies
       run: |
         brew update
-        brew install autoconf automake make gcc perl zlib libbz2 liblzma curl openssl libdeflate
+        brew install autoconf automake make gcc perl zlib bzip2 liblzma curl openssl libdeflate
     - name: make
       run: make
     - name: Run tests
