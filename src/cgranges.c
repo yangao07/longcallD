@@ -100,7 +100,7 @@ void cr_destroy(cgranges_t *cr)
 {
 	int32_t i;
 	if (cr == 0) return;
-	free(cr->r); // why this is not freed?
+	free(cr->r);
 	for (i = 0; i < cr->n_ctg; ++i)
 		free(cr->ctg[i].name);
 	free(cr->ctg);
@@ -168,6 +168,51 @@ void cr_sort(cgranges_t *cr)
 {
 	if (cr->n_ctg == 0 || cr->n_r == 0) return;
 	radix_sort_cr_intv(cr->r, cr->r + cr->n_r);
+}
+
+cgranges_t *cr_merge(cgranges_t *cr) {
+	cgranges_t *tmp_cr = cr_init();
+    for (int32_t i = 0; i < cr->n_ctg; ++i) {
+        cr_ctg_t *ctg = &cr->ctg[i];
+        int64_t start_idx = ctg->off;
+        int64_t end_idx = start_idx + ctg->n;
+
+        if (ctg->n == 0) continue; // Skip if there are no intervals
+
+        cr_intv_t *current = &cr->r[start_idx];
+        uint64_t merged_start = cr_st(current);
+        uint64_t merged_end = cr_en(current);
+        int32_t merged_label = current->label;
+
+        // Iterate through the intervals in this contig and merge as needed
+        for (int64_t j = start_idx + 1; j < end_idx; ++j) {
+            cr_intv_t *next = &cr->r[j];
+            uint64_t next_start = cr_st(next);
+            uint64_t next_end = cr_en(next);
+			int32_t next_label = next->label;
+
+            if (next_start <= merged_end) {
+                // Overlap or contiguous, extend the merged interval
+				merged_label += next_label;
+                if (next_end > merged_end) {
+                    merged_end = next_end;
+				}
+            } else {
+                // No overlap, save the merged interval
+				cr_add(tmp_cr, cr->ctg[i].name, merged_start, merged_end, merged_label);
+
+                // Start a new merge interval
+                merged_start = next_start;
+                merged_end = next_end;
+                merged_label = next_label;
+            }
+        }
+        // Add the last merged interval
+		cr_add(tmp_cr, cr->ctg[i].name, merged_start, merged_end, merged_label);
+    }
+	cr_index(tmp_cr);
+	cr_destroy(cr);
+	return tmp_cr;
 }
 
 int32_t cr_is_sorted(const cgranges_t *cr)

@@ -27,7 +27,7 @@
 #define LONGCALLD_ALT_ALLELE2 2
 #define LONGCALLD_OTHER_ALT_ALLELE 3
 
-#define LONGCALLD_DENSE_REG_MAX_XGAPS 10 // 5?  // dense X/gap region: more than n X/gap bases in a 100-bp window
+#define LONGCALLD_DENSE_REG_MAX_XGAPS 5 // or 10; dense X/gap region: more than n X/gap bases in a 100-bp window
 #define LONGCALLD_DENSE_REG_SLIDE_WIN 100 //
 #define LONGCALLD_DENSE_FLANK_WIN 0 // 25: 100/(3+1)
 #define LONGCALLD_NOISY_END_CLIP 100 // >= n bp clipping on both ends
@@ -68,7 +68,8 @@ typedef struct var_t {
 
 typedef struct call_var_opt_t {
     // input
-    char *ref_fa_fn; char *rep_bed_fn; char *in_bam_fn; char *sample_name;
+    char *ref_fa_fn;
+    char *rep_bed_fn; char *in_bam_fn; char *sample_name;
     char *region_list; uint8_t region_is_file; // for -R/--region/--region-file option
     // filters for variant calling
     int max_ploid, min_mq, min_bq, min_dp, min_alt_dp; 
@@ -90,7 +91,7 @@ typedef struct call_var_pl_t {
     // input files
     // ref_seq_t *ref_seq; 
     faidx_t *fai; ref_reg_seq_t *ref_reg_seq; // cgranges_t *rep_regs;
-    samFile *bam; bam_hdr_t *header; hts_tpool *p;
+    samFile *bam; bam_hdr_t *header; hts_tpool *p; uint8_t reach_bam_end;
     hts_idx_t *idx; hts_itr_t *iter; int use_iter;
     // parameters, output files
     const call_var_opt_t *opt;

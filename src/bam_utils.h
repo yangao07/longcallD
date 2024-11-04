@@ -62,12 +62,21 @@ typedef struct digar1_t {
                          //              3) X around indels
                          //              etc.
 typedef struct {
+    hts_pos_t beg, end; // [beg, end]
     int n_digar, m_digar;
     digar1_t *digars;
     // read-wise noisy region: active region for re-alignment
     cgranges_t *noisy_regs; // merge low_qual digar1_t if they are next to each other
     const uint8_t *bseq, *qual;
 } digar_t; // detailed CIGAR for each read
+
+typedef struct {
+    int n_digar, m_digar;
+    digar1_t *digars;
+    cand_var_t *cand_vars; int n_cand_vars, m_cand_vars;
+    int n_cand_genotypes, m_cand_genotypes;
+    uint8_t **cand_genotypes; // size n_cand_genotypes * genotype_seq_len
+} noisy_reg_var_set_t;
 
 // coordinate system: ACGT: 1234
 //   samtools view/longCallD call: 1-based, [beg, end]: [1,4]
@@ -83,12 +92,12 @@ typedef struct bam_chunk_t {
     //   reference sequence for this chunk, size: ref_end-ref_beg
     //   if reg_reg_cr contain >1 regions, ref_seq will be concatenated, including additonal gaps between regions
     char *ref_seq; uint8_t need_free_ref_seq; hts_pos_t ref_beg, ref_end; // [ref_beg, ref_end]
-    // ref_reg_cr: 
-    //   reference region for this chunk. usually just 1 region, but maybe multiple regions when regions are small, or reads are long
+    // reg_cr: 
+    //   reference region for this chunk. usually just 1 region, but could be multiple regions when regions are small, or reads are long
     //   only variants within regions will be considered, variants outside will be skipped
     //   for variants across boundaries/spaning multiple regions, they will be processed during stitching
     //   ref_beg <= reg_beg < reg_end <= ref_end, ref_seq may include additional flanking regions (1kb)
-    cgranges_t *ref_reg_cr; hts_pos_t reg_beg, reg_end; // [reg_beg, reg_end]
+    cgranges_t *reg_cr; hts_pos_t reg_beg, reg_end; // [reg_beg, reg_end]
     uint8_t bam_has_eqx_cigar, bam_has_md_tag;
     int n_reads, m_reads;
     int n_up_ovlp_reads; // number of reads overlapping with upstream bam chunk
@@ -99,6 +108,9 @@ typedef struct bam_chunk_t {
     uint8_t *is_ovlp; // size: m_reads, is_ovlp: overlap with other chunks
     uint8_t *is_skipped; // size: m_reads, is_skipped: wrong mapping, low qual, etc.
     digar_t *digars;
+    cgranges_t *chunk_noisy_regs; // merged noisy regions for all reads
+    int **noisy_reg_to_reads, *noisy_reg_to_n_reads; // size: chunk->chunk_noisy_regs->n_r
+    noisy_reg_var_set_t *noisy_reg_var_sets; // size: chunk_noisy_regs->n_r
     // variant-related
     int n_cand_vars; cand_var_t *cand_vars;
     // int **var_cate_idx, *var_cate_counts; // size: LONGCALLD_VAR_CATE_N
@@ -123,11 +135,27 @@ static inline int is_low_qual(hts_pos_t pos, cgranges_t *noisy_regs) {
     return (ovlp_n > 0);
 }
 
+static inline int is_overlap_cr(char *tname, hts_pos_t beg, hts_pos_t end, cgranges_t *reg_cr) {
+    int64_t ovlp_n, *ovlp_b = 0, max_b = 0;
+    ovlp_n = cr_overlap(reg_cr, tname, beg-1, end, &ovlp_b, &max_b);
+    free(ovlp_b);
+    return (ovlp_n > 0);
+}
+
+static inline int is_overlap_reg(hts_pos_t beg, hts_pos_t end, hts_pos_t reg_beg, hts_pos_t reg_end) {
+    if (beg > reg_end || end < reg_beg) return 0;
+    return 1;
+}
+
+int get_aux_int_from_bam(bam1_t *b, const char *tag);
+char *get_aux_str_from_bam(bam1_t *b, const char *tag);
+void print_digar1(digar1_t *digar, int n_digar, FILE *fp);
+void print_digar(digar_t *digar, FILE *fp);
+int collect_reg_digars_var_seqs(bam_chunk_t *chunk, int read_i, hts_pos_t reg_beg, hts_pos_t reg_end, digar1_t *reg_digars, uint8_t **reg_var_seqs, int *fully_cover);
 void check_eqx_cigar_MD_tag(samFile *in_bam, bam_hdr_t *header, uint8_t *has_eqx, uint8_t *has_MD);
-void collect_digar_from_eqx_cigar(bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar);
-void collect_digar_from_MD_tag(bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar);
-// (ref_beg, ref_end]
-void collect_digar_from_ref_seq(bam1_t *read, const struct call_var_opt_t *opt, char *ref_seq, hts_pos_t ref_beg, hts_pos_t ref_end, digar_t *digar);
+void collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar);
+void collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar);
+void collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar);
 int update_cand_vars_from_digar(digar_t *digar, bam1_t *read, int n_var_sites, struct var_site_t *var_sites, int start_i, struct cand_var_t *cand_vars);
 int update_read_var_profile_from_digar(digar_t *digar, bam1_t *read, int n_cand_vars, struct cand_var_t *cand_vars, int start_var_i, struct read_var_profile_t *read_var_profile);
 

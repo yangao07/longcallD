@@ -22,7 +22,8 @@ TODO:
 - [ ] No candidate SVs (count > 2): do MSA (abPOA), use phase-based consensus as candidate
 - [ ] Around SV: check left/right for longer match, extend/re-align the other side
 - [ ] Annotation of inserted sequence? L1/Alu, etc.
-
+- [ ] Weighted score during co-calling & phasing, variant-wise weight: base/mapping Q, noisy density, around large clipping
+  - Low-weight variant contribute less than high-weight variants during phasing
 ---
 
 * Tumour purity $\alpha$: est. -> max. -> est. ... -> converge

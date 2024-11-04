@@ -130,6 +130,8 @@ extern "C" {
 	void ks_introsort_64 (size_t n, uint64_t *a);
 	void ks_introsort_128(size_t n, pair64_t *a);
 
+    char *retrieve_full_url(const char *short_url);
+
 
 #ifdef __cplusplus
 }

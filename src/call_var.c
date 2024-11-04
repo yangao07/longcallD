@@ -101,6 +101,8 @@ call_var_opt_t *call_var_init_para(void) {
 }
 
 void call_var_free_para(call_var_opt_t *opt) {
+    if (opt->ref_fa_fn) free(opt->ref_fa_fn);
+    if (opt->in_bam_fn) free(opt->in_bam_fn);
     if (opt->sample_name) free(opt->sample_name);
     if (opt->region_list) free(opt->region_list);
     free(opt);
@@ -150,7 +152,6 @@ ref_reg_seq_t *call_var_pl_open_ref_reg_fa(const char *ref_fa_fn, faidx_t *fai, 
     _err_info("Loading region(s) from reference genome: %s\n", ref_fa_fn);
     for (int i = 0; i < iter->n_reg; ++i) {
         for (int j = 0; j < iter->reg_list[i].count; ++j) { // ACGT:1234, (beg, end]:(0,4]
-            // fprintf(stderr, "%ld - %ld\n", iter->reg_list[i].intervals[j].beg, iter->reg_list[i].intervals[j].end);
             read_ref_reg_seq1(fai, ref_reg_seq, header->target_name[iter->reg_list[i].tid], iter->reg_list[i].intervals[j].beg, iter->reg_list[i].intervals[j].end);
         }
     }
@@ -188,6 +189,8 @@ static void stitch_var_worker_for(void *_data, long ii, int tid) {
 
 static void call_var_pl_open_fa_bam(call_var_opt_t *opt, call_var_pl_t *pl, char **regions, int n_regions) {
     // input BAM file
+    if (strcmp(opt->in_bam_fn, "-") == 0) _err_info("Opening BAM file from pipe/stdin\n");
+    else _err_info("Opening BAM file: %s\n", opt->in_bam_fn);
     pl->bam = sam_open(opt->in_bam_fn, "r"); if (pl->bam == NULL) _err_error_exit("Failed to open BAM file \'%s\'\n", opt->in_bam_fn);
     // multi-threading
     pl->p = hts_tpool_init(MAX_OF_TWO(1, pl->n_threads));
@@ -268,8 +271,14 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
         // if there is a variant gap, simply start with the first read of the next round
         // this enables the phasing across multiple rounds
         // XXX add a tmp_bam_chunk to store the last chunk of last round, stitch it with the first chunk of current round
-        while ((r = collect_bam_chunk(p, &last_chunk_read_i, &n_last_chunk_reads, &cur_reg_beg, s->chunks+s->n_chunks)) > 0) {
+        while (!p->reach_bam_end) {
+            r = collect_bam_chunk(p, &last_chunk_read_i, &n_last_chunk_reads, &cur_reg_beg, s->chunks+s->n_chunks);
+            if (s->chunks[s->n_chunks].n_reads == 0) break;
             if (++s->n_chunks >= s->max_chunks) break;
+            if (r < 0) {
+                p->reach_bam_end = 1;
+                break;
+            }
         }
         if (last_chunk_read_i != NULL) free(last_chunk_read_i);
         // XXX merge chunks if too few reads
@@ -383,7 +392,7 @@ int call_var_main(int argc, char *argv[]) {
             case 'd': opt->min_dp = atoi(optarg); break;
             case 'D': opt->min_alt_dp = atoi(optarg); break;
             case 'n': opt->sample_name = strdup(optarg); break;
-            case 's': opt->dens_reg_max_xgaps = atoi(optarg); break;
+            case 'x': opt->dens_reg_max_xgaps = atoi(optarg); break;
             case 'w': opt->dens_reg_slide_win = atoi(optarg); break;
             case 'f': opt->dens_reg_flank_win = atoi(optarg); break;
             case 'c': opt->end_clip_reg = atoi(optarg); break;
@@ -392,7 +401,7 @@ int call_var_main(int argc, char *argv[]) {
             case 'h': call_var_usage(); call_var_free_para(opt); return 0;
             case 'v': fprintf(stderr, "%s\n", VERSION); call_var_free_para(opt); return 0;
             case 'V': LONGCALLD_VERBOSE = atoi(optarg); break;
-            default: call_var_free_para(opt); return 0; // call_var_usage();
+            default: call_var_free_para(opt); call_var_usage();
         }
     }
 
@@ -413,6 +422,8 @@ int call_var_main(int argc, char *argv[]) {
             opt->in_bam_fn = argv[optind++];
         }
     }
+    // check if input is (short) URL
+    opt->ref_fa_fn = retrieve_full_url(opt->ref_fa_fn); opt->in_bam_fn = retrieve_full_url(opt->in_bam_fn);
     // threads
     if (opt->n_threads <= 0) {
         opt->n_threads = 1; opt->pl_threads = 1;
@@ -442,8 +453,9 @@ int call_var_main(int argc, char *argv[]) {
     if (opt->out_vcf != NULL) fclose(opt->out_vcf);
     call_var_free_pl(pl); call_var_free_para(opt); 
     // finish
-    _err_cmd("%s\n", CMD);
     _err_info("Real time: %.3f sec; CPU: %.3f sec; Peak RSS: %.3f GB.\n", realtime() - realtime0, cputime(), peakrss() / 1024.0 / 1024.0 / 1024.0);
-    _err_success("Done.\n");
+    // _err_cmd("%s\n", CMD);
+    // _err_success("Done.\n");
+    _err_success("%s\n", CMD);
     return 0;
 }

@@ -72,6 +72,9 @@ INC_DIR = ./include
 SRC_DIR = ./src
 
 HTS_ALL = hts_all
+EDLIB_ALL = edlib_all
+ABPOA_ALL = abpoa_all
+WFA2_ALL = wfa2_all
 CSOURCE    = $(wildcard ${SRC_DIR}/*.c) 
 CPPSOURCE  = $(wildcard $(SRC_DIR)/*.cpp)
 CPPSOURCE += $(EDLIB_DIR)/src/edlib.cpp
@@ -97,11 +100,15 @@ $(HTSLIB): $(HTSLIB_DIR)/configure.ac
 $(EDLIB): $(EDLIB_DIR)/src/edlib.cpp $(EDLIB_DIR)/include/edlib.h
 	$(CXX) $(CFLAGS) $(CXXFLAGS) -c $< $(INCLUDE) -o $@
 
+$(EDLIB_ALL): $(EDLIB)
+
 $(ABPOA_LIB): 
 	cd $(ABPOA_DIR); make libabpoa PREFIX=$(PWD) CC=gcc
+$(ABPOA_ALL): $(ABPOA_LIB)
 
 $(WFA2_LIB):
 	cd $(WFA2_DIR); make setup lib_wfa CC=gcc
+$(WFA2_ALL): $(WFA2_LIB)
 
 $(BIN): $(OBJS)
 	if [ ! -d $(BIN_DIR) ]; then mkdir $(BIN_DIR); fi
@@ -115,6 +122,7 @@ $(SRC_DIR)/bam_utils.o: $(SRC_DIR)/bam_utils.c $(SRC_DIR)/bam_utils.h $(SRC_DIR)
 $(SRC_DIR)/cgranges.o: $(SRC_DIR)/cgranges.c $(SRC_DIR)/cgranges.h $(SRC_DIR)/khash.h
 $(SRC_DIR)/collect_var.o: $(SRC_DIR)/collect_var.c $(SRC_DIR)/collect_var.h $(SRC_DIR)/bam_utils.h
 $(SRC_DIR)/kalloc.o: $(SRC_DIR)/kalloc.c $(SRC_DIR)/kalloc.h
+$(SRC_DIR)/kmedoids.o : $(SRC_DIR)/kmedoids.c $(SRC_DIR)/kmedoids.h
 $(SRC_DIR)/kthread.o: $(SRC_DIR)/kthread.c
 $(SRC_DIR)/main.o: $(SRC_DIR)/main.c $(SRC_DIR)/call_var.h
 $(SRC_DIR)/call_var.o: $(SRC_DIR)/bam_utils.c $(SRC_DIR)/call_var.c $(SRC_DIR)/call_var.h $(SRC_DIR)/main.h $(SRC_DIR)/utils.h $(SRC_DIR)/seq.h \
@@ -124,9 +132,17 @@ $(SRC_DIR)/seq.o: $(SRC_DIR)/seq.c $(SRC_DIR)/seq.h $(SRC_DIR)/utils.h
 $(SRC_DIR)/utils.o: $(SRC_DIR)/utils.c $(SRC_DIR)/utils.h $(SRC_DIR)/ksort.h $(SRC_DIR)/kseq.h
 $(SRC_DIR)/vcf_utils.o: $(SRC_DIR)/vcf_utils.c $(SRC_DIR)/vcf_utils.h $(SRC_DIR)/utils.h
 
-.PHONY: clean clean_all
+.PHONY: all hts_all edlib_all abpoa_all wfa2_all clean clean_all clean_hts clean_edlib clean_abpoa clean_wfa2
 
 clean:
 	rm -f $(SRC_DIR)/*.o $(BIN)
 clean_all:
 	rm -f $(SRC_DIR)/*.o $(BIN) $(HTSLIB) $(EDLIB) $(ABPOA_LIB) $(WFA2_LIB)
+clean_hts:
+	rm -f $(HTSLIB)
+clean_edlib:
+	rm -f $(EDLIB)
+clean_abpoa:
+	rm -f $(ABPOA_LIB)
+clean_wfa2:
+	rm -f $(WFA2_LIB)

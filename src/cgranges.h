@@ -70,6 +70,7 @@ cr_intv_t *cr_add(cgranges_t *cr, const char *ctg, int32_t st, int32_t en, int32
 
 // Sort and index intervals
 void cr_index(cgranges_t *cr);
+cgranges_t *cr_merge(cgranges_t *cr);
 
 int64_t cr_overlap(const cgranges_t *cr, const char *ctg, int32_t st, int32_t en, int64_t **b_, int64_t *m_b_);
 int64_t cr_contain(const cgranges_t *cr, const char *ctg, int32_t st, int32_t en, int64_t **b_, int64_t *m_b_);

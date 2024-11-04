@@ -214,9 +214,12 @@ void ref_reg_seq_free(ref_reg_seq_t *r) {
 
 void read_ref_reg_seq1(faidx_t *fai, ref_reg_seq_t *r, const char *rname, hts_pos_t beg, hts_pos_t end) {
     int len;
-    hts_pos_t _beg = MAX_OF_TWO(0, beg-1000), _end = end+1000;
+    int ref_seq_len = faidx_seq_len(fai, rname);
+    // hts_pos_t _beg = MAX_OF_TWO(0, beg-1000), _end = end+1000;
+    int _beg = MAX_OF_TWO(1000, beg)-1000, _end = MIN_OF_TWO(ref_seq_len-1000, end)+1000;
+    // fprintf(stderr, "rname: %s, beg: %" PRId64 ", end: %" PRId64 ", _beg: %d, _end: %d\n", rname, beg, end, _beg, _end);
     char *seq = faidx_fetch_seq(fai, rname, _beg, _end, &len);
-    if (seq == NULL) _err_error_exit("Failed to fetch sequence (%s:%" PRId64 "-%" PRId64 ")\n");
+    if (seq == NULL) _err_error_exit("Failed to fetch sequence (%s:%d-%d\n", rname, _beg, _end);
     ref_reg_seq_realloc(r);
     kputsn(seq, len, &r->reg_seq[r->n].seq); free(seq);
     kputsn(rname, strlen(rname), &r->name[r->n]);

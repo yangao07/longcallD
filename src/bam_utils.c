@@ -29,6 +29,7 @@ int has_equal_X_in_bam_cigar(bam1_t *read) {
     // Get the CIGAR string for the read
     const uint32_t *cigar = bam_get_cigar(read);
     int n_cigar = read->core.n_cigar;
+    if (n_cigar <= 0) return 0;
     // Check if '=' or 'X' is in the CIGAR operations
     for (int i = 0; i < n_cigar; i++) {
         int op = bam_cigar_op(cigar[i]);
@@ -38,12 +39,24 @@ int has_equal_X_in_bam_cigar(bam1_t *read) {
             return 0;
         }
     }
-    return 2;
+    return 0;
 }
 
 int has_MD_in_bam(bam1_t *b) {
     uint8_t *s = bam_aux_get(b, "MD");
     return s != NULL;
+}
+
+int get_aux_int_from_bam(bam1_t *b, const char *tag) {
+    uint8_t *s = bam_aux_get(b, tag);
+    if (s == NULL) return -1;
+    return bam_aux2i(s);
+}
+
+char *get_aux_str_from_bam(bam1_t *b, const char *tag) {
+    uint8_t *s = bam_aux_get(b, tag);
+    if (s == NULL) return NULL;
+    return (char*)s;
 }
 
 void print_digar(digar_t *digar, FILE *fp) {
@@ -444,6 +457,55 @@ void print_digar1(digar1_t *digars, int n_digar, FILE *fp) {
     }
 }
 
+// collect reg_digars that are within [reg_beg, reg_end]
+int collect_reg_digars_var_seqs(bam_chunk_t *chunk, int read_i, hts_pos_t reg_beg, hts_pos_t reg_end, digar1_t *reg_digars, uint8_t **reg_var_seqs, int *fully_cover) {
+    char *ref_seq = chunk->ref_seq; hts_pos_t ref_beg = chunk->ref_beg, ref_end = chunk->ref_end;
+    digar_t *read_digars = chunk->digars+read_i; int n_digar = read_digars->n_digar; digar1_t *digars = read_digars->digars;
+    int n_reg_digars = 0;
+    hts_pos_t reg_digar_beg = -1, reg_digar_end = -1;
+    for (int i = 0; i < n_digar; ++i) {
+        if (digars[i].type == BAM_CSOFT_CLIP || digars[i].type == BAM_CHARD_CLIP) continue;
+        uint8_t **var_seqs = reg_var_seqs+n_reg_digars;
+        hts_pos_t beg, end;
+        beg = digars[i].pos;
+        if (digars[i].type == BAM_CINS) end = digars[i].pos; // insertion
+        else end = digars[i].pos + digars[i].len - 1; // equal, diff or deletion
+        reg_digars[n_reg_digars] = digars[i];
+        if (beg > reg_end) break;
+        if (end < reg_beg) continue;
+        // cover left end of the region, only for equal, diff or deletion
+        if (beg <= reg_beg) {
+            reg_digars[n_reg_digars].pos = reg_beg;
+            reg_digars[n_reg_digars].len -= (reg_beg - beg);
+        }
+        // cover right end of the region
+        if (end >= reg_end) {
+            reg_digars[n_reg_digars].len -= (end - reg_end);
+        }
+        // collect variant seq
+        if (reg_digars[n_reg_digars].type == BAM_CINS) {
+            *var_seqs = (uint8_t*)malloc(reg_digars[n_reg_digars].len * sizeof(uint8_t));
+            for (int j = 0; j < reg_digars[n_reg_digars].len; ++j)
+                (*var_seqs)[j] = seq_nt16_int[bam_seqi(read_digars->bseq, reg_digars[n_reg_digars].qi+j)];
+        } else if (reg_digars[n_reg_digars].type == BAM_CDEL) {
+            *var_seqs = (uint8_t*)malloc(reg_digars[n_reg_digars].len * sizeof(uint8_t));
+            for (int j = 0; j < reg_digars[n_reg_digars].len; ++j)
+                (*var_seqs)[j] = nst_nt4_table[(int)ref_seq[reg_digars[n_reg_digars].pos-ref_beg+j]];
+        } else if (reg_digars[n_reg_digars].type == BAM_CDIFF) {
+            *var_seqs = (uint8_t*)malloc(reg_digars[n_reg_digars].len * 2 * sizeof(uint8_t)); // Ref+Query
+            for (int j = 0; j < reg_digars[n_reg_digars].len; ++j) {
+                (*var_seqs)[j*2] = nst_nt4_table[(int)ref_seq[reg_digars[n_reg_digars].pos-ref_beg+j]];
+                (*var_seqs)[j*2+1] = seq_nt16_int[bam_seqi(read_digars->bseq, reg_digars[n_reg_digars].qi+j)];
+            }
+        } else (*var_seqs) = NULL;
+        if (reg_digar_beg == -1) reg_digar_beg = reg_digars[n_reg_digars].pos;
+        reg_digar_end = reg_digars[n_reg_digars].pos + reg_digars[n_reg_digars].len - 1;
+        n_reg_digars++;
+    }
+    if (reg_digar_beg != reg_beg || reg_digar_end != reg_end) *fully_cover = 0; else *fully_cover = 1;
+    return n_reg_digars;
+}
+
 void assign_down_flanking_len(digar1_t *digars, int i, int len, int *down_low_qual_len) {
     int j = i, remain_low_qual_len = len;
     while (j >= 0 && remain_low_qual_len > 0) {
@@ -574,7 +636,8 @@ void post_update_digar(digar1_t *_digars, int _n_digar, const struct call_var_op
     free(up_low_qual_len); free(down_low_qual_len);
 }
 
-void collect_digar_from_eqx_cigar(bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar) {
+void collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar) {
+    hts_pos_t reg_beg = chunk->reg_beg, reg_end = chunk->reg_end; cgranges_t *chunk_noisy_regs = chunk->chunk_noisy_regs;
     hts_pos_t pos = read->core.pos+1, qi = 0;
     const uint32_t *cigar = bam_get_cigar(read); int n_cigar = read->core.n_cigar;
     int max_s = opt->dens_reg_max_xgaps, win = opt->dens_reg_slide_win;
@@ -582,6 +645,7 @@ void collect_digar_from_eqx_cigar(bam1_t *read, const struct call_var_opt_t *opt
     int end_clip_reg = opt->end_clip_reg, end_clip_reg_flank_win = opt->end_clip_reg_flank_win;
     digar->n_digar = 0; digar->m_digar = 2 * n_cigar; digar->digars = (digar1_t*)malloc(n_cigar * 2 * sizeof(digar1_t));
     digar->noisy_regs = cr_init();
+    digar->beg = pos; digar->end = bam_endpos(read);
     digar->bseq = bam_get_seq(read); digar->qual = bam_get_qual(read);
     int _n_digar = 0, _m_digar = 2 * n_cigar; digar1_t *_digars = (digar1_t*)malloc(_m_digar * sizeof(digar1_t));
     int rlen = bam_cigar2rlen(n_cigar, cigar);
@@ -626,11 +690,8 @@ void collect_digar_from_eqx_cigar(bam1_t *read, const struct call_var_opt_t *opt
             set_digar(_digars+_n_digar, pos, op, len, qi); // clipping
             _n_digar++; // push_xid_queue(q, pos, 0, 0);
             if (len > end_clip_reg) {
-                if (i == 0) { // left end
-                    cr_add(digar->noisy_regs, "cr", pos-1, pos+end_clip_reg_flank_win, 0);
-                } else { // right end
-                    cr_add(digar->noisy_regs, "cr", pos-1-end_clip_reg_flank_win, pos, 0);
-                }
+                if (i == 0) cr_add(digar->noisy_regs, "cr", pos-1, pos+end_clip_reg_flank_win, 0); // left end
+                else cr_add(digar->noisy_regs, "cr", pos-1-end_clip_reg_flank_win, pos, 0); // right end
             }
             qi += len;
         } else if (op == BAM_CHARD_CLIP) {
@@ -638,17 +699,14 @@ void collect_digar_from_eqx_cigar(bam1_t *read, const struct call_var_opt_t *opt
             set_digar(_digars+_n_digar, pos, op, len, qi); // clipping
             _n_digar++; // push_xid_queue(q, pos, 0, 0);
             if (len > end_clip_reg) {
-                if (i == 0) { // left end
-                    cr_add(digar->noisy_regs, "cr", pos-1, pos+end_clip_reg_flank_win, 0);
-                } else { // right end
-                    cr_add(digar->noisy_regs, "cr", pos-1-end_clip_reg_flank_win, pos, 0);
-                }
+                if (i == 0) cr_add(digar->noisy_regs, "cr", pos-1, pos+end_clip_reg_flank_win, 0); // left end
+                else cr_add(digar->noisy_regs, "cr", pos-1-end_clip_reg_flank_win, pos, 0); // right end
             }
             // push_xid_queue_win(q, pos, 0, 0, digar->noisy_regs, &noisy_start, &noisy_end);
         } else if (op == BAM_CREF_SKIP) { // XXX no action for N op
             pos += len;
         } else if (op == BAM_CMATCH) {
-            _err_error_exit("CIGAR operation 'M' is not expected in EQX CIGAR: %s", bam_get_qname(read));
+            _err_error_exit("CIGAR operation 'M' is not expected in EQX CIGAR: %s\n", bam_get_qname(read));
         }
     }
     for (int i = 0, j = 0; i < _n_digar; ++i) {
@@ -660,6 +718,13 @@ void collect_digar_from_eqx_cigar(bam1_t *read, const struct call_var_opt_t *opt
     // post_update_digar(_digars, _n_digar, opt, digar);
     if (noisy_start != -1) cr_add(digar->noisy_regs, "cr", noisy_start-1, noisy_end, 0);
     cr_index(digar->noisy_regs);
+    for (int i = 0; i < digar->noisy_regs->n_r; ++i) { // XXX double-count reads with multiple nearby noisy regions
+                                                       // read1:  ---- [noisy] ---- [noisy] ----
+                                                       // read2:  --------- [  noisy  ] --------
+        // fprintf(stderr, "%d - %d : %d - %d\n", cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i), cr_start(reg_cr, 0), cr_end(reg_cr, 0));
+        if (is_overlap_reg(cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i), reg_beg, reg_end))
+            cr_add(chunk_noisy_regs, "cr", cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i), 1);
+    }
     if (LONGCALLD_VERBOSE >= 2) {
         fprintf(stderr, "DIGAR1: %s\n", bam_get_qname(read));
         print_digar(digar, stderr);
@@ -672,13 +737,15 @@ void collect_digar_from_eqx_cigar(bam1_t *read, const struct call_var_opt_t *opt
 }
 
 // XXX TODO
-void collect_digar_from_cs_tag(bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar) {
+void collect_digar_from_cs_tag(bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar, cgranges_t *chunk_noisy_regs) {
 }
 
-void collect_digar_from_MD_tag(bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar) {
+void collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar) {
+    hts_pos_t reg_beg = chunk->reg_beg, reg_end = chunk->reg_end; cgranges_t *chunk_noisy_regs = chunk->chunk_noisy_regs;
     uint8_t *s = bam_aux_get(read, "MD");
     if (s == NULL) { _err_error_exit("MD tag not found in the BAM file: %s", bam_get_qname(read)); }
     hts_pos_t pos = read->core.pos+1, qi = 0;
+    digar->beg = pos; digar->end = bam_endpos(read);
     const uint32_t *cigar = bam_get_cigar(read); int n_cigar = read->core.n_cigar;
     int max_s = opt->dens_reg_max_xgaps, win = opt->dens_reg_slide_win;
 
@@ -770,7 +837,7 @@ void collect_digar_from_MD_tag(bam1_t *read, const struct call_var_opt_t *opt, d
         } else if (op == BAM_CREF_SKIP) {
             pos += len;
         } else if (op == BAM_CEQUAL || op == BAM_CDIFF) {
-            _err_error_exit("CIGAR operation '=/X' is not expected: %s", bam_get_qname(read));
+            _err_error_exit("CIGAR operation '=/X' is not expected: %s\n", bam_get_qname(read));
         }
     }
     for (int i = 0, j = 0; i < _n_digar; ++i) {
@@ -781,16 +848,22 @@ void collect_digar_from_MD_tag(bam1_t *read, const struct call_var_opt_t *opt, d
     post_update_digar(_digars, _n_digar, opt, digar);
     if (noisy_start != -1) cr_add(digar->noisy_regs, "cr", noisy_start-1, noisy_end, 0);
     cr_index(digar->noisy_regs);
+    for (int i = 0; i < digar->noisy_regs->n_r; ++i) {
+        if (is_overlap_reg(cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i), reg_beg, reg_end))
+            cr_add(chunk_noisy_regs, "cr", cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i), 1);
+    }
     if (LONGCALLD_VERBOSE >= 2) {
         fprintf(stderr, "DIGAR2: %s\n", bam_get_qname(read));
         print_digar(digar, stderr);
     }
     free(_digars); free_xid_queue(q);
-    cr_index(digar->noisy_regs);
 }
 
-void collect_digar_from_ref_seq(bam1_t *read, const call_var_opt_t *opt, char *ref_seq, hts_pos_t ref_beg, hts_pos_t ref_end, digar_t *digar) {
+void collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const call_var_opt_t *opt, digar_t *digar) {
+    char *ref_seq = chunk->ref_seq; hts_pos_t ref_beg = chunk->ref_beg, ref_end = chunk->ref_end;
+    hts_pos_t reg_beg = chunk->reg_beg, reg_end = chunk->reg_end; cgranges_t *chunk_noisy_regs = chunk->chunk_noisy_regs;
     hts_pos_t pos = read->core.pos+1, qi = 0;
+    digar->beg = pos; digar->end = bam_endpos(read);
     const uint32_t *cigar = bam_get_cigar(read); int n_cigar = read->core.n_cigar;
     int max_s = opt->dens_reg_max_xgaps, win = opt->dens_reg_slide_win;
 
@@ -860,7 +933,7 @@ void collect_digar_from_ref_seq(bam1_t *read, const call_var_opt_t *opt, char *r
         } else if (op == BAM_CREF_SKIP) {
             pos += len;
         } else if (op == BAM_CEQUAL || op == BAM_CDIFF) {
-            _err_error_exit("CIGAR operation '=/X' is not expected: %s", bam_get_qname(read));
+            _err_error_exit("CIGAR operation '=/X' is not expected: %s\n", bam_get_qname(read));
         }
     }
     for (int i = 0, j = 0; i < _n_digar; ++i) {
@@ -871,12 +944,15 @@ void collect_digar_from_ref_seq(bam1_t *read, const call_var_opt_t *opt, char *r
     post_update_digar(_digars, _n_digar, opt, digar);
     if (noisy_start != -1) cr_add(digar->noisy_regs, "cr", noisy_start-1, noisy_end, 0);
     cr_index(digar->noisy_regs);
+    for (int i = 0; i < digar->noisy_regs->n_r; ++i) {
+        if (is_overlap_reg(cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i), reg_beg, reg_end))
+            cr_add(chunk_noisy_regs, "cr", cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i), 1);
+    }
     if (LONGCALLD_VERBOSE >= 2) {
         fprintf(stderr, "DIGAR3: %s\n", bam_get_qname(read));
         print_digar(digar, stderr);
     }
     free(_digars); free_xid_queue(q);
-    cr_index(digar->noisy_regs);
 }
 
 void copy_bam_chunk(bam_chunk_t *from_chunk, bam_chunk_t *to_chunk, int *last_chunk_read_i, int n_reads) {
@@ -909,6 +985,9 @@ int bam_chunk_init(bam_chunk_t *chunk, int n_reads, int *last_chunk_read_i, int 
         chunk->reads[i] = bam_init1();
         chunk->digars[i].n_digar = chunk->digars[i].m_digar = 0;
     }
+    // noisy regions
+    chunk->chunk_noisy_regs = NULL; chunk->noisy_reg_var_sets = NULL;
+    chunk->noisy_reg_to_reads = NULL; chunk->noisy_reg_to_n_reads = NULL;
     // variant
     chunk->n_cand_vars = 0; chunk->cand_vars = NULL;
     // chunk->var_cate_counts = NULL; chunk->var_cate_idx = NULL; 
@@ -941,9 +1020,21 @@ int bam_chunk_realloc(bam_chunk_t *chunk) {
     return 0;
 }
 
+void noisy_reg_var_set_free(noisy_reg_var_set_t *var_set) {
+    if (var_set->m_digar > 0) {
+        free(var_set->digars);
+    }
+    if (var_set->cand_vars != NULL) free_cand_vars(var_set->cand_vars, var_set->n_cand_vars);
+    if (var_set->cand_genotypes != NULL) {
+        for (int i = 0; i < var_set->m_cand_genotypes; i++) {
+            free(var_set->cand_genotypes[i]);
+        } free(var_set->cand_genotypes);
+    }
+}
+
 void bam_chunk_free(bam_chunk_t *chunk) {
     if (chunk->need_free_ref_seq) free(chunk->ref_seq);
-    if (chunk->ref_reg_cr != NULL) cr_destroy(chunk->ref_reg_cr);
+    if (chunk->reg_cr != NULL) cr_destroy(chunk->reg_cr);
     for (int i = 0; i < chunk->m_reads; i++) {
         if (chunk->digars[i].m_digar > 0) {
             free(chunk->digars[i].digars);
@@ -953,6 +1044,18 @@ void bam_chunk_free(bam_chunk_t *chunk) {
     for (int i = 0; i < chunk->m_reads; i++) {
         bam_destroy1(chunk->reads[i]);
     }
+    if (chunk->noisy_reg_to_reads != NULL) {
+        for (int i = 0; i < chunk->chunk_noisy_regs->n_r; i++) {
+            free(chunk->noisy_reg_to_reads[i]);
+        } free(chunk->noisy_reg_to_reads);
+    }
+    if (chunk->noisy_reg_to_n_reads != NULL) free(chunk->noisy_reg_to_n_reads);
+    if (chunk->noisy_reg_var_sets != NULL) {
+        for (int i = 0; i < chunk->chunk_noisy_regs->n_r; i++) {
+            noisy_reg_var_set_free(chunk->noisy_reg_var_sets+i);
+        } free(chunk->noisy_reg_var_sets);
+    }
+    if (chunk->chunk_noisy_regs != NULL) cr_destroy(chunk->chunk_noisy_regs);
     if (chunk->cand_vars != NULL) free_cand_vars(chunk->cand_vars, chunk->n_cand_vars);
     // if (chunk->var_cate_counts != NULL) free(chunk->var_cate_counts);
     if (chunk->var_i_to_cate != NULL) free(chunk->var_i_to_cate);
@@ -991,7 +1094,7 @@ char *get_region_seq(ref_reg_seq_t *r, const char *tname, hts_pos_t beg, hts_pos
 }
 
 void get_bam_chunk_reg_ref_seq(faidx_t *fai, ref_reg_seq_t *ref_reg_seq, bam_chunk_t *chunk) {
-    cgranges_t *reg_cr = chunk->ref_reg_cr;
+    cgranges_t *reg_cr = chunk->reg_cr;
     assert(reg_cr->n_r > 0);
     if (reg_cr->n_r == 1) {
         hts_pos_t ref_beg = cr_start(reg_cr, 0), ref_end = cr_end(reg_cr, 0);
@@ -1016,22 +1119,22 @@ void get_bam_chunk_reg_ref_seq(faidx_t *fai, ref_reg_seq_t *ref_reg_seq, bam_chu
     }
 }
 
-void get_bam_chunk_reg_cr(cgranges_t *ref_reg_cr, bam_chunk_t *chunk, hts_pos_t chunk_beg, hts_pos_t chunk_end) {
-    chunk->ref_reg_cr = cr_init();
+void get_bam_chunk_reg_cr(cgranges_t *reg_cr, bam_chunk_t *chunk, hts_pos_t chunk_beg, hts_pos_t chunk_end) {
+    chunk->reg_cr = cr_init();
     int64_t ovlp_i, ovlp_n, *ovlp_b = 0, max_b = 0;
-    ovlp_n = cr_overlap(ref_reg_cr, chunk->tname, chunk_beg-1, chunk_end, &ovlp_b, &max_b);
+    ovlp_n = cr_overlap(reg_cr, chunk->tname, chunk_beg-1, chunk_end, &ovlp_b, &max_b);
     // if (ovlp_n <= 0) _err_error_exit("Region not found in the reference: %s:%d-%d", tname, reg_beg, reg_end);
     assert(ovlp_n > 0);
     hts_pos_t _beg = chunk_end, _end = chunk_beg-1;
     for (ovlp_i = 0; ovlp_i < ovlp_n; ovlp_i++) {
         // fprintf(stderr, "reg_cr, ovlp: %s:%d-%d\n", tname, cr_start(ref_reg, ovlp_b[ovlp_i]), cr_end(ref_reg, ovlp_b[ovlp_i]));
-        cr_add(chunk->ref_reg_cr, chunk->tname, cr_start(ref_reg_cr, ovlp_b[ovlp_i]), cr_end(ref_reg_cr, ovlp_b[ovlp_i]), cr_label(ref_reg_cr, ovlp_b[ovlp_i]));
-        if (cr_start(ref_reg_cr, ovlp_b[ovlp_i]) < _beg) _beg = cr_start(ref_reg_cr, ovlp_b[ovlp_i]);
-        if (cr_end(ref_reg_cr, ovlp_b[ovlp_i]) > _end) _end = cr_end(ref_reg_cr, ovlp_b[ovlp_i]);
+        cr_add(chunk->reg_cr, chunk->tname, cr_start(reg_cr, ovlp_b[ovlp_i]), cr_end(reg_cr, ovlp_b[ovlp_i]), cr_label(reg_cr, ovlp_b[ovlp_i]));
+        if (cr_start(reg_cr, ovlp_b[ovlp_i]) < _beg) _beg = cr_start(reg_cr, ovlp_b[ovlp_i]);
+        if (cr_end(reg_cr, ovlp_b[ovlp_i]) > _end) _end = cr_end(reg_cr, ovlp_b[ovlp_i]);
     }
     chunk->reg_beg = _beg+1; chunk->reg_end = _end;
     free(ovlp_b);
-    cr_index(chunk->ref_reg_cr);
+    cr_index(chunk->reg_cr);
 }
 
 // collect reads from a BAM file, region: [start, start+max_reg_len_per_chunk]
@@ -1133,7 +1236,7 @@ int collect_bam_chunk(call_var_pl_t *pl, int **last_chunk_read_i, int *n_last_ch
         chunk->n_reads = 0;
         bam_chunk_free(chunk);
     }
-    return chunk->n_reads;
+    return r; // chunk->n_reads;
 }
 
 char *extract_sample_name_from_bam_header(bam_hdr_t *header) {

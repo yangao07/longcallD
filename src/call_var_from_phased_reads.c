@@ -26,16 +26,16 @@ static inline double genotype_prob_from_phased_counts(int n10, int n11, int n20,
 //   for each alt: (at most 2 alts)
 //       calculate p using [H1.(n_alt, n_non_alt), H2.(n_alt, n_non_alt)]
 // XXX no update of reads' HAP here, only call var
-int call_var_from_phased_reads(bam_chunk_t *bam_chunk, int target_var_cate, const call_var_opt_t *opt) {
-    read_var_profile_t *p = bam_chunk->read_var_profile;
-    cgranges_t *read_var_cr = bam_chunk->read_var_cr;
+int call_var_from_phased_reads(bam_chunk_t *chunk, int target_var_cate, const call_var_opt_t *opt) {
+    read_var_profile_t *p = chunk->read_var_profile;
+    cgranges_t *read_var_cr = chunk->read_var_cr;
     int64_t ovlp_i, ovlp_n, *ovlp_b = 0, max_b = 0;
-    // int *var_idx = bam_chunk->var_cate_idx[var_cate_i];
-    // for (int i = 0; i < bam_chunk->var_cate_counts[var_cate_i]; ++i) {
+    // int *var_idx = chunk->var_cate_idx[var_cate_i];
+    // for (int i = 0; i < chunk->var_cate_counts[var_cate_i]; ++i) {
         // int var_i = var_idx[i];
-    for (int var_i = 0; var_i < bam_chunk->n_cand_vars; ++var_i) {
-        if (bam_chunk->var_i_to_cate[var_i] != target_var_cate) continue;
-        cand_var_t *var = bam_chunk->cand_vars + var_i;
+    for (int var_i = 0; var_i < chunk->n_cand_vars; ++var_i) {
+        if (chunk->var_i_to_cate[var_i] != target_var_cate) continue;
+        cand_var_t *var = chunk->cand_vars + var_i;
         hts_pos_t pos = var->pos; int ref_len = var->ref_len;
         ovlp_n = cr_overlap(read_var_cr, "cr", var_i, var_i+1, &ovlp_b, &max_b);
         // for each alt allele
@@ -46,8 +46,8 @@ int call_var_from_phased_reads(bam_chunk_t *bam_chunk, int target_var_cate, cons
             for (ovlp_i = 0; ovlp_i < ovlp_n; ++ovlp_i) {
                 int read_i = cr_label(read_var_cr, ovlp_b[ovlp_i]);
                 int read_var_idx = var_i - p[read_i].start_var_idx;
-                if (bam_chunk->is_skipped[read_i] != 1 && p[read_i].var_is_used[read_var_idx] == 1) {
-                    int hap = bam_chunk->haps[read_i];
+                if (chunk->is_skipped[read_i] != 1 && p[read_i].var_is_used[read_var_idx] == 1) {
+                    int hap = chunk->haps[read_i];
                     int alle = p[read_i].alleles[read_var_idx]; // 0:ref, 1/2:alt
                     if (hap == 1) {
                         if (alle == alt_i) n11++;
@@ -59,10 +59,10 @@ int call_var_from_phased_reads(bam_chunk_t *bam_chunk, int target_var_cate, cons
                 }
             }
             genotype_prob_from_phased_counts(n10, n11, n20, n21, &p_ref_call, &p_hom_call, &p_h1_call, &p_h2_call);
-            fprintf(stderr, "VarCate-%c: %s:%" PRId64 "\t%c\t%d,%d,%d,%d\t", LONGCALLD_VAR_CATE_TYPE(target_var_cate), bam_chunk->tname, pos, BAM_CIGAR_STR[var->var_type], n10, n11, n20, n21);
+            fprintf(stderr, "VarCate-%c: %s:%" PRId64 "\t%c\t%d,%d,%d,%d\t", LONGCALLD_VAR_CATE_TYPE(target_var_cate), chunk->tname, pos, BAM_CIGAR_STR[var->var_type], n10, n11, n20, n21);
             fprintf(stderr, "p_ref_call: %f, p_hom_call: %f, p_h1_call: %f, p_h2_call: %f\n", p_ref_call, p_hom_call, p_h1_call, p_h2_call);
             // double p = fisher_exact_test_p(n10, n11, n20, n21);
-            // fprintf(stderr, "VarCate-%c: %s:%lld\t%c\t%f\n", LONGCALLD_VAR_CATE_STR[var_cate_i], bam_chunk->tname, pos, BAM_CIGAR_STR[var->var_type], p);
+            // fprintf(stderr, "VarCate-%c: %s:%lld\t%c\t%f\n", LONGCALLD_VAR_CATE_STR[var_cate_i], chunk->tname, pos, BAM_CIGAR_STR[var->var_type], p);
         }
     }
     free(ovlp_b); 
@@ -76,14 +76,14 @@ int call_var_from_phased_reads(bam_chunk_t *bam_chunk, int target_var_cate, cons
 //  2) unphased reads: collect consensus from phased ones, then compare with ref/alt cons. allele, poetential needs alignment
 // output: genotype for each variant
 // return: 0 if success, 1 if failed
-int count_based_call_var_from_phased_reads(bam_chunk_t *bam_chunk, int target_var_cate, const call_var_opt_t *opt) {
-    read_var_profile_t *p = bam_chunk->read_var_profile;
-    // int *var_idx = bam_chunk->var_cate_idx[var_cate_i];
-    // for (int i = 0; i < bam_chunk->var_cate_counts[var_cate_i]; ++i) {
+int count_based_call_var_from_phased_reads(bam_chunk_t *chunk, int target_var_cate, const call_var_opt_t *opt) {
+    read_var_profile_t *p = chunk->read_var_profile;
+    // int *var_idx = chunk->var_cate_idx[var_cate_i];
+    // for (int i = 0; i < chunk->var_cate_counts[var_cate_i]; ++i) {
         // int var_i = var_idx[i];
-    for (int var_i = 0; var_i < bam_chunk->n_cand_vars; ++var_i) {
-        if (bam_chunk->var_i_to_cate[var_i] != target_var_cate) continue;
-        cand_var_t *var = bam_chunk->cand_vars + var_i;
+    for (int var_i = 0; var_i < chunk->n_cand_vars; ++var_i) {
+        if (chunk->var_i_to_cate[var_i] != target_var_cate) continue;
+        cand_var_t *var = chunk->cand_vars + var_i;
         hts_pos_t pos = var->pos; int ref_len = var->ref_len;
         // collect allele seq
         // count reads supporting each allele
@@ -91,7 +91,7 @@ int count_based_call_var_from_phased_reads(bam_chunk_t *bam_chunk, int target_va
     return 0;
 }
 
-int digar_based_call_var_from_phased_reads(bam_chunk_t *bam_chunk, int var_cate_i, const call_var_opt_t *opt) {
+int digar_based_call_var_from_phased_reads(bam_chunk_t *chunk, int var_cate_i, const call_var_opt_t *opt) {
     return 0;
 }
 
@@ -103,14 +103,14 @@ int digar_based_call_var_from_phased_reads(bam_chunk_t *bam_chunk, int var_cate_
 //           for each variant, collect all reads covering the variant, use phased reads first, then use unphased reads
 // @output: genotype for each variant
 //          update read-var-profile after alignment
-int align_based_call_var_from_phased_reads(bam_chunk_t *bam_chunk, int target_var_cate, kstring_t *ref_seq, const call_var_opt_t *opt) {
-    read_var_profile_t *p = bam_chunk->read_var_profile;
-    // int *var_idx = bam_chunk->var_cate_idx[var_cate_i];
-    // for (int i = 0; i < bam_chunk->var_cate_counts[var_cate_i]; ++i) {
+int align_based_call_var_from_phased_reads(bam_chunk_t *chunk, int target_var_cate, kstring_t *ref_seq, const call_var_opt_t *opt) {
+    read_var_profile_t *p = chunk->read_var_profile;
+    // int *var_idx = chunk->var_cate_idx[var_cate_i];
+    // for (int i = 0; i < chunk->var_cate_counts[var_cate_i]; ++i) {
         // int var_i = var_idx[i];
-    for (int var_i = 0; var_i < bam_chunk->n_cand_vars; ++var_i) {
-        if (bam_chunk->var_i_to_cate[var_i] != target_var_cate) continue;
-        cand_var_t *var = bam_chunk->cand_vars + var_i;
+    for (int var_i = 0; var_i < chunk->n_cand_vars; ++var_i) {
+        if (chunk->var_i_to_cate[var_i] != target_var_cate) continue;
+        cand_var_t *var = chunk->cand_vars + var_i;
         hts_pos_t pos = var->pos, non_rep_beg = var->non_rep_beg, non_rep_end = var->non_rep_end;
         // collect ref/alt allele seq
         char *ref_allele_seq = ref_seq->s + non_rep_beg - 1; 
@@ -122,15 +122,15 @@ int align_based_call_var_from_phased_reads(bam_chunk_t *bam_chunk, int target_va
 }
 
 //
-// int msa_based_call_var_from_phased_reads(bam_chunk_t *bam_chunk, int var_cate_i, kstring_t *ref_seq, const call_var_opt_t *opt) {
-int msa_based_call_var_from_phased_reads(bam_chunk_t *bam_chunk, int target_var_cate, kstring_t *ref_seq, const call_var_opt_t *opt) {
-    read_var_profile_t *p = bam_chunk->read_var_profile;
-    // int *var_idx = bam_chunk->var_cate_idx[var_cate_i];
-    // for (int i = 0; i < bam_chunk->var_cate_counts[var_cate_i]; ++i) {
+// int msa_based_call_var_from_phased_reads(bam_chunk_t *chunk, int var_cate_i, kstring_t *ref_seq, const call_var_opt_t *opt) {
+int msa_based_call_var_from_phased_reads(bam_chunk_t *chunk, int target_var_cate, kstring_t *ref_seq, const call_var_opt_t *opt) {
+    read_var_profile_t *p = chunk->read_var_profile;
+    // int *var_idx = chunk->var_cate_idx[var_cate_i];
+    // for (int i = 0; i < chunk->var_cate_counts[var_cate_i]; ++i) {
         // int var_i = var_idx[i];
-    for (int var_i = 0; var_i < bam_chunk->n_cand_vars; ++var_i) {
-        if (bam_chunk->var_i_to_cate[var_i] != target_var_cate) continue;
-        cand_var_t *var = bam_chunk->cand_vars + var_i;
+    for (int var_i = 0; var_i < chunk->n_cand_vars; ++var_i) {
+        if (chunk->var_i_to_cate[var_i] != target_var_cate) continue;
+        cand_var_t *var = chunk->cand_vars + var_i;
         hts_pos_t pos = var->pos, non_rep_beg = var->non_rep_beg, non_rep_end = var->non_rep_end;
         // collect ref/alt allele seq
         char *ref_allele_seq = ref_seq->s + non_rep_beg - 1; 

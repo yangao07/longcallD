@@ -16,14 +16,14 @@
 // #define LONGCALLD_CAND_SOMA_VAR 6  // S candidate somatic variants
 // #define LONGCALLD_CAND_HOM_VAR 7   // H canddidate hom. variants
 
-#define LONGCALLD_LOW_COV_VAR 0x001
-#define LONGCALLD_EASY_HET_VAR 0x002
-#define LONGCALLD_EASY_HET_SNP 0x004
-#define LONGCALLD_EASY_HET_INDEL 0x008
-#define LONGCALLD_REP_HET_VAR 0x010
-#define LONGCALLD_DENSE_REG_VAR 0x020
-#define LONGCALLD_CAND_SOMA_VAR 0x040
-#define LONGCALLD_CAND_HOM_VAR 0x080
+#define LONGCALLD_LOW_COV_VAR    0x001 // "L"
+#define LONGCALLD_EASY_HET_VAR   0x002 // "E" // not used for now
+#define LONGCALLD_EASY_HET_SNP   0x004 // "N"
+#define LONGCALLD_EASY_HET_INDEL 0x008 // "I"
+#define LONGCALLD_REP_HET_VAR    0x010 // "R"
+#define LONGCALLD_DENSE_REG_VAR  0x020 // "D"
+#define LONGCALLD_CAND_SOMA_VAR  0x040 // "S"
+#define LONGCALLD_CAND_HOM_VAR   0x080 // "H"
 
 // 0x001 -> "L", 0x002 -> "E", 0x004 -> "N", 0x008 -> "I", 0x010 -> "R", 0x020 -> "D", 0x040 -> "S", 0x080 -> "H"
 #define LONGCALLD_VAR_CATE_TYPE(var_cate) LONGCALLD_VAR_CATE_STR[(int)(log2(var_cate))]

@@ -40,9 +40,12 @@
 #include <sys/resource.h>
 #include <sys/time.h>
 #include <time.h>
+#include <curl/curl.h>
+#include <regex.h>
 #include "utils.h"
 
 #include "ksort.h"
+extern int LONGCALLD_VERBOSE;
 #define pair64_lt(a, b) ((a).x < (b).x || ((a).x == (b).x && (a).y < (b).y))
 KSORT_INIT(128, pair64_t, pair64_lt)
 KSORT_INIT(64,  uint64_t, ks_lt_generic)
@@ -444,4 +447,76 @@ int err_color_format_printf(const char type, const char *format, ...) {
 	va_end(arg);
 	if (done < 0) _err_fatal_simple("sprintf", strerror(saveErrno));
 	return done;
+}
+
+// Function to check if the input string is a URL
+int is_url(const char *str) {
+    regex_t regex;
+    int ret;
+
+    // Regular expression for a basic URL pattern
+    const char *pattern = "^(https?|ftp)://[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}(/[^ ]*)?$";
+
+    // Compile the regular expression
+    ret = regcomp(&regex, pattern, REG_EXTENDED);
+    if (ret) {
+        fprintf(stderr, "Could not compile regex\n");
+        return 0;
+    }
+
+    // Execute the regular expression match
+    ret = regexec(&regex, str, 0, NULL, 0);
+    regfree(&regex);
+
+    // If it matches, the string is a URL
+    if (!ret) {
+        return 1; // It's a valid URL
+    } else {
+        return 0; // Not a valid URL
+    }
+}
+
+size_t url_write_callback(void *ptr, size_t size, size_t nmemb, void *data) {
+    return size * nmemb;
+}
+
+char *retrieve_full_url(const char *url) {
+    if (!is_url(url)) {
+        return strdup(url); // Duplicate the URL for returning
+    }
+    
+    char *full_url = NULL; // Pointer for the effective URL
+    CURL *curl;
+    CURLcode res;
+
+    curl = curl_easy_init();
+    if (curl) {
+        curl_easy_setopt(curl, CURLOPT_URL, url);
+        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L); // Follow redirects
+        curl_easy_setopt(curl, CURLOPT_NOBODY, 1L); // HEAD request, no body
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, url_write_callback); // No output
+
+        // Perform the request
+        res = curl_easy_perform(curl);
+
+        // Check if there was a redirection
+        if (res == CURLE_OK) {
+            char *effective_url = NULL; // Temporary pointer for effective URL
+            // Retrieve the effective URL
+            res = curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &effective_url);
+            if (effective_url && strcmp(effective_url, url) != 0) {
+                full_url = strdup(effective_url); // Duplicate the effective URL
+            }
+        } else {
+            fprintf(stderr, "Curl error: %s\n", curl_easy_strerror(res));
+        }
+        // Cleanup
+        curl_easy_cleanup(curl);
+    } else {
+        fprintf(stderr, "Failed to initialize curl\n");
+    }
+	if (full_url && LONGCALLD_VERBOSE >= 1) _err_info("Full URL: %s -> %s\n", url, full_url);
+    
+    // If no new URL was retrieved, return a duplicate of the original URL
+    return full_url ? full_url : strdup(url);
 }
