@@ -34,6 +34,9 @@
 #define LONGCALLD_NOISY_END_CLIP_WIN 100 // n bp flanking end-clipping region will be considered as low-quality region
 #define LONGCALLD_INDEL_FLANK_WIN 0 // n bp around indel will be considered as low-quality region
 
+#define LONGCALLD_GAP_LEFT_ALN 1
+#define LONGCALLD_GAP_RIGHT_ALN 2
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -77,6 +80,8 @@ typedef struct call_var_opt_t {
     int dens_reg_max_xgaps, dens_reg_slide_win, dens_reg_flank_win;
     int indel_flank_win;
     int end_clip_reg, end_clip_reg_flank_win;
+    // alignment
+    int gap_aln; // default: 1: left (minimap2, abpoa), 2: right (wfa2)
     // general
     // int max_ploidy;
     int pl_threads, n_threads;

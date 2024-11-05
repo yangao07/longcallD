@@ -38,6 +38,7 @@ const struct option call_var_opt [] = {
     { "noisy-flank", 1, NULL, 'f' },
     { "end-clip", 1, NULL, 'c' },
     { "clip-flank", 1, NULL, 'F' },
+    { "gap-aln", 1, NULL, 'a'},
     { "threads", 1, NULL, 't' },
     { "help", 0, NULL, 'h' },
     { "version", 0, NULL, 'v' },
@@ -90,6 +91,8 @@ call_var_opt_t *call_var_init_para(void) {
     opt->min_af = LONGCALLD_MIN_CAND_AF;
     opt->max_af = LONGCALLD_MAX_CAND_AF;
     opt->max_low_qual_frac = LONGCALLD_MAX_LOW_QUAL_FRAC;
+
+    opt->gap_aln = LONGCALLD_GAP_LEFT_ALN;
 
     opt->pl_threads = MIN_OF_TWO(CALL_VAR_PL_THREAD_N, get_num_processors());
     opt->n_threads = MIN_OF_TWO(CALL_VAR_THREAD_N, get_num_processors());
@@ -335,7 +338,7 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
     return 0;
 }
 
-static int call_var_usage(void) {//main usage
+static void call_var_usage(void) {//main usage
     fprintf(stderr, "\n");
     fprintf(stderr, "Program: %s (%s)\n", PROG, DESCRIP);
     fprintf(stderr, "Version: %s\tContact: %s\n\n", VERSION, CONTACT); 
@@ -367,6 +370,11 @@ static int call_var_usage(void) {//main usage
     fprintf(stderr, "                          end-clipping region with more than -c bases will be considered as noisy clipping region\n");
     fprintf(stderr, "    -F --clip-flank  INT  flanking mask window size for noisy clipping region [%d]\n", LONGCALLD_NOISY_END_CLIP_WIN);
     fprintf(stderr, "\n");
+    fprintf(stderr, "  Alignment\n");
+    fprintf(stderr, "    -a --gap-aln     STR  put gap on the \'left\' or \'right\' side in alignment [left/l]\n");
+    fprintf(stderr, "                          \'left\': minimap2/abPOA\n");
+    fprintf(stderr, "                          \'right\': WFA/WFA2\n");
+    fprintf(stderr, "\n");
     fprintf(stderr, "  General:\n");
     fprintf(stderr, "    -t --threads     INT  number of threads to use [%d]\n", MIN_OF_TWO(CALL_VAR_THREAD_N, get_num_processors()));
     fprintf(stderr, "    -h --help             print this help usage\n");
@@ -375,14 +383,14 @@ static int call_var_usage(void) {//main usage
     fprintf(stderr, "\n");
 
     fprintf(stderr, "\n");
-    return 1;
+    exit(1);
 }
 
 int call_var_main(int argc, char *argv[]) {
     // _err_cmd("%s\n", CMD);
     int c, op_idx; call_var_opt_t *opt = call_var_init_para();
     double realtime0 = realtime();
-    while ((c = getopt_long(argc, argv, "r:o:Hb:d:D:n:x:w:f:F:c:t:hvV:", call_var_opt, &op_idx)) >= 0) {
+    while ((c = getopt_long(argc, argv, "r:o:Hb:d:D:n:x:w:f:F:c:a:t:hvV:", call_var_opt, &op_idx)) >= 0) {
         switch(c) {
             case 'r': opt->ref_fa_fn = strdup(optarg); break;
             // case 'b': cgp->var_block_size = atoi(optarg); break;
@@ -397,8 +405,11 @@ int call_var_main(int argc, char *argv[]) {
             case 'f': opt->dens_reg_flank_win = atoi(optarg); break;
             case 'c': opt->end_clip_reg = atoi(optarg); break;
             case 'F': opt->end_clip_reg_flank_win = atoi(optarg); break;
+            case 'a': if (strcmp(optarg, "right") == 0 || strcmp(optarg, "r") == 0) opt->gap_aln = LONGCALLD_GAP_RIGHT_ALN;
+                      else if (strcmp(optarg, "left") == 0 || strcmp(optarg, "l") == 0) opt->gap_aln = LONGCALLD_GAP_LEFT_ALN;
+                      else _err_error_exit("\'-a/--gap-aln\' can only be \'left\'/\'l\' or \'right\'/\'r\'\n"); // call_var_usage();
             case 't': opt->n_threads = atoi(optarg); break;
-            case 'h': call_var_usage(); call_var_free_para(opt); return 0;
+            case 'h': call_var_free_para(opt); call_var_usage();
             case 'v': fprintf(stderr, "%s\n", VERSION); call_var_free_para(opt); return 0;
             case 'V': LONGCALLD_VERBOSE = atoi(optarg); break;
             default: call_var_free_para(opt); call_var_usage();
@@ -409,14 +420,14 @@ int call_var_main(int argc, char *argv[]) {
         opt->in_bam_fn = "-";
         if (argc - optind < 1) {
             _err_error("Reference FASTA is required.\n");
-            call_var_free_para(opt); return call_var_usage();
+            call_var_free_para(opt); call_var_usage();
         } else {
             opt->ref_fa_fn = argv[optind++];
         }
     } else {
         if (argc - optind < 2) {
             _err_error("Reference genome FASTA and alignment BAM are required.\n");
-            call_var_free_para(opt); return call_var_usage();
+            call_var_free_para(opt); call_var_usage();
         } else {
             opt->ref_fa_fn = argv[optind++];
             opt->in_bam_fn = argv[optind++];

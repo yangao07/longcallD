@@ -24,6 +24,10 @@ TODO:
 - [ ] Annotation of inserted sequence? L1/Alu, etc.
 - [ ] Weighted score during co-calling & phasing, variant-wise weight: base/mapping Q, noisy density, around large clipping
   - Low-weight variant contribute less than high-weight variants during phasing
+- [ ] Coverage-based analysis to filter out wrong-mapping reads
+  - With higher coverage
+  - Large number of SNPs/indels or long insertions/deletions
+  - Not in a repeat region
 ---
 
 * Tumour purity $\alpha$: est. -> max. -> est. ... -> converge

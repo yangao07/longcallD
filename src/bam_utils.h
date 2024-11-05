@@ -66,6 +66,7 @@ typedef struct {
     int n_digar, m_digar;
     digar1_t *digars;
     // read-wise noisy region: active region for re-alignment
+    uint8_t has_long_clip; // XXX long clip in the read, need to re-align see if there is a long ins/del, if not, probabely wrong mapping, skip this read
     cgranges_t *noisy_regs; // merge low_qual digar1_t if they are next to each other
     const uint8_t *bseq, *qual;
 } digar_t; // detailed CIGAR for each read
@@ -108,6 +109,20 @@ typedef struct bam_chunk_t {
     uint8_t *is_ovlp; // size: m_reads, is_ovlp: overlap with other chunks
     uint8_t *is_skipped; // size: m_reads, is_skipped: wrong mapping, low qual, etc.
     digar_t *digars;
+
+    // XXX identify single repeat-region vars, cluster them into a repeat region together larger insertions/deletions
+    // XXX also include large ins/del in noisy regions
+    //     large insertions may have diff length due to seq. errors
+    //     large ins/del may also lead to clipings
+    // cgranges_t *chunk_noisy_regs; // merged repeat regions for all reads
+    // int **noisy_reg_to_reads, *noisy_reg_to_n_reads; // size: chunk->chunk_noisy_regs->n_r
+    // noisy_reg_var_set_t *noisy_reg_var_sets; // size: chunk_noisy_regs->n_r
+    
+
+    // XXX noisy region: 
+    //  1) too many XIDs in non-repeat regions 
+    //  2) higher depth than nearby normal regions
+    //  3) normal reads with similar depth exist
     cgranges_t *chunk_noisy_regs; // merged noisy regions for all reads
     int **noisy_reg_to_reads, *noisy_reg_to_n_reads; // size: chunk->chunk_noisy_regs->n_r
     noisy_reg_var_set_t *noisy_reg_var_sets; // size: chunk_noisy_regs->n_r

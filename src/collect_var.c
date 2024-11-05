@@ -599,6 +599,7 @@ int merge_var_sites(int n_total_var_sites, var_site_t **var_sites, int tid, hts_
         if (reg_end != -1 && digar_pos > reg_end) { break; }
         // if (!is_in_reg(reg_cr, tname, digar_pos-1, digar_pos)) { j++; continue; }
         if (!digars[j].is_low_qual && (digars[j].type == BAM_CDIFF || digars[j].type == BAM_CINS || digars[j].type == BAM_CDEL)) {
+        // if (digars[j].type == BAM_CDIFF || digars[j].type == BAM_CINS || digars[j].type == BAM_CDEL) { // keep noisy-regions variants
             var_site_t digar_var_site = make_var_site_from_digar(tid, digars+j);
             int ret = comp_var_site((*var_sites)+i, &digar_var_site);
             if (ret < 0) {
@@ -629,7 +630,7 @@ int merge_var_sites(int n_total_var_sites, var_site_t **var_sites, int tid, hts_
 }
 
 // collect all candidate variant sites from digars, excluding low-quality/noisy-region ones
-int collect_cand_var_sites(bam_chunk_t *chunk, var_site_t **var_sites) {
+int collect_all_cand_var_sites(bam_chunk_t *chunk, var_site_t **var_sites) {
     int n_total_var_sites = 0;
     for (int i = 0; i < chunk->n_reads; ++i) {
         if (chunk->is_skipped[i]) continue;
@@ -976,6 +977,49 @@ int update_read_var_profile(bam_chunk_t *chunk, int target_var_cate, int use_pha
         // collect candicate variants in noisy region based on XID-profile
         hts_pos_t reg_beg = cr_start(noisy_regs, i), reg_end = cr_end(noisy_regs, i);
         // collect candidate genotype sequences for each noisy region
+        int n_reads = chunk->noisy_reg_to_n_reads[i];
+        int *haps = collect_noisy_read_haps(chunk, i);
+        int n_medoids = 3;
+        int *medoids = xid_profile_2medoids(xid_profile, 20, n_medoids, haps, n_reads, use_phase_info); // 20 = RefX, ReadX, Ins, Del * (ACGTN)
+        int tmp_hp_tag = -1;
+        if (LONGCALLD_VERBOSE >= 2) {
+            fprintf(stderr, "NoisyRegs: %s:%d-%d %d %d\n", chunk->tname, cr_start(noisy_regs, i), cr_end(noisy_regs, i), cr_end(noisy_regs, i) - cr_start(noisy_regs, i), cr_label(noisy_regs, i));
+            fprintf(stderr, "Medoid-reads\t");
+            for (int j = 0; j < n_medoids; ++j) {
+                int read_i = chunk->noisy_reg_to_reads[i][medoids[j]];
+                int hp_tag = get_aux_int_from_bam(chunk->reads[read_i], "HP");
+                fprintf(stderr, "%s HP:%d\t", bam_get_qname(chunk->reads[read_i]), hp_tag);
+            } fprintf(stderr, "\n");
+        }
+        cand_var_t *cand_vars = NULL;
+        int n_cand_vars = make_vars_from_mediod_reads(chunk, i, medoids, n_medoids, &cand_vars);
+        // free XID-profile & medoids
+        if (medoids!= NULL) free(medoids);
+        for (int j = 0; j < chunk->noisy_reg_to_n_reads[i]; ++j) free(xid_profile[j]); free(xid_profile);
+        
+        // read_var_profile_t *p = init_read_var_profile(chunk->n_reads, n_cand_vars);
+
+        read_var_profile_t *p = collect_noisy_read_var_profile(chunk, i, n_cand_vars, cand_vars);
+        // insert cand_vars into chunk->cand_vars
+        // insert p into chunk->read_var_profile
+        free(haps);
+    }
+    return 0;
+}
+
+int old_update_read_var_profile(bam_chunk_t *chunk, int target_var_cate, int use_phase_info) {
+    // 1) update read_var_profile for target_var_cate using re-alignment
+    // merge_replace
+
+    // 2) collect candidate variants in noisy region, insert into cand_vars, then collect read_var_profile
+    // merge_insert
+    int n_vars = 0;
+    for (int i = 0; i < chunk->chunk_noisy_regs->n_r; ++i) {
+        cgranges_t *noisy_regs = chunk->chunk_noisy_regs;
+        if (cr_label(noisy_regs, i) < 10) continue;
+        // collect candicate variants in noisy region based on XID-profile
+        hts_pos_t reg_beg = cr_start(noisy_regs, i), reg_end = cr_end(noisy_regs, i);
+        // collect candidate genotype sequences for each noisy region
         // xid_profile[read_i][0]==-1: read_i does not cover the noisy region, skip in k-medoids
         int **xid_profile = collect_read_xid_profile(chunk, i);
         int n_reads = chunk->noisy_reg_to_n_reads[i];
@@ -985,12 +1029,11 @@ int update_read_var_profile(bam_chunk_t *chunk, int target_var_cate, int use_pha
         int tmp_hp_tag = -1;
         if (LONGCALLD_VERBOSE >= 2) {
             fprintf(stderr, "NoisyRegs: %s:%d-%d %d %d\n", chunk->tname, cr_start(noisy_regs, i), cr_end(noisy_regs, i), cr_end(noisy_regs, i) - cr_start(noisy_regs, i), cr_label(noisy_regs, i));
+            fprintf(stderr, "Medoid-reads\t");
             for (int j = 0; j < n_medoids; ++j) {
                 int read_i = chunk->noisy_reg_to_reads[i][medoids[j]];
                 int hp_tag = get_aux_int_from_bam(chunk->reads[read_i], "HP");
-                // if (tmp_hp_tag == -1) tmp_hp_tag = hp_tag;
-                // else if (tmp_hp_tag == hp_tag) fprintf(stderr, "Same HP\n");
-                fprintf(stderr, "Medoid-read: %s %d\t", bam_get_qname(chunk->reads[read_i]), hp_tag);
+                fprintf(stderr, "%s HP:%d\t", bam_get_qname(chunk->reads[read_i]), hp_tag);
             } fprintf(stderr, "\n");
         }
         cand_var_t *cand_vars = NULL;
@@ -1013,11 +1056,10 @@ void collect_var_main(const call_var_pl_t *pl, bam_chunk_t *chunk, var_t *var) {
     // kstring_t *ref_seq = pl->ref_seq->seq + ref_seq_name2id(pl->ref_seq, chunk->tname);
     // collect X/I/D sites from BAM
     collect_digars_from_bam(chunk, pl);
-    update_read_var_profile(chunk, LONGCALLD_REP_HET_VAR | LONGCALLD_DENSE_REG_VAR, 0);
 
     // merge all var sites from all reads, including low-depth ones, but not including nosiy-region ones
     var_site_t *var_sites = NULL; int n_var_sites;
-    if ((n_var_sites = collect_cand_var_sites(chunk, &var_sites)) <= 0) return;
+    if ((n_var_sites = collect_all_cand_var_sites(chunk, &var_sites)) <= 0) return;
 
     // collect reference and alternative alleles for all var sites
     // all cand vars, including true/false germline/somatic variants
@@ -1046,7 +1088,7 @@ void collect_var_main(const call_var_pl_t *pl, bam_chunk_t *chunk, var_t *var) {
     // co-update cand_vars & read_var_profile based on the assigned haplotype for hard-to-call regions
     // for LONGCALLD_REP_HET_VAR, update support read count (read_var_profile) based on re-alignment
     // for noisy regions, collect candidate variants and insert into cand_vars, then collect read_var_profile
-    // update_read_var_profile(chunk, LONGCALLD_REP_HET_VAR | LONGCALLD_DENSE_REG_VAR, 1);
+    update_read_var_profile(chunk, LONGCALLD_REP_HET_VAR | LONGCALLD_DENSE_REG_VAR, 1);
     // 2nd round of co-phasing & haplotype assignment using all variants
     // assign_hap_based_on_all_vars()
 

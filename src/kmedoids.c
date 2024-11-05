@@ -142,10 +142,10 @@ int *xid_profile_2medoids(int **xid_profile, int n_dim, int n_medoids, int *haps
                     break;
                 }
             }
-        } fprintf(stderr, "\n");
+        } fprintf(stderr, "\nCluster ");
         for (int i = 0; i < n_medoids; i++) {
-            fprintf(stderr, "Cluster %d: %d\n", i, cluster_size[i]);
-        }
+            fprintf(stderr, "%d: %d\t", i, cluster_size[i]);
+        } fprintf(stderr, "\n");
     }
 
     free(best_assignment);
