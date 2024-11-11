@@ -79,6 +79,8 @@ call_var_opt_t *call_var_init_para(void) {
     opt->min_dp = LONGCALLD_MIN_CAND_DP;
     opt->min_alt_dp = LONGCALLD_MIN_ALT_DP;
 
+    opt->min_gap_len_for_clip = LONGCALLD_MIN_GAP_LEN_FOR_CLIP;
+    opt->gap_flank_win_for_clip = LONGCALLD_GAP_FLANK_WIN_FOR_CLIP;
     opt->dens_reg_max_xgaps = LONGCALLD_DENSE_REG_MAX_XGAPS;
     opt->dens_reg_slide_win = LONGCALLD_DENSE_REG_SLIDE_WIN;
     opt->dens_reg_flank_win = LONGCALLD_DENSE_FLANK_WIN;

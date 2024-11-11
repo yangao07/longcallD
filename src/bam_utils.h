@@ -118,7 +118,7 @@ typedef struct bam_chunk_t {
     // int **noisy_reg_to_reads, *noisy_reg_to_n_reads; // size: chunk->chunk_noisy_regs->n_r
     // noisy_reg_var_set_t *noisy_reg_var_sets; // size: chunk_noisy_regs->n_r
     
-
+    cgranges_t *large_gap_regs; // merged large ins or del regions for all reads
     // XXX noisy region: 
     //  1) too many XIDs in non-repeat regions 
     //  2) higher depth than nearby normal regions

@@ -27,6 +27,8 @@
 #define LONGCALLD_ALT_ALLELE2 2
 #define LONGCALLD_OTHER_ALT_ALLELE 3
 
+#define LONGCALLD_MIN_GAP_LEN_FOR_CLIP 100 // >= 100-bp gaps will be considered for re-alignment of clipping bases
+#define LONGCALLD_GAP_FLANK_WIN_FOR_CLIP 500
 #define LONGCALLD_DENSE_REG_MAX_XGAPS 5 // or 10; dense X/gap region: more than n X/gap bases in a 100-bp window
 #define LONGCALLD_DENSE_REG_SLIDE_WIN 100 //
 #define LONGCALLD_DENSE_FLANK_WIN 0 // 25: 100/(3+1)
@@ -81,6 +83,8 @@ typedef struct call_var_opt_t {
     int indel_flank_win;
     int end_clip_reg, end_clip_reg_flank_win;
     // alignment
+    int min_gap_len_for_clip; // >= l-bp gaps will be considered for re-alignment of clipping bases 
+    int gap_flank_win_for_clip;
     int gap_aln; // default: 1: left (minimap2, abpoa), 2: right (wfa2)
     // general
     // int max_ploidy;

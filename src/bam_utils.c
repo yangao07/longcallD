@@ -641,6 +641,8 @@ void collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct
     hts_pos_t pos = read->core.pos+1, qi = 0;
     const uint32_t *cigar = bam_get_cigar(read); int n_cigar = read->core.n_cigar;
     int max_s = opt->dens_reg_max_xgaps, win = opt->dens_reg_slide_win;
+    int min_gap_len_for_clip = opt->min_gap_len_for_clip, gap_flank_win_for_clip = opt->gap_flank_win_for_clip;
+    cgranges_t *large_gap_regs = chunk->large_gap_regs;
     // int dens_reg_flank_win = opt->dens_reg_flank_win, indel_flank_win = opt->indel_flank_win;
     int end_clip_reg = opt->end_clip_reg, end_clip_reg_flank_win = opt->end_clip_reg_flank_win;
     digar->n_digar = 0; digar->m_digar = 2 * n_cigar; digar->digars = (digar1_t*)malloc(n_cigar * 2 * sizeof(digar1_t));
@@ -677,6 +679,7 @@ void collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct
             _n_digar++; // push_xid_queue(q, pos, len, 1);
             // push_xid_queue_win(q, pos, len, 1, digar->noisy_regs, &noisy_start, &noisy_end);
             push_xid_queue_win(q, pos, len, len, digar->noisy_regs, &noisy_start, &noisy_end);
+            if (len >= min_gap_len_for_clip) cr_add(large_gap_regs, "del", pos-1-gap_flank_win_for_clip, pos+len+gap_flank_win_for_clip, 1);
             pos += len;
         } else if (op == BAM_CINS) {
             _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
@@ -684,6 +687,7 @@ void collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct
             _n_digar++; // push_xid_queue(q, pos, 0, 1);
             // push_xid_queue_win(q, pos, 0, 1, digar->noisy_regs, &noisy_start, &noisy_end);
             push_xid_queue_win(q, pos, 0, len, digar->noisy_regs, &noisy_start, &noisy_end);
+            if (len >= min_gap_len_for_clip) cr_add(large_gap_regs, "ins", pos-1-gap_flank_win_for_clip, pos+gap_flank_win_for_clip, 1);
             qi += len;
         } else if (op == BAM_CSOFT_CLIP) {
             _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
@@ -1056,6 +1060,7 @@ void bam_chunk_free(bam_chunk_t *chunk) {
         } free(chunk->noisy_reg_var_sets);
     }
     if (chunk->chunk_noisy_regs != NULL) cr_destroy(chunk->chunk_noisy_regs);
+    if (chunk->large_gap_regs != NULL) cr_destroy(chunk->large_gap_regs);
     if (chunk->cand_vars != NULL) free_cand_vars(chunk->cand_vars, chunk->n_cand_vars);
     // if (chunk->var_cate_counts != NULL) free(chunk->var_cate_counts);
     if (chunk->var_i_to_cate != NULL) free(chunk->var_i_to_cate);

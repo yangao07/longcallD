@@ -496,9 +496,13 @@ void collect_noisy_reg_reads(bam_chunk_t *chunk) {
     free(ovlp_b);
 }
 
+void collect_clip_reads(bam_chunk_t *chunk) {
+
+}
+
 void collect_digars_from_bam(bam_chunk_t *chunk, const call_var_pl_t *pl) {
     chunk->chunk_noisy_regs = cr_init();
-    cgranges_t *reg_cr = chunk->reg_cr;
+    chunk->large_gap_regs = cr_init();
     const call_var_opt_t *opt = pl->opt;
     // if (LONGCALLD_VERBOSE >= 2)
         // fprintf(stderr, "CHUNK: %s\tbeg: %" PRId64 ", end: %" PRId64 ", total_n: %d, ovlp_n: %d\n", chunk->tname, chunk->beg, chunk->end, chunk->n_reads, chunk->n_up_ovlp_reads);
@@ -523,14 +527,24 @@ void collect_digars_from_bam(bam_chunk_t *chunk, const call_var_pl_t *pl) {
         }
     }
     cr_index(chunk->chunk_noisy_regs);
+    cr_index(chunk->large_gap_regs);
     chunk->chunk_noisy_regs = cr_merge(chunk->chunk_noisy_regs);
+    chunk->large_gap_regs = cr_merge(chunk->large_gap_regs);
     collect_noisy_reg_reads(chunk);
+    // collect_clip_reads(chunk);
     if (LONGCALLD_VERBOSE >= 2) {
         fprintf(stderr, "ChunkNoisyRegs-\tchr11:start-end 20\n");
         for (int i = 0; i < chunk->chunk_noisy_regs->n_r; ++i) {
             fprintf(stderr, "ChunkNoisyRegs: %s:%d-%d %d\n", chunk->tname, cr_start(chunk->chunk_noisy_regs, i), cr_end(chunk->chunk_noisy_regs, i), cr_label(chunk->chunk_noisy_regs, i));
         }
+        for (int i = 0; i < chunk->large_gap_regs->n_r; ++i) {
+            fprintf(stderr, "LargeGapRegs: %s:%d-%d %d\n", chunk->tname, cr_start(chunk->large_gap_regs, i), cr_end(chunk->large_gap_regs, i), cr_label(chunk->large_gap_regs, i));
+        }
     }
+}
+
+int update_digars_with_clip(bam_chunk_t *chunk, call_var_pl_t *pl) {
+    return 0;
 }
 
 // XXX should be digar->pos-1 for INS/DEL
@@ -963,6 +977,14 @@ read_var_profile_t *collect_noisy_read_var_profile(bam_chunk_t *chunk, int noisy
     return NULL;
 }
 
+// excluding non-fully covering reads: not long enough, or clipped
+// keep up to 2 medoid reads for each haplotype, in case the phasing was wrong
+int *collect_medoid_noisy_reads(bam_chunk_t *chunk, int noisy_reg_i, int *n_medoids, int use_phase_info) {
+    // check if alignment-based medoid selection method is needed
+    // if not, use XID-profile-based medoid selection method
+    return NULL;
+}
+
 // phase info is used as initial cluster assignment for noisy region variants
 int update_read_var_profile(bam_chunk_t *chunk, int target_var_cate, int use_phase_info) {
     // 1) update read_var_profile for target_var_cate using re-alignment
@@ -971,38 +993,22 @@ int update_read_var_profile(bam_chunk_t *chunk, int target_var_cate, int use_pha
     // 2) collect candidate variants in noisy region, insert into cand_vars, then collect read_var_profile
     // merge_insert
     int n_vars = 0;
+    cgranges_t *noisy_regs = chunk->chunk_noisy_regs;
     for (int i = 0; i < chunk->chunk_noisy_regs->n_r; ++i) {
-        cgranges_t *noisy_regs = chunk->chunk_noisy_regs;
         if (cr_label(noisy_regs, i) < 10) continue;
         // collect candicate variants in noisy region based on XID-profile
         hts_pos_t reg_beg = cr_start(noisy_regs, i), reg_end = cr_end(noisy_regs, i);
-        // collect candidate genotype sequences for each noisy region
-        int n_reads = chunk->noisy_reg_to_n_reads[i];
-        int *haps = collect_noisy_read_haps(chunk, i);
-        int n_medoids = 3;
-        int *medoids = xid_profile_2medoids(xid_profile, 20, n_medoids, haps, n_reads, use_phase_info); // 20 = RefX, ReadX, Ins, Del * (ACGTN)
-        int tmp_hp_tag = -1;
-        if (LONGCALLD_VERBOSE >= 2) {
-            fprintf(stderr, "NoisyRegs: %s:%d-%d %d %d\n", chunk->tname, cr_start(noisy_regs, i), cr_end(noisy_regs, i), cr_end(noisy_regs, i) - cr_start(noisy_regs, i), cr_label(noisy_regs, i));
-            fprintf(stderr, "Medoid-reads\t");
-            for (int j = 0; j < n_medoids; ++j) {
-                int read_i = chunk->noisy_reg_to_reads[i][medoids[j]];
-                int hp_tag = get_aux_int_from_bam(chunk->reads[read_i], "HP");
-                fprintf(stderr, "%s HP:%d\t", bam_get_qname(chunk->reads[read_i]), hp_tag);
-            } fprintf(stderr, "\n");
-        }
+        // collect medoid reads and candidate genotype sequences for each noisy region
+        int n_medoids = 0;
+        int *medoid_read_idxs = collect_medoid_noisy_reads(chunk, i, &n_medoids, use_phase_info);
         cand_var_t *cand_vars = NULL;
         int n_cand_vars = make_vars_from_mediod_reads(chunk, i, medoids, n_medoids, &cand_vars);
         // free XID-profile & medoids
         if (medoids!= NULL) free(medoids);
-        for (int j = 0; j < chunk->noisy_reg_to_n_reads[i]; ++j) free(xid_profile[j]); free(xid_profile);
         
-        // read_var_profile_t *p = init_read_var_profile(chunk->n_reads, n_cand_vars);
-
         read_var_profile_t *p = collect_noisy_read_var_profile(chunk, i, n_cand_vars, cand_vars);
         // insert cand_vars into chunk->cand_vars
         // insert p into chunk->read_var_profile
-        free(haps);
     }
     return 0;
 }
@@ -1053,25 +1059,27 @@ int old_update_read_var_profile(bam_chunk_t *chunk, int target_var_cate, int use
 }
 
 void collect_var_main(const call_var_pl_t *pl, bam_chunk_t *chunk, var_t *var) {
-    // kstring_t *ref_seq = pl->ref_seq->seq + ref_seq_name2id(pl->ref_seq, chunk->tname);
-    // collect X/I/D sites from BAM
+    // first round: easy-to-call SNPs (+indels)
+    // 1. collect X/I/D sites from BAM
     collect_digars_from_bam(chunk, pl);
 
-    // merge all var sites from all reads, including low-depth ones, but not including nosiy-region ones
+    // 2. merge all var sites from all reads, including low-depth ones, but not including nosiy-region ones
     var_site_t *var_sites = NULL; int n_var_sites;
     if ((n_var_sites = collect_all_cand_var_sites(chunk, &var_sites)) <= 0) return;
 
+    // 3. collect all candidate variants, not including noisy-region ones
     // collect reference and alternative alleles for all var sites
     // all cand vars, including true/false germline/somatic variants
     // XXX for noisy/repeat regions, we need to carefully pick the candidate variants, based on supporting counts & re-alignments
     // so collect_cand_vars and classify_cand_vars should be run simultaneously
     collect_cand_vars(chunk, n_var_sites, var_sites); free(var_sites);
 
-    // filter out vars based depth, allele frequency, etc.
+    // 4. filter out low-depth ones;
+    //    idenitfy repeat region;
     if (classify_cand_vars(chunk, n_var_sites, pl->opt) <= 0) return;
     // collect all read_var_profile, including repeat/noisy regions
 
-    // collect read-wise var profiles
+    // 5. collect read-wise var profiles
     chunk->read_var_profile = collect_read_var_profile(chunk);
 
     // process candidate variants in the following order
@@ -1084,15 +1092,18 @@ void collect_var_main(const call_var_pl_t *pl, bam_chunk_t *chunk, var_t *var) {
     // 1st round: easy-to-call het.
     //   0) easy-to-call germline het. variants here to determine the haplotype
     // Both SNP & INDEL are considered, we can use only SNP, need to test the performance difference
+    // 6. co-phasing and variant calling using easy-to-call SNPs (+ indels)
     assign_hap_based_on_het_vars(chunk, LONGCALLD_EASY_HET_SNP | LONGCALLD_EASY_HET_INDEL, pl->opt);
     // co-update cand_vars & read_var_profile based on the assigned haplotype for hard-to-call regions
     // for LONGCALLD_REP_HET_VAR, update support read count (read_var_profile) based on re-alignment
     // for noisy regions, collect candidate variants and insert into cand_vars, then collect read_var_profile
+    // second-round: update variant & profile based on re-alignment
+    // 1. clipping around large indels & noisy region
+    // 2. repeat-region
+    // 3. noisy-region
     update_read_var_profile(chunk, LONGCALLD_REP_HET_VAR | LONGCALLD_DENSE_REG_VAR, 1);
     // 2nd round of co-phasing & haplotype assignment using all variants
     // assign_hap_based_on_all_vars()
-
-
     // variant calling using haplotype & supporting read counts
     // 5th round: extend phase block within bam_chunk
 }
