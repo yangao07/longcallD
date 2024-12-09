@@ -39,10 +39,10 @@ typedef struct var_site_t {
     // uint8_t *alt_seq;
 } var_site_t;
 
-// complex variant: large SV, SNP/indel in complex region
-typedef struct cand_complex_var_t {
+// // complex variant: large SV, SNP/indel in complex region
+// typedef struct cand_complex_var_t {
 
-} cand_complex_var_t;
+// } cand_complex_var_t;
 
 struct bam_chunk_t;
 struct var_t;

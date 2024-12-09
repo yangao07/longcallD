@@ -38,7 +38,7 @@ const struct option call_var_opt [] = {
     { "noisy-flank", 1, NULL, 'f' },
     { "end-clip", 1, NULL, 'c' },
     { "clip-flank", 1, NULL, 'F' },
-    { "gap-aln", 1, NULL, 'a'},
+    { "gap-pos", 1, NULL, 'a'},
     { "threads", 1, NULL, 't' },
     { "help", 0, NULL, 'h' },
     { "version", 0, NULL, 'v' },
@@ -79,6 +79,8 @@ call_var_opt_t *call_var_init_para(void) {
     opt->min_dp = LONGCALLD_MIN_CAND_DP;
     opt->min_alt_dp = LONGCALLD_MIN_ALT_DP;
 
+    opt->noisy_reg_flank_len = LONGCALLD_NOISY_REG_FLANK_LEN;
+
     opt->min_gap_len_for_clip = LONGCALLD_MIN_GAP_LEN_FOR_CLIP;
     opt->gap_flank_win_for_clip = LONGCALLD_GAP_FLANK_WIN_FOR_CLIP;
     opt->dens_reg_max_xgaps = LONGCALLD_DENSE_REG_MAX_XGAPS;
@@ -94,7 +96,7 @@ call_var_opt_t *call_var_init_para(void) {
     opt->max_af = LONGCALLD_MAX_CAND_AF;
     opt->max_low_qual_frac = LONGCALLD_MAX_LOW_QUAL_FRAC;
 
-    opt->gap_aln = LONGCALLD_GAP_LEFT_ALN;
+    opt->gap_pos = LONGCALLD_GAP_LEFT_ALN;
 
     opt->pl_threads = MIN_OF_TWO(CALL_VAR_PL_THREAD_N, get_num_processors());
     opt->n_threads = MIN_OF_TWO(CALL_VAR_THREAD_N, get_num_processors());
@@ -141,6 +143,15 @@ void var_free(var_t *v) {
     }
 }
 
+void var1_free(var1_t *v) {
+    if (v->ref_bases) free(v->ref_bases);
+    if (v->alt_len) free(v->alt_len);
+    if (v->alt_bases) {
+        for (int j = 0; j < v->n_alt_allele; ++j) free(v->alt_bases[j]);
+        free(v->alt_bases);
+    }
+}
+
 void call_var_pl_open_ref_reg_fa0(const char *ref_fa_fn, call_var_pl_t *pl) {
     if (ref_fa_fn) {
         _err_info("Loading reference genome: %s\n", ref_fa_fn);
@@ -161,7 +172,7 @@ ref_reg_seq_t *call_var_pl_open_ref_reg_fa(const char *ref_fa_fn, faidx_t *fai, 
         }
     }
     cr_index(ref_reg_seq->reg_cr);
-    _err_info("Loading done!\n");
+    _err_info("Loading regions done!\n");
     return ref_reg_seq;
 } 
 
@@ -267,7 +278,7 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
         s = calloc(1, sizeof(call_var_step_t));
         s->pl = p;
         s->max_chunks = 64; s->chunks = calloc(s->max_chunks, sizeof(bam_chunk_t));
-        int r, n_last_chunk_reads=0, *last_chunk_read_i=NULL; hts_pos_t cur_reg_beg = -1;
+        int r, n_last_chunk_reads=0, *last_chunk_read_i=NULL; hts_pos_t cur_active_reg_beg=-1;
         // for each round, collect s->max_chunks of reads
         // TODO:
         // XXX use the variant calling result of current round to guide the reg_beg of next round 
@@ -277,7 +288,7 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
         // this enables the phasing across multiple rounds
         // XXX add a tmp_bam_chunk to store the last chunk of last round, stitch it with the first chunk of current round
         while (!p->reach_bam_end) {
-            r = collect_bam_chunk(p, &last_chunk_read_i, &n_last_chunk_reads, &cur_reg_beg, s->chunks+s->n_chunks);
+            r = collect_bam_chunk(p, &last_chunk_read_i, &n_last_chunk_reads, &cur_active_reg_beg, s->chunks+s->n_chunks);
             if (s->chunks[s->n_chunks].n_reads == 0) break;
             if (++s->n_chunks >= s->max_chunks) break;
             if (r < 0) {
@@ -285,6 +296,7 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
                 break;
             }
         }
+        fprintf(stderr, "n_chunks: %d\n", s->n_chunks);
         if (last_chunk_read_i != NULL) free(last_chunk_read_i);
         // XXX merge chunks if too few reads
         if (s->n_chunks > 0) return s;
@@ -407,8 +419,8 @@ int call_var_main(int argc, char *argv[]) {
             case 'f': opt->dens_reg_flank_win = atoi(optarg); break;
             case 'c': opt->end_clip_reg = atoi(optarg); break;
             case 'F': opt->end_clip_reg_flank_win = atoi(optarg); break;
-            case 'a': if (strcmp(optarg, "right") == 0 || strcmp(optarg, "r") == 0) opt->gap_aln = LONGCALLD_GAP_RIGHT_ALN;
-                      else if (strcmp(optarg, "left") == 0 || strcmp(optarg, "l") == 0) opt->gap_aln = LONGCALLD_GAP_LEFT_ALN;
+            case 'a': if (strcmp(optarg, "right") == 0 || strcmp(optarg, "r") == 0) opt->gap_pos = LONGCALLD_GAP_RIGHT_ALN;
+                      else if (strcmp(optarg, "left") == 0 || strcmp(optarg, "l") == 0) opt->gap_pos = LONGCALLD_GAP_LEFT_ALN;
                       else _err_error_exit("\'-a/--gap-aln\' can only be \'left\'/\'l\' or \'right\'/\'r\'\n"); // call_var_usage();
             case 't': opt->n_threads = atoi(optarg); break;
             case 'h': call_var_free_para(opt); call_var_usage();

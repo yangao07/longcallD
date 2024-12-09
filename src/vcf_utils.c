@@ -59,12 +59,14 @@ int write_var_to_vcf(var_t *vars, FILE *out_vcf, char *chrom) {
         fprintf(out_vcf, "%s\t%" PRId64 "\t.\t", chrom, var.pos);
         // ref bases
         for (int j = 0; j < var.ref_len; j++) {
+            if (var.ref_bases[j] >= 4) fprintf(stderr, "Invalid ref base: %s %" PRId64  " %d\n", chrom, var.pos+j, var.ref_bases[j]);
             fprintf(out_vcf, "%c", "ACGTN"[var.ref_bases[j]]);
         }
         // alt bases
         fprintf(out_vcf, "\t");
         for (int j = 0; j < var.n_alt_allele; j++) {
             for (int k = 0; k < var.alt_len[j]; k++) {
+                if (var.alt_bases[j][k] >= 4) fprintf(stderr, "Invalid alt base: %s %" PRId64  " %d\n", chrom, var.pos, var.alt_bases[j][k]);
                 fprintf(out_vcf, "%c", "ACGTN"[var.alt_bases[j][k]]);
             }
             if (j < var.n_alt_allele - 1) fprintf(out_vcf, ",");

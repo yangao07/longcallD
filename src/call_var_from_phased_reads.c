@@ -111,10 +111,10 @@ int align_based_call_var_from_phased_reads(bam_chunk_t *chunk, int target_var_ca
     for (int var_i = 0; var_i < chunk->n_cand_vars; ++var_i) {
         if (chunk->var_i_to_cate[var_i] != target_var_cate) continue;
         cand_var_t *var = chunk->cand_vars + var_i;
-        hts_pos_t pos = var->pos, non_rep_beg = var->non_rep_beg, non_rep_end = var->non_rep_end;
+        // hts_pos_t pos = var->pos, non_rep_beg = var->non_rep_beg, non_rep_end = var->non_rep_end;
         // collect ref/alt allele seq
-        char *ref_allele_seq = ref_seq->s + non_rep_beg - 1; 
-        int ref_allele_len = non_rep_end - non_rep_beg + 1;
+        // char *ref_allele_seq = ref_seq->s + non_rep_beg - 1; 
+        // int ref_allele_len = non_rep_end - non_rep_beg + 1;
         // for two haplotypes, collect reads seq
         // calculate S(read-seq|allele-seq)
     }
@@ -131,10 +131,10 @@ int msa_based_call_var_from_phased_reads(bam_chunk_t *chunk, int target_var_cate
     for (int var_i = 0; var_i < chunk->n_cand_vars; ++var_i) {
         if (chunk->var_i_to_cate[var_i] != target_var_cate) continue;
         cand_var_t *var = chunk->cand_vars + var_i;
-        hts_pos_t pos = var->pos, non_rep_beg = var->non_rep_beg, non_rep_end = var->non_rep_end;
+        // hts_pos_t pos = var->pos, non_rep_beg = var->non_rep_beg, non_rep_end = var->non_rep_end;
         // collect ref/alt allele seq
-        char *ref_allele_seq = ref_seq->s + non_rep_beg - 1; 
-        int ref_allele_len = non_rep_end - non_rep_beg + 1;
+        // char *ref_allele_seq = ref_seq->s + non_rep_beg - 1; 
+        // int ref_allele_len = non_rep_end - non_rep_beg + 1;
         // for two haplotypes, collect reads seq
         // calculate S(read-seq|allele-seq)
     }

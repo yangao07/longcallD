@@ -149,6 +149,7 @@ int32_t cr_get_ctg(const cgranges_t *cr, const char *ctg)
 
 cr_intv_t *cr_add(cgranges_t *cr, const char *ctg, int32_t st, int32_t en, int32_t label_int)
 {
+	if (st < 0) st = 0;
 	cr_intv_t *p;
 	int32_t k;
 	if (st > en) return 0;

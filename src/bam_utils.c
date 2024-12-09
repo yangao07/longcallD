@@ -168,6 +168,8 @@ void check_eqx_cigar_MD_tag(samFile *in_bam, bam_hdr_t *header, uint8_t *has_eqx
     // rewind the file
 }
 
+
+
 int get_x_site_index(hts_pos_t *x_sites, int cur_site_i, int n_total_pos, hts_pos_t pos) {
     int site_i = -1;
     for (int i = cur_site_i; i < n_total_pos; i++) {
@@ -379,9 +381,6 @@ int update_read_var_profile_from_digar(digar_t *digar, bam1_t *read, int n_cand_
     digar1_t *digar1 = digar->digars;
     cur_start_i = var_i = get_var_start(cand_vars, start_var_i, n_cand_vars, pos_start);
     int tid = read->core.tid;
-    // if (strcmp("m84039_231005_222902_s1/235933309/ccs", bam_get_qname(read)) == 0) {
-        // fprintf(stderr, "pos_start: %ld, pos_end: %ld, var_i: %d, n_cand_vars: %d\n", pos_start, pos_end, var_i, n_cand_vars);
-    // }
     // compare sorted cand_vars and digars
     // both cand_vars and digars are sorted by pos/type/ref_len
     for (; var_i < n_cand_vars && digar_i < digar->n_digar; ) {
@@ -636,13 +635,12 @@ void post_update_digar(digar1_t *_digars, int _n_digar, const struct call_var_op
     free(up_low_qual_len); free(down_low_qual_len);
 }
 
-void collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar) {
-    hts_pos_t reg_beg = chunk->reg_beg, reg_end = chunk->reg_end; cgranges_t *chunk_noisy_regs = chunk->chunk_noisy_regs;
+int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar) {
+    hts_pos_t reg_beg = chunk->reg_beg, reg_end = chunk->reg_end; cgranges_t *chunk_noisy_regs = chunk->chunk_noisy_regs; int noisy_reg_flank_len = opt->noisy_reg_flank_len;
     hts_pos_t pos = read->core.pos+1, qi = 0;
     const uint32_t *cigar = bam_get_cigar(read); int n_cigar = read->core.n_cigar;
     int max_s = opt->dens_reg_max_xgaps, win = opt->dens_reg_slide_win;
     int min_gap_len_for_clip = opt->min_gap_len_for_clip, gap_flank_win_for_clip = opt->gap_flank_win_for_clip;
-    cgranges_t *large_gap_regs = chunk->large_gap_regs;
     // int dens_reg_flank_win = opt->dens_reg_flank_win, indel_flank_win = opt->indel_flank_win;
     int end_clip_reg = opt->end_clip_reg, end_clip_reg_flank_win = opt->end_clip_reg_flank_win;
     digar->n_digar = 0; digar->m_digar = 2 * n_cigar; digar->digars = (digar1_t*)malloc(n_cigar * 2 * sizeof(digar1_t));
@@ -679,7 +677,6 @@ void collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct
             _n_digar++; // push_xid_queue(q, pos, len, 1);
             // push_xid_queue_win(q, pos, len, 1, digar->noisy_regs, &noisy_start, &noisy_end);
             push_xid_queue_win(q, pos, len, len, digar->noisy_regs, &noisy_start, &noisy_end);
-            if (len >= min_gap_len_for_clip) cr_add(large_gap_regs, "del", pos-1-gap_flank_win_for_clip, pos+len+gap_flank_win_for_clip, 1);
             pos += len;
         } else if (op == BAM_CINS) {
             _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
@@ -687,7 +684,6 @@ void collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct
             _n_digar++; // push_xid_queue(q, pos, 0, 1);
             // push_xid_queue_win(q, pos, 0, 1, digar->noisy_regs, &noisy_start, &noisy_end);
             push_xid_queue_win(q, pos, 0, len, digar->noisy_regs, &noisy_start, &noisy_end);
-            if (len >= min_gap_len_for_clip) cr_add(large_gap_regs, "ins", pos-1-gap_flank_win_for_clip, pos+gap_flank_win_for_clip, 1);
             qi += len;
         } else if (op == BAM_CSOFT_CLIP) {
             _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
@@ -722,13 +718,18 @@ void collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct
     // post_update_digar(_digars, _n_digar, opt, digar);
     if (noisy_start != -1) cr_add(digar->noisy_regs, "cr", noisy_start-1, noisy_end, 0);
     cr_index(digar->noisy_regs);
+    int skip = 0;
     for (int i = 0; i < digar->noisy_regs->n_r; ++i) { // XXX double-count reads with multiple nearby noisy regions
                                                        // read1:  ---- [noisy] ---- [noisy] ----
                                                        // read2:  --------- [  noisy  ] --------
-        // fprintf(stderr, "%d - %d : %d - %d\n", cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i), cr_start(reg_cr, 0), cr_end(reg_cr, 0));
-        if (is_overlap_reg(cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i), reg_beg, reg_end))
-            cr_add(chunk_noisy_regs, "cr", cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i), 1);
+        // fprintf(stderr, "%s %d-%d\n", bam_get_qname(read), cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i));
+        // XXX check if too many non-repeat/homopolymer XIDs in the noisy region
+        // if so, read is wrongly mapped, mark read as skipped
+        if (is_overlap_reg(cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i), reg_beg, reg_end)) {
+            cr_add(chunk_noisy_regs, "cr", cr_start(digar->noisy_regs, i)-noisy_reg_flank_len, cr_end(digar->noisy_regs, i)+noisy_reg_flank_len, 1);
+        }
     }
+    free(_digars); free_xid_queue(q);
     if (LONGCALLD_VERBOSE >= 2) {
         fprintf(stderr, "DIGAR1: %s\n", bam_get_qname(read));
         print_digar(digar, stderr);
@@ -737,15 +738,15 @@ void collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct
             fprintf(stderr, "Noisy: %d-%d\n", cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i));
         }
     }
-    free(_digars); free_xid_queue(q);
+    return skip == 1 ? -1 : 0;
 }
 
 // XXX TODO
 void collect_digar_from_cs_tag(bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar, cgranges_t *chunk_noisy_regs) {
 }
 
-void collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar) {
-    hts_pos_t reg_beg = chunk->reg_beg, reg_end = chunk->reg_end; cgranges_t *chunk_noisy_regs = chunk->chunk_noisy_regs;
+int collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar) {
+    hts_pos_t reg_beg = chunk->reg_beg, reg_end = chunk->reg_end; cgranges_t *chunk_noisy_regs = chunk->chunk_noisy_regs; int noisy_reg_flank_len = opt->noisy_reg_flank_len;
     uint8_t *s = bam_aux_get(read, "MD");
     if (s == NULL) { _err_error_exit("MD tag not found in the BAM file: %s", bam_get_qname(read)); }
     hts_pos_t pos = read->core.pos+1, qi = 0;
@@ -852,20 +853,22 @@ void collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct ca
     post_update_digar(_digars, _n_digar, opt, digar);
     if (noisy_start != -1) cr_add(digar->noisy_regs, "cr", noisy_start-1, noisy_end, 0);
     cr_index(digar->noisy_regs);
+    int skip = 0;
     for (int i = 0; i < digar->noisy_regs->n_r; ++i) {
         if (is_overlap_reg(cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i), reg_beg, reg_end))
-            cr_add(chunk_noisy_regs, "cr", cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i), 1);
+            cr_add(chunk_noisy_regs, "cr", cr_start(digar->noisy_regs, i)-noisy_reg_flank_len, cr_end(digar->noisy_regs, i)+noisy_reg_flank_len, 1);
     }
     if (LONGCALLD_VERBOSE >= 2) {
         fprintf(stderr, "DIGAR2: %s\n", bam_get_qname(read));
         print_digar(digar, stderr);
     }
     free(_digars); free_xid_queue(q);
+    return skip == 1 ? -1 : 0;
 }
 
-void collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const call_var_opt_t *opt, digar_t *digar) {
+int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const call_var_opt_t *opt, digar_t *digar) {
     char *ref_seq = chunk->ref_seq; hts_pos_t ref_beg = chunk->ref_beg, ref_end = chunk->ref_end;
-    hts_pos_t reg_beg = chunk->reg_beg, reg_end = chunk->reg_end; cgranges_t *chunk_noisy_regs = chunk->chunk_noisy_regs;
+    hts_pos_t reg_beg = chunk->reg_beg, reg_end = chunk->reg_end; cgranges_t *chunk_noisy_regs = chunk->chunk_noisy_regs; int noisy_reg_flank_len = opt->noisy_reg_flank_len;
     hts_pos_t pos = read->core.pos+1, qi = 0;
     digar->beg = pos; digar->end = bam_endpos(read);
     const uint32_t *cigar = bam_get_cigar(read); int n_cigar = read->core.n_cigar;
@@ -948,23 +951,26 @@ void collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const call_var
     post_update_digar(_digars, _n_digar, opt, digar);
     if (noisy_start != -1) cr_add(digar->noisy_regs, "cr", noisy_start-1, noisy_end, 0);
     cr_index(digar->noisy_regs);
+    int skip = 0;
     for (int i = 0; i < digar->noisy_regs->n_r; ++i) {
         if (is_overlap_reg(cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i), reg_beg, reg_end))
-            cr_add(chunk_noisy_regs, "cr", cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i), 1);
+            cr_add(chunk_noisy_regs, "cr", cr_start(digar->noisy_regs, i)-noisy_reg_flank_len, cr_end(digar->noisy_regs, i)+noisy_reg_flank_len, 1);
     }
     if (LONGCALLD_VERBOSE >= 2) {
         fprintf(stderr, "DIGAR3: %s\n", bam_get_qname(read));
         print_digar(digar, stderr);
     }
     free(_digars); free_xid_queue(q);
+    return skip == 1 ? -1 : 0;
 }
 
-void copy_bam_chunk(bam_chunk_t *from_chunk, bam_chunk_t *to_chunk, int *last_chunk_read_i, int n_reads) {
+void copy_bam_chunk(bam_chunk_t *from_chunk, bam_chunk_t *to_chunk, int *chunk_read_i, int n_reads, hts_pos_t *chunk_read_beg) {
     to_chunk->up_ovlp_read_i = (int*)malloc(n_reads * sizeof(int));
     for (int i = 0; i < n_reads; i++) {
-        int from_read_i = last_chunk_read_i[i];
+        int from_read_i = chunk_read_i[i];
         if (bam_copy1(to_chunk->reads[to_chunk->n_reads + i], from_chunk->reads[from_read_i]) == NULL)
             _err_error_exit("Failed to copy BAM record: %s (%d,%d)", bam_get_qname(from_chunk->reads[from_read_i]), from_read_i, n_reads);
+        if (*chunk_read_beg == -1) *chunk_read_beg = from_chunk->reads[from_read_i]->core.pos;
         // to_chunk->reads[to_chunk->n_reads + i] =  from_chunk->reads[read_i];
         if (from_chunk->is_ovlp[from_read_i]) {
             to_chunk->up_ovlp_read_i[to_chunk->n_up_ovlp_reads++] = from_read_i;
@@ -974,7 +980,7 @@ void copy_bam_chunk(bam_chunk_t *from_chunk, bam_chunk_t *to_chunk, int *last_ch
     to_chunk->n_reads += n_reads;
 }
 
-int bam_chunk_init(bam_chunk_t *chunk, int n_reads, int *last_chunk_read_i, int n_last_chunk_reads) {
+int bam_chunk_init(bam_chunk_t *chunk, int n_reads, int *last_chunk_read_i, int n_last_chunk_reads, hts_pos_t *chunk_read_beg) {
     if (n_last_chunk_reads > n_reads) n_reads = n_last_chunk_reads;
 
     // input
@@ -990,8 +996,7 @@ int bam_chunk_init(bam_chunk_t *chunk, int n_reads, int *last_chunk_read_i, int 
         chunk->digars[i].n_digar = chunk->digars[i].m_digar = 0;
     }
     // noisy regions
-    chunk->chunk_noisy_regs = NULL; chunk->noisy_reg_var_sets = NULL;
-    chunk->noisy_reg_to_reads = NULL; chunk->noisy_reg_to_n_reads = NULL;
+    chunk->chunk_noisy_regs = NULL; chunk->noisy_reg_to_reads = NULL; chunk->noisy_reg_to_n_reads = NULL;
     // variant
     chunk->n_cand_vars = 0; chunk->cand_vars = NULL;
     // chunk->var_cate_counts = NULL; chunk->var_cate_idx = NULL; 
@@ -999,10 +1004,11 @@ int bam_chunk_init(bam_chunk_t *chunk, int n_reads, int *last_chunk_read_i, int 
     chunk->read_var_profile = NULL; chunk->read_var_cr = NULL;
     // output
     chunk->haps = (int*)calloc(n_reads, sizeof(int));
+    chunk->PS = (hts_pos_t*)calloc(n_reads, sizeof(hts_pos_t));
     chunk->flip_hap = 0;
 
     if (n_last_chunk_reads > 0) {
-        copy_bam_chunk(chunk-1, chunk, last_chunk_read_i, n_last_chunk_reads);
+        copy_bam_chunk(chunk-1, chunk, last_chunk_read_i, n_last_chunk_reads, chunk_read_beg);
         return chunk->reads[0]->core.tid;
     } else return -1;
 }
@@ -1014,26 +1020,15 @@ int bam_chunk_realloc(bam_chunk_t *chunk) {
     chunk->is_ovlp = (uint8_t*)realloc(chunk->is_ovlp, m_reads * sizeof(uint8_t));
     chunk->digars = (digar_t*)realloc(chunk->digars, m_reads * sizeof(digar_t));
     chunk->haps = (int*)realloc(chunk->haps, m_reads * sizeof(int));
+    chunk->PS = (hts_pos_t*)realloc(chunk->PS, m_reads * sizeof(hts_pos_t));
     for (int i = chunk->m_reads; i < m_reads; i++) {
         chunk->reads[i] = bam_init1();
         chunk->digars[i].n_digar = chunk->digars[i].m_digar = 0;
-        chunk->is_skipped[i] = 0; chunk->haps[i] = 0;
+        chunk->is_skipped[i] = 0; chunk->haps[i] = 0; chunk->PS[i] = 0;
         chunk->is_ovlp[i] = 0;
     }
     chunk->m_reads = m_reads;
     return 0;
-}
-
-void noisy_reg_var_set_free(noisy_reg_var_set_t *var_set) {
-    if (var_set->m_digar > 0) {
-        free(var_set->digars);
-    }
-    if (var_set->cand_vars != NULL) free_cand_vars(var_set->cand_vars, var_set->n_cand_vars);
-    if (var_set->cand_genotypes != NULL) {
-        for (int i = 0; i < var_set->m_cand_genotypes; i++) {
-            free(var_set->cand_genotypes[i]);
-        } free(var_set->cand_genotypes);
-    }
 }
 
 void bam_chunk_free(bam_chunk_t *chunk) {
@@ -1054,13 +1049,7 @@ void bam_chunk_free(bam_chunk_t *chunk) {
         } free(chunk->noisy_reg_to_reads);
     }
     if (chunk->noisy_reg_to_n_reads != NULL) free(chunk->noisy_reg_to_n_reads);
-    if (chunk->noisy_reg_var_sets != NULL) {
-        for (int i = 0; i < chunk->chunk_noisy_regs->n_r; i++) {
-            noisy_reg_var_set_free(chunk->noisy_reg_var_sets+i);
-        } free(chunk->noisy_reg_var_sets);
-    }
     if (chunk->chunk_noisy_regs != NULL) cr_destroy(chunk->chunk_noisy_regs);
-    if (chunk->large_gap_regs != NULL) cr_destroy(chunk->large_gap_regs);
     if (chunk->cand_vars != NULL) free_cand_vars(chunk->cand_vars, chunk->n_cand_vars);
     // if (chunk->var_cate_counts != NULL) free(chunk->var_cate_counts);
     if (chunk->var_i_to_cate != NULL) free(chunk->var_i_to_cate);
@@ -1072,7 +1061,7 @@ void bam_chunk_free(bam_chunk_t *chunk) {
     if (chunk->read_var_profile != NULL) free_read_var_profile(chunk->read_var_profile, chunk->n_reads);
     if (chunk->read_var_cr != NULL) cr_destroy(chunk->read_var_cr);
     free(chunk->reads); free(chunk->digars);
-    free(chunk->is_skipped); free(chunk->is_ovlp); free(chunk->haps);
+    free(chunk->is_skipped); free(chunk->is_ovlp); free(chunk->haps); free(chunk->PS);
     if (chunk->up_ovlp_read_i != NULL) free(chunk->up_ovlp_read_i);
 }
 
@@ -1102,11 +1091,17 @@ void get_bam_chunk_reg_ref_seq(faidx_t *fai, ref_reg_seq_t *ref_reg_seq, bam_chu
     cgranges_t *reg_cr = chunk->reg_cr;
     assert(reg_cr->n_r > 0);
     if (reg_cr->n_r == 1) {
-        hts_pos_t ref_beg = cr_start(reg_cr, 0), ref_end = cr_end(reg_cr, 0);
-        chunk->ref_beg = ref_reg_seq->reg_seq[0].beg;
-        chunk->ref_end = ref_reg_seq->reg_seq[0].end;
+        char *tname = chunk->tname; hts_pos_t ref_beg = cr_start(reg_cr, 0), ref_end = cr_end(reg_cr, 0);
+        // get the reference sequence
+        int64_t ovlp_i, ovlp_n, *ovlp_b = 0, max_b = 0;
+        ovlp_n = cr_overlap(ref_reg_seq->reg_cr, tname, ref_beg-1, ref_end, &ovlp_b, &max_b);
+        assert(ovlp_n == 1);
+        int ref_i = cr_label(ref_reg_seq->reg_cr, ovlp_b[0]); free(ovlp_b);
+
+        chunk->ref_beg = ref_reg_seq->reg_seq[ref_i].beg;
+        chunk->ref_end = ref_reg_seq->reg_seq[ref_i].end;
         chunk->need_free_ref_seq = 0;
-        chunk->ref_seq = ref_reg_seq->reg_seq[0].seq.s;
+        chunk->ref_seq = ref_reg_seq->reg_seq[ref_i].seq.s;
     } else { // if reg_cr->n_r > 1: allocate a new memory for the reference sequence, containing gaps between regions
         assert(fai != NULL); // faidx_t *fai = fai_load(ref_fasta);
         chunk->need_free_ref_seq = 1;
@@ -1124,24 +1119,29 @@ void get_bam_chunk_reg_ref_seq(faidx_t *fai, ref_reg_seq_t *ref_reg_seq, bam_chu
     }
 }
 
-void get_bam_chunk_reg_cr(cgranges_t *reg_cr, bam_chunk_t *chunk, hts_pos_t chunk_beg, hts_pos_t chunk_end) {
+void get_bam_chunk_reg_cr(cgranges_t *ref_seq_reg_cr, bam_chunk_t *chunk, hts_pos_t chunk_active_reg_beg, hts_pos_t chunk_active_reg_end) {
     chunk->reg_cr = cr_init();
     int64_t ovlp_i, ovlp_n, *ovlp_b = 0, max_b = 0;
-    ovlp_n = cr_overlap(reg_cr, chunk->tname, chunk_beg-1, chunk_end, &ovlp_b, &max_b);
-    // if (ovlp_n <= 0) _err_error_exit("Region not found in the reference: %s:%d-%d", tname, reg_beg, reg_end);
+    ovlp_n = cr_overlap(ref_seq_reg_cr, chunk->tname, chunk_active_reg_beg-1, chunk_active_reg_end, &ovlp_b, &max_b);
     assert(ovlp_n > 0);
-    hts_pos_t _beg = chunk_end, _end = chunk_beg-1;
+    hts_pos_t _beg = chunk_active_reg_end, _end = chunk_active_reg_beg-1;
     for (ovlp_i = 0; ovlp_i < ovlp_n; ovlp_i++) {
         // fprintf(stderr, "reg_cr, ovlp: %s:%d-%d\n", tname, cr_start(ref_reg, ovlp_b[ovlp_i]), cr_end(ref_reg, ovlp_b[ovlp_i]));
-        cr_add(chunk->reg_cr, chunk->tname, cr_start(reg_cr, ovlp_b[ovlp_i]), cr_end(reg_cr, ovlp_b[ovlp_i]), cr_label(reg_cr, ovlp_b[ovlp_i]));
-        if (cr_start(reg_cr, ovlp_b[ovlp_i]) < _beg) _beg = cr_start(reg_cr, ovlp_b[ovlp_i]);
-        if (cr_end(reg_cr, ovlp_b[ovlp_i]) > _end) _end = cr_end(reg_cr, ovlp_b[ovlp_i]);
+        cr_add(chunk->reg_cr, chunk->tname, cr_start(ref_seq_reg_cr, ovlp_b[ovlp_i]), cr_end(ref_seq_reg_cr, ovlp_b[ovlp_i]), cr_label(ref_seq_reg_cr, ovlp_b[ovlp_i]));
+        if (cr_start(ref_seq_reg_cr, ovlp_b[ovlp_i]) < _beg) _beg = cr_start(ref_seq_reg_cr, ovlp_b[ovlp_i]);
+        if (cr_end(ref_seq_reg_cr, ovlp_b[ovlp_i]) > _end) _end = cr_end(ref_seq_reg_cr, ovlp_b[ovlp_i]);
     }
-    chunk->reg_beg = _beg+1; chunk->reg_end = _end;
+    // XXX TODO: variant calling region: [reg_beg, reg_end]
+    //           non-overlapping with nearby chunks, so that any variants will only be called in one chunk/region
+    //           take care of the very first & last chunk
+    chunk->reg_beg = MAX_OF_TWO(_beg+1, chunk_active_reg_beg); 
+    chunk->reg_end = MIN_OF_TWO(_end, chunk_active_reg_end);
+    // fprintf(stderr, "CHUNK_REG: %ld %ld %ld %ld\n", _beg+1, chunk_active_reg_beg, _end, chunk_active_reg_end);
     free(ovlp_b);
     cr_index(chunk->reg_cr);
 }
 
+// XXX  TODO: parse multiple chromosomes
 // collect reads from a BAM file, region: [start, start+max_reg_len_per_chunk]
 // *n_ovlp_reads: number of overlapping reads between previous chunk and current chunk, update it to "overlapping reads between current chunk and next chunk" after collecting reads
 // int collect_bam_chunk(samFile *in_bam, bam_hdr_t *header, hts_itr_t *iter, int use_iter, int max_reg_len_per_chunk, int **ovlp_read_i, int *n_ovlp_reads, hts_pos_t *last_reg_end, bam_chunk_t *chunk) {
@@ -1150,24 +1150,34 @@ void get_bam_chunk_reg_cr(cgranges_t *reg_cr, bam_chunk_t *chunk, hts_pos_t chun
 // **last_chunk_read_i: indices of reads from the last chunk that will be collected in current chunk
 // *n_last_chunk_reads: number of reads in the last chunk that will be collected in current chunk
 // int collect_bam_chunk(samFile *in_bam, bam_hdr_t *header, hts_itr_t *iter, int use_iter, int max_reg_len_per_chunk, int **last_chunk_read_i, int *n_last_chunk_reads, hts_pos_t *last_reg_end, bam_chunk_t *chunk) {
-int collect_bam_chunk(call_var_pl_t *pl, int **last_chunk_read_i, int *n_last_chunk_reads, hts_pos_t *cur_reg_beg, bam_chunk_t *chunk) {
+int collect_bam_chunk(call_var_pl_t *pl, int **last_chunk_read_i, int *n_last_chunk_reads, hts_pos_t *cur_active_reg_beg, bam_chunk_t *chunk) {
     samFile *in_bam = pl->bam; bam_hdr_t *header = pl->header; hts_itr_t *iter = pl->iter; 
     int use_iter = pl->use_iter; int max_reg_len_per_chunk = pl->max_reg_len_per_chunk;
     int r, has_eqx_cigar=0, has_MD=0;
     int reg_tid=-1, tid0;
     hts_pos_t beg0=-1, end0=-1; // read-wise, end: end of all reads in current chunk, beg0/end0: start/end of the current read
-    hts_pos_t reg_beg=-1, reg_end=-1, next_reg_beg=-1; // region-wise
+    hts_pos_t active_reg_beg = -1, active_reg_end = -1, next_active_reg_beg = -1;
+    hts_pos_t chunk_read_reg_beg=-1; // beg of the current chunk, based on all reads in the chunk
 
-    reg_tid = bam_chunk_init(chunk, 4096, *last_chunk_read_i, *n_last_chunk_reads);
-    if (*last_chunk_read_i != NULL) free(*last_chunk_read_i);
     // if *n_last_chunk_reads > 0, *cur_reg_beg was set during collecting the last chunk; tid will be set as the tid of last_chunk_reads
     // else if tid==-1, and *cur_reg_beg needs to be set as the start of the current region
-    if (*cur_reg_beg != -1) {
+    // *cur_active_reg_beg: -1 means cur_active_reg_beg is not set yet, set as the very first read in the chunk, including overlapping ones
+
+    reg_tid = bam_chunk_init(chunk, 4096, *last_chunk_read_i, *n_last_chunk_reads, &chunk_read_reg_beg);
+    if (*cur_active_reg_beg != -1) {
         // assert(reg_tid != -1);
-        reg_beg = *cur_reg_beg;
-        reg_end = reg_beg + max_reg_len_per_chunk - 1;
-        next_reg_beg = reg_end + 1;
+        if (chunk_read_reg_beg != -1) *cur_active_reg_beg = MAX_OF_TWO(*cur_active_reg_beg, chunk_read_reg_beg);
+        active_reg_beg = *cur_active_reg_beg;
+        active_reg_end = active_reg_beg + max_reg_len_per_chunk - 1;
+        next_active_reg_beg = active_reg_end + 1;
+    } else {
+        if (chunk_read_reg_beg != -1) {
+            active_reg_beg = chunk_read_reg_beg;
+            active_reg_end = active_reg_beg + max_reg_len_per_chunk - 1;
+            next_active_reg_beg = active_reg_end + 1;
+        } // if (chunk_read_reg_beg == -1): wait unit read the first read
     }
+    if (*last_chunk_read_i != NULL) free(*last_chunk_read_i);
     int m_last_chunk_reads = chunk->m_reads; // push to last_chunk_read_i if end >= reg_end or tid != cur_tid, break if beg > reg_end or tid != cur_tid
     int _n_last_chunk_reads = 0;             // for tid != cur_id, only one read will be collect for next chunk (*n_last_chunk_reads=1)
     *last_chunk_read_i = (int*)malloc(m_last_chunk_reads * sizeof(int));
@@ -1185,8 +1195,13 @@ int collect_bam_chunk(call_var_pl_t *pl, int **last_chunk_read_i, int *n_last_ch
         end0 = bam_endpos(chunk->reads[chunk->n_reads]);
 
         if (reg_tid == -1) { // first read in the first chunk
-            reg_tid = tid0; reg_beg = beg0; reg_end = beg0 + max_reg_len_per_chunk - 1; next_reg_beg = reg_end + 1;
-            if (end0 >= reg_end) { // extreamly long reads that span the whole region
+            reg_tid = tid0;
+            if (active_reg_beg == -1) {
+                active_reg_beg = beg0;
+                active_reg_end = active_reg_beg + max_reg_len_per_chunk - 1;
+                next_active_reg_beg = active_reg_end + 1;
+            }
+            if (end0 >= active_reg_end) { // extreamly long reads that span the whole region
                 chunk->is_ovlp[chunk->n_reads] = 1; // overlap between current and next chunk
                 if (_n_last_chunk_reads == m_last_chunk_reads) {
                     m_last_chunk_reads *= 2;
@@ -1195,16 +1210,16 @@ int collect_bam_chunk(call_var_pl_t *pl, int **last_chunk_read_i, int *n_last_ch
                 (*last_chunk_read_i)[_n_last_chunk_reads++] = chunk->n_reads;
             }
         } else if (reg_tid != tid0) { // diff chr: set next_reg_beg, n_last_chunk_reads, last_chunk_read_i
-            reg_end = -1; // next chunk is diff chr, so set current reg_end as -1
-            next_reg_beg = beg0;
+            // reg_end = -1; // next chunk is diff chr, so set current reg_end as -1
+            next_active_reg_beg = beg0;
             _n_last_chunk_reads = 0;
             (*last_chunk_read_i)[_n_last_chunk_reads++] = chunk->n_reads; // only keep one read for the next chunk
             break;
         } else { // same chromosome
             // reg_beg/reg_end is already set
-            assert(reg_beg != -1); assert(reg_end != -1);
+            assert(active_reg_beg != -1); assert(active_reg_end != -1);
             // if (reg_end == -1) reg_end = beg0 + max_reg_len_per_chunk - 1;
-            if (end0 >= reg_end) {
+            if (end0 >= active_reg_end) {
                 chunk->is_ovlp[chunk->n_reads] = 1; // overlap between current and next chunk
                 if (_n_last_chunk_reads == m_last_chunk_reads) {
                     m_last_chunk_reads *= 2;
@@ -1212,7 +1227,7 @@ int collect_bam_chunk(call_var_pl_t *pl, int **last_chunk_read_i, int *n_last_ch
                 }
                 (*last_chunk_read_i)[_n_last_chunk_reads++] = chunk->n_reads;
             }
-            if (beg0 > reg_end) { // out of the current region
+            if (beg0 > active_reg_end) { // out of the current region
                 chunk->is_ovlp[chunk->n_reads] = 0; // no overlap with the current chunk
                 break;
             }
@@ -1225,17 +1240,16 @@ int collect_bam_chunk(call_var_pl_t *pl, int **last_chunk_read_i, int *n_last_ch
 
     if (chunk->n_reads > *n_last_chunk_reads) {
         chunk->tid = reg_tid; chunk->tname = header->target_name[reg_tid];
-        // chunk->beg = reg_beg; chunk->end = reg_end; // XXX set end as min(reg_end, end)
-        // chunk->ref_seq = get_region_seq(pl->ref_reg_seq, chunk->tname, chunk->ref_beg, chunk->ref_end);
-        get_bam_chunk_reg_cr(pl->ref_reg_seq->reg_cr, chunk, reg_beg, reg_end);
+        get_bam_chunk_reg_cr(pl->ref_reg_seq->reg_cr, chunk, active_reg_beg, active_reg_end);
         get_bam_chunk_reg_ref_seq(pl->fai, pl->ref_reg_seq, chunk);
         chunk->bam_has_eqx_cigar = has_eqx_cigar; chunk->bam_has_md_tag = has_MD;
-        if (LONGCALLD_VERBOSE >= 2)
-            fprintf(stderr, "CHUNK: tname: %s, tid: %d, beg: %" PRId64 ", end: %" PRId64 ", n_reads: %d, n_ovlp: %d\n", chunk->tname, reg_tid, chunk->reg_beg, chunk->reg_end, chunk->n_reads, _n_last_chunk_reads);
-        // fprintf(stderr, "%.100s\n", chunk->ref_seq);
         // for the next chunk
-        *cur_reg_beg = next_reg_beg;
+        *cur_active_reg_beg = next_active_reg_beg;
         *n_last_chunk_reads = _n_last_chunk_reads;
+        if (LONGCALLD_VERBOSE >= 0) {
+            fprintf(stderr, "CHUNK: tname: %s, tid: %d, beg: %" PRId64 ", end: %" PRId64 ", n_reads: %d, n_ovlp: %d, next_act_beg: %ld\n", chunk->tname, reg_tid, chunk->reg_beg, chunk->reg_end, chunk->n_reads, _n_last_chunk_reads, next_active_reg_beg);
+            // fprintf(stderr, "CHUNK: tname: %s, tid: %d, beg: %" PRId64 ", end: %" PRId64 ", n_reads: %d, n_ovlp: %d\n", chunk->tname, reg_tid, reg_beg, reg_end, chunk->n_reads, _n_last_chunk_reads);
+        }
     } else {
         *n_last_chunk_reads = 0;
         chunk->n_reads = 0;

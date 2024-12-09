@@ -14,7 +14,7 @@ endif
 
 # add -fno-tree-vectorize to avoid certain vectorization errors in O3 optimization
 # right now, we are using -O3 for the best performance, and no vectorization errors were found
-EXTRA_FLAGS = -Wall -Wno-unused-function -Wno-misleading-indentation 
+EXTRA_FLAGS = -Wall -Wno-unused-function -Wno-misleading-indentation -Wno-unused-variable
 
 HTSLIB_DIR  = ./htslib
 HTSLIB      = $(HTSLIB_DIR)/libhts.a
@@ -49,6 +49,7 @@ endif
 # for gdb
 ifneq ($(gdb),)
 	OPT_FLAGS = -g
+	ABPOA_LIB = ./lib/libabpoa_gdb.a
 else
 	OPT_FLAGS = -O3
 endif

@@ -7,6 +7,17 @@
 #include <inttypes.h>
 
 extern int LONGCALLD_VERBOSE;
+
+int collect_max_cov_allele(cand_var_t *var) {
+    int max_cov = 0, max_cov_alle_i = -1;
+    for (int i = 0; i < var->n_uniq_alles; ++i) {
+        if (var->alle_covs[i] > max_cov) {
+            max_cov = var->alle_covs[i]; max_cov_alle_i = i;
+        }
+    }
+    return max_cov_alle_i;
+}
+
 // 1st round operations: update base_to_hap -> {1/2/0}
 // assign haplotype to a SNP, when no other information avaliable
 // most common base -> 1, second common base -> 2, others -> 0
@@ -28,8 +39,8 @@ hts_pos_t assign_var_init_hap(cand_var_t *var) {
         }
     }
     if (hap1_alle_i == -1) _err_error_exit("No candidate allele in Var: %d-%" PRId64 ", %d-%c\n", var->tid, var->pos, var->ref_len, BAM_CIGAR_STR[var->var_type]);
-    if (hap2_alle_i == -1) { // only one allele
-        var->alle_to_hap[hap1_alle_i] = 1; var->alle_to_hap[hap1_alle_i] = 2;
+    if (hap2_alle_i == -1) { // only one allele: low coverage or homozygous
+        var->alle_to_hap[hap1_alle_i] = 1; // var->alle_to_hap[hap1_alle_i] = 2;
     } else {
         if (hap2_alle_i == 0) { // ref allele
             var->alle_to_hap[hap1_alle_i] = 2; var->alle_to_hap[hap2_alle_i] = 1;
@@ -82,6 +93,8 @@ hts_pos_t assign_var_hap_based_on_pre_reads1(cand_var_t *var) {
     return var->phase_set;
 } 
 
+// all candidate vars, including heterozygous and homozygous SNPs:
+// init haplotype profile: HAP: 0 -> max_cons_allele_i, 1/2: -1
 void var_init_hap_profile(cand_var_t *vars, int n_cand_vars, int *var_i_to_cate, int target_var_cate) {
 // void var_init_hap_profile(cand_var_t *vars, int n_cand_vars, int *var_cate_list) {
     // for (int i = 0; i < n_cand_vars; ++i) {
@@ -94,6 +107,7 @@ void var_init_hap_profile(cand_var_t *vars, int n_cand_vars, int *var_i_to_cate,
             var->hap_to_alle_profile = (int**)malloc((LONGCALLD_DEF_PLOID+1) * sizeof(int*));
             for (int i = 0; i <= LONGCALLD_DEF_PLOID; ++i) var->hap_to_alle_profile[i] = (int*)calloc(var->n_uniq_alles, sizeof(int));
             var->hap_to_cons_alle = (int*)malloc((LONGCALLD_DEF_PLOID+1) * sizeof(int));
+            var->hap_to_cons_alle[0] = collect_max_cov_allele(var);
             for (int j = 1; j <= LONGCALLD_DEF_PLOID; ++j) {
                 var->hap_to_cons_alle[j] = -1;
             }
@@ -141,6 +155,7 @@ hts_pos_t assign_var_hap_based_on_pre_reads(cand_var_t *var, int min_dp) {
 }
 
 // after a read is assigned with hap, update hap of all other SNPs covered by this read
+// including homozygous and heterozygous SNPs
 void update_var_hap_profile_based_on_aln_hap(int hap, hts_pos_t phase_set, cand_var_t *var, int *var_i_to_cate, int target_var_cate, read_var_profile_t *p, int read_i) {
     int start_var_idx = p[read_i].start_var_idx, end_var_idx = p[read_i].end_var_idx;
     for (int var_i = start_var_idx; var_i <= end_var_idx; ++var_i) {
@@ -263,7 +278,6 @@ int update_var_hap_profile_based_on_changed_hap(int new_hap, int old_hap, cand_v
 //             until no changes to any reads
 // output chunk->haps[i] to 1 or 2, 0: unknown
 char read_name[1024] = "m84039_231005_222902_s1/80479720/ccs";
-
 int assign_hap_based_on_het_vars(bam_chunk_t *chunk, int target_var_cate, const call_var_opt_t *opt) {
     read_var_profile_t *p = chunk->read_var_profile;
     // int n_cand_vars = chunk->var_cate_counts[target_var_cate];
@@ -279,7 +293,8 @@ int assign_hap_based_on_het_vars(bam_chunk_t *chunk, int target_var_cate, const 
     // for (int i = 0; i < n_cand_vars; ++i) {
         // int var_i = var_cate_idx[i];
     for (int var_i = 0; var_i < n_cand_vars; ++var_i) {
-        if ((var_i_to_cate[var_i] & target_var_cate) == 0) continue;
+        if ((var_i_to_cate[var_i] & target_var_cate) == 0 || var_i_to_cate[var_i] == LONGCALLD_CAND_HOM_VAR) // skip cand homozygous SNPs
+            continue;
         cand_var_t *var = cand_vars+var_i;
         ovlp_n = cr_overlap(read_var_cr, "cr", var_i, var_i+1, &ovlp_b, &max_b);
         hts_pos_t phase_set = assign_var_hap_based_on_pre_reads(var, opt->min_dp); // update alle_to_hap
@@ -299,6 +314,8 @@ int assign_hap_based_on_het_vars(bam_chunk_t *chunk, int target_var_cate, const 
                     // update hap_to_alle_profile for all Vars covered by this read, based on its assigned haplotype
                     // udpated profile will then be used for following Vars (assign_var_hap_based_on_pre_reads)
                     update_var_hap_profile_based_on_aln_hap(hap, phase_set, cand_vars, var_i_to_cate, target_var_cate, p, read_i);
+                    // update PS for the read
+                    if (chunk->PS[read_i] == 0 || chunk->PS[read_i] > phase_set) chunk->PS[read_i] = phase_set;
                 }
             }
         }

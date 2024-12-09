@@ -17,7 +17,7 @@
 #define LONGCALLD_MIN_CAND_BQ 0 // low-qual
 #define LONGCALLD_MIN_CAND_DP 5 // total DP < 5: skipped
 #define LONGCALLD_MIN_ALT_DP 2 // max alt depth < 2: skipped
-#define LONGCALLD_MIN_SOMATIC_AF 0.05 // AF < 0.05: filtered out
+#define LONGCALLD_MIN_SOMATIC_AF 0.05 // AF < 0.05: filtered out, 0.05~0.25: candidate somatic
 #define LONGCALLD_MIN_CAND_AF 0.25 // AF < 0.25: not germline het.
 #define LONGCALLD_MAX_CAND_AF 0.75 // AF > 0.75: not germline het.
 #define LONGCALLD_MAX_LOW_QUAL_FRAC 0.25 // LOW_FRAC > 0.25: low-qual
@@ -27,6 +27,7 @@
 #define LONGCALLD_ALT_ALLELE2 2
 #define LONGCALLD_OTHER_ALT_ALLELE 3
 
+#define LONGCALLD_NOISY_REG_FLANK_LEN 10 // add 10-bp flanking region for both ends of noisy region
 #define LONGCALLD_MIN_GAP_LEN_FOR_CLIP 100 // >= 100-bp gaps will be considered for re-alignment of clipping bases
 #define LONGCALLD_GAP_FLANK_WIN_FOR_CLIP 500
 #define LONGCALLD_DENSE_REG_MAX_XGAPS 5 // or 10; dense X/gap region: more than n X/gap bases in a 100-bp window
@@ -82,10 +83,11 @@ typedef struct call_var_opt_t {
     int dens_reg_max_xgaps, dens_reg_slide_win, dens_reg_flank_win;
     int indel_flank_win;
     int end_clip_reg, end_clip_reg_flank_win;
+    int noisy_reg_flank_len; // for re-alignment
     // alignment
     int min_gap_len_for_clip; // >= l-bp gaps will be considered for re-alignment of clipping bases 
     int gap_flank_win_for_clip;
-    int gap_aln; // default: 1: left (minimap2, abpoa), 2: right (wfa2)
+    int gap_pos; // default: 1: left (minimap2, abpoa), 2: right (wfa2)
     // general
     // int max_ploidy;
     int pl_threads, n_threads;
@@ -119,6 +121,8 @@ typedef struct call_var_step_t {
 } call_var_step_t;
 
 int call_var_main(int argc, char *argv[]);
+void var_free(var_t *v);
+void var1_free(var1_t *v);
 
 #ifdef __cplusplus
 }

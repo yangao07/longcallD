@@ -28,6 +28,7 @@ TODO:
   - With higher coverage
   - Large number of SNPs/indels or long insertions/deletions
   - Not in a repeat region
+  - Non-repeat/homopolyer XID density
 ---
 
 * Tumour purity $\alpha$: est. -> max. -> est. ... -> converge

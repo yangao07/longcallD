@@ -257,4 +257,3 @@ ref_reg_seq_t *read_ref_reg_seq(const char *ref_fa_fn) {
     free(line.s); hts_close(fp);
     return r;
 }
-
