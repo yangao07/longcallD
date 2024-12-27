@@ -7,6 +7,12 @@
 
 #define LONGCALLD_BAM_CHUNK_READ_COUNT 4000
 #define LONGCALLD_BAM_CHUNK_REG_SIZE 1000000 // 1M XXX smaller or bigger?
+
+
+#define BAM_RECORD_LOW_QUAL 0x1
+#define BAM_RECORD_WRONG_MAP 0x2
+// #define BAM_RECORD_LARGE_CLIP 0x4
+
 #define bam_bseq2base(bseq, qi) seq_nt16_str[bam_seqi(bseq, qi)]
 
 #ifdef __cplusplus
@@ -103,8 +109,8 @@ typedef struct bam_chunk_t {
     //   only variants within regions will be considered, variants outside will be skipped
     //   for variants across boundaries/spaning multiple regions, they will be processed during stitching
     //   ref_beg <= reg_beg < reg_end <= ref_end, ref_seq may include additional flanking regions (1kb)
-    cgranges_t *reg_cr; hts_pos_t reg_beg, reg_end; // [reg_beg, reg_end]
-    hts_pos_t active_reg_beg, active_reg_end; // [active_reg_beg, active_reg_end]: only variants within this region will be considered
+    cgranges_t *reg_cr, *low_comp_cr; hts_pos_t reg_beg, reg_end; // [reg_beg, reg_end]
+    // hts_pos_t active_reg_beg, active_reg_end; // [active_reg_beg, active_reg_end]: only variants within this region will be considered
                                               // variants spaning this region will be re-processed during stitching
     uint8_t bam_has_eqx_cigar, bam_has_md_tag;
     int n_reads, m_reads;
@@ -169,9 +175,9 @@ void print_digar1(digar1_t *digar, int n_digar, FILE *fp);
 void print_digar(digar_t *digar, FILE *fp);
 int collect_reg_digars_var_seqs(bam_chunk_t *chunk, int read_i, hts_pos_t reg_beg, hts_pos_t reg_end, digar1_t *reg_digars, uint8_t **reg_var_seqs, int *fully_cover);
 void check_eqx_cigar_MD_tag(samFile *in_bam, bam_hdr_t *header, uint8_t *has_eqx, uint8_t *has_MD);
-int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar);
-int collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar);
-int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar);
+int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct call_var_pl_t *pl, const struct call_var_opt_t *opt, digar_t *digar);
+int collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct call_var_pl_t *pl, const struct call_var_opt_t *opt, digar_t *digar);
+int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct call_var_pl_t *pl, const struct call_var_opt_t *opt, digar_t *digar);
 int update_cand_vars_from_digar(digar_t *digar, bam1_t *read, int n_var_sites, struct var_site_t *var_sites, int start_i, struct cand_var_t *cand_vars);
 int update_read_var_profile_from_digar(digar_t *digar, bam1_t *read, int n_cand_vars, struct cand_var_t *cand_vars, int start_var_i, struct read_var_profile_t *read_var_profile);
 

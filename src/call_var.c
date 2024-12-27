@@ -24,6 +24,7 @@
 extern int LONGCALLD_VERBOSE;
 
 const struct option call_var_opt [] = {
+    { "amb-base", 0, NULL, 0},
     { "ref-fa", 1, NULL, 'r' },
     { "out-vcf", 1, NULL, 'o'},
     { "out-bam", 1, NULL, 'b' },
@@ -85,11 +86,17 @@ call_var_opt_t *call_var_init_para(void) {
     opt->gap_flank_win_for_clip = LONGCALLD_GAP_FLANK_WIN_FOR_CLIP;
     opt->dens_reg_max_xgaps = LONGCALLD_DENSE_REG_MAX_XGAPS;
     opt->dens_reg_slide_win = LONGCALLD_DENSE_REG_SLIDE_WIN;
+    opt->min_non_low_comp_noisy_reg_size = LONGCALLD_MIN_NON_LOW_COMP_NOISY_REG_SIZE;
+    opt->min_non_low_comp_noisy_reg_ratio = LONGCALLD_MIN_NON_LOW_COMP_NOISY_REG_RATIO;
+    opt->min_non_low_comp_noisy_reg_XID = LONGCALLD_MIN_NON_LOW_COMP_NOISY_REG_XID;
     opt->dens_reg_flank_win = LONGCALLD_DENSE_FLANK_WIN;
     opt->indel_flank_win = LONGCALLD_INDEL_FLANK_WIN;
 
     opt->end_clip_reg = LONGCALLD_NOISY_END_CLIP;
     opt->end_clip_reg_flank_win = LONGCALLD_NOISY_END_CLIP_WIN;
+
+    opt->min_noisy_reg_reads = LONGCALLD_NOISY_REG_READS;
+    opt->min_noisy_reg_ratio = LONGCALLD_NOISY_REG_RATIO;
 
     opt->min_somatic_af = LONGCALLD_MIN_SOMATIC_AF;
     opt->min_af = LONGCALLD_MIN_CAND_AF;
@@ -101,7 +108,7 @@ call_var_opt_t *call_var_init_para(void) {
     opt->pl_threads = MIN_OF_TWO(CALL_VAR_PL_THREAD_N, get_num_processors());
     opt->n_threads = MIN_OF_TWO(CALL_VAR_THREAD_N, get_num_processors());
 
-    opt->out_vcf = NULL; opt->no_vcf_header = 0;
+    opt->out_vcf = NULL; opt->no_vcf_header = 0; opt->out_amb_base = 0;
     opt->out_bam = NULL; opt->no_bam_header = 0;
     // opt->verbose = 0;
     return opt;
@@ -207,7 +214,8 @@ static void call_var_pl_open_fa_bam(call_var_opt_t *opt, call_var_pl_t *pl, char
     // input BAM file
     if (strcmp(opt->in_bam_fn, "-") == 0) _err_info("Opening BAM file from pipe/stdin\n");
     else _err_info("Opening BAM file: %s\n", opt->in_bam_fn);
-    pl->bam = sam_open(opt->in_bam_fn, "r"); if (pl->bam == NULL) _err_error_exit("Failed to open BAM file \'%s\'\n", opt->in_bam_fn);
+    pl->bam = sam_open(opt->in_bam_fn, "r"); if (pl->bam == NULL) _err_error_exit("Failed to open alignment file \'%s\'\n", opt->in_bam_fn);
+    const htsFormat *fmt = hts_get_format(pl->bam); if (!fmt) _err_error_exit("Failed to get format of alignment file \'%s\'\n", opt->in_bam_fn);
     // multi-threading
     pl->p = hts_tpool_init(MAX_OF_TWO(1, pl->n_threads));
     // pl->p = hts_tpool_init(3);
@@ -215,8 +223,19 @@ static void call_var_pl_open_fa_bam(call_var_opt_t *opt, call_var_pl_t *pl, char
     if (hts_set_thread_pool(pl->bam, &thread_pool) != 0) _err_error_exit("Failed to set thread pool.\n");
 
     pl->header = sam_hdr_read(pl->bam); if (pl->header == NULL) {
-        sam_close(pl->bam); hts_tpool_destroy(pl->p);
+        hts_tpool_destroy(pl->p); sam_close(pl->bam);
         _err_error_exit("Failed to read BAM header \'%s\'\n", opt->in_bam_fn);
+    }
+    pl->fai = fai_load(opt->ref_fa_fn);
+    if (pl->fai == NULL) {
+        hts_tpool_destroy(pl->p); sam_hdr_destroy(pl->header); sam_close(pl->bam);
+        _err_error_exit("Failed to load/build reference fasta index: %s\n", opt->ref_fa_fn);
+    }
+    if (fmt->format == cram) {
+        if (hts_set_fai_filename(pl->bam, opt->ref_fa_fn) != 0) {
+            fai_destroy(pl->fai); hts_tpool_destroy(pl->p); sam_hdr_destroy(pl->header); sam_close(pl->bam);
+            _err_error_exit("Failed to set reference file for CRAM decoding: %s %s\n", opt->in_bam_fn, opt->ref_fa_fn);
+        }
     }
     // collect sample name (SM) from BAM header
     if (opt->sample_name == NULL) opt->sample_name = extract_sample_name_from_bam_header(pl->header); // extract sample names from BAM header
@@ -250,13 +269,7 @@ static void call_var_pl_open_fa_bam(call_var_opt_t *opt, call_var_pl_t *pl, char
         } else {
             pl->use_iter = 1;
             // read reference fasta based on intervals
-            pl->fai = fai_load(opt->ref_fa_fn);
-            if (pl->fai == NULL) {
-                call_var_pl_open_ref_reg_fa0(opt->ref_fa_fn, pl);
-            } else {
-                pl->ref_reg_seq = call_var_pl_open_ref_reg_fa(opt->ref_fa_fn, pl->fai, pl->iter, pl->header);
-                // fai_destroy(fai);
-            }
+            pl->ref_reg_seq = call_var_pl_open_ref_reg_fa(opt->ref_fa_fn, pl->fai, pl->iter, pl->header);
         }
     } else {
         pl->iter = NULL;
@@ -315,6 +328,7 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
                             //         1) merge overlapping variants
                             //         2) update phase set and haplotype (flip if needed)
         if (LONGCALLD_VERBOSE >= 1) _err_info("Step 2: stitch variants.\n");
+        // XXX read BAM in kt_for, create iterater for each chunk
         kt_for(p->n_threads, stitch_var_worker_for, in, ((call_var_step_t*)in)->n_chunks);
         return in;
     } else if (step == 3) { // step 3: write the buffer to output
@@ -342,7 +356,7 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
                 }
             }
             // fprintf(stdout, "beg: %ld, end: %ld\n", c->beg, c->end);
-            write_var_to_vcf(s->vars+i, p->opt->out_vcf, c->tname);
+            write_var_to_vcf(s->vars+i, p->opt, c->tname);
             // bam_chunk_free(c); // free input
             var_free(s->vars + i);  // free output
         }
@@ -357,8 +371,9 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "Program: %s (%s)\n", PROG, DESCRIP);
     fprintf(stderr, "Version: %s\tContact: %s\n\n", VERSION, CONTACT); 
 
-    fprintf(stderr, "Usage: %s call [options] <ref.fa> <input.bam> [region ...] > phased.vcf\n", PROG);
-    fprintf(stderr, "       Note: \'ref.fa\' should contain the same contig/chromosome names as \'input.bam\'\n");
+    fprintf(stderr, "Usage: %s call [options] <ref.fa> <input.sam/bam/cram> [region ...] > phased.vcf\n", PROG);
+    fprintf(stderr, "       Note: \'ref.fa\' should contain the same contig/chromosome names as \'input.sam/bam/cram\'\n");
+    fprintf(stderr, "             \'input.sam/bam/cram' should be sorted\n");
     // fprintf(stderr, "                  \'ref.fa\' is not needed if 1) BAM contains CIGARS with =/X, or 2) BAM contain MD tags\n");
     fprintf(stderr, "\n");
 
@@ -369,7 +384,8 @@ static void call_var_usage(void) {//main usage
     // fprintf(stderr, "                                  \'ref.fa\' is not needed if input BAM contains 1) =/X CIGARS, or 2) MD tags\n");
     fprintf(stderr, "    -n --sample-name STR  sample name. if not provided, input BAM file name will be used as sample name in output VCF [NULL]\n");
     fprintf(stderr, "    -o --out-vcf     STR  output phased VCF file [stdout]\n");
-    fprintf(stderr, "    -H --no-vcf-header    do not output VCF header\n");
+    fprintf(stderr, "    -H --no-vcf-header    do NOT output VCF header\n");
+    fprintf(stderr, "       --amb-base         output variant with ambiguous base [False]\n");
     fprintf(stderr, "    -b --out-bam     STR  output phased BAM file [NULL]\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "  Variant:\n");
@@ -410,6 +426,7 @@ int call_var_main(int argc, char *argv[]) {
             // case 'b': cgp->var_block_size = atoi(optarg); break;
             case 'o': opt->out_vcf = fopen(optarg, "w"); break;
             case 'H': opt->no_vcf_header = 1; break;
+            case 0: if (op_idx == 0) { opt->out_amb_base = 1; } break;
             case 'b': opt->out_bam = hts_open(optarg, "wb"); break;
             case 'd': opt->min_dp = atoi(optarg); break;
             case 'D': opt->min_alt_dp = atoi(optarg); break;

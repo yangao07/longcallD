@@ -216,6 +216,40 @@ cgranges_t *cr_merge(cgranges_t *cr) {
 	return tmp_cr;
 }
 
+cgranges_t *cr_merge2(cgranges_t *cr1, cgranges_t *cr2) {
+    cgranges_t *merged_cr = cr_init();
+    
+    // Add all intervals from cr1 to merged_cr
+    for (int32_t i = 0; i < cr1->n_ctg; ++i) {
+        cr_ctg_t *ctg = &cr1->ctg[i];
+        int64_t start_idx = ctg->off;
+        int64_t end_idx = start_idx + ctg->n;
+
+        for (int64_t j = start_idx; j < end_idx; ++j) {
+            cr_intv_t *intv = &cr1->r[j];
+			// fprintf(stderr, "Adding cr1 %s %d %d %d\n", ctg->name, cr_st(intv), cr_en(intv), intv->label);
+            cr_add(merged_cr, ctg->name, cr_st(intv), cr_en(intv), intv->label);
+        }
+    }
+
+    // Add all intervals from cr2 to merged_cr
+    for (int32_t i = 0; i < cr2->n_ctg; ++i) {
+        cr_ctg_t *ctg = &cr2->ctg[i];
+        int64_t start_idx = ctg->off;
+        int64_t end_idx = start_idx + ctg->n;
+
+        for (int64_t j = start_idx; j < end_idx; ++j) {
+            cr_intv_t *intv = &cr2->r[j];
+			// fprintf(stderr, "Adding cr2 %s %d %d %d\n", ctg->name, cr_st(intv), cr_en(intv), intv->label);
+            cr_add(merged_cr, ctg->name, cr_st(intv), cr_en(intv), intv->label);
+        }
+    }
+    // Now merge intervals within merged_cr
+	cr_index(merged_cr);
+    cgranges_t *final_cr = cr_merge(merged_cr);
+    return final_cr;
+}
+
 int32_t cr_is_sorted(const cgranges_t *cr)
 {
 	uint64_t i;

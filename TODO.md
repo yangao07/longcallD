@@ -29,6 +29,8 @@ TODO:
   - Large number of SNPs/indels or long insertions/deletions
   - Not in a repeat region
   - Non-repeat/homopolyer XID density
+- [ ] BAM and Ref.FA not match
+- [ ] Learn sequencing error profile from BAM
 ---
 
 * Tumour purity $\alpha$: est. -> max. -> est. ... -> converge

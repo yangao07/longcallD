@@ -22,7 +22,8 @@ static int usage(void) {//main usage
 
     fprintf(stderr, "Command: \n");
     fprintf(stderr, "         call          call variants from long-read BAM\n");
-    // fprintf(stderr, "         index              index reference graph based on GFA file\n");
+    // fprintf(stderr, "         phase         phase a given VCF based on long-read BAM\n");
+    // fprintf(stderr, "         tag           assign haplotype to long-read BAM with exising VCF\n");
 
     fprintf(stderr, "\n");
     return 1;
@@ -40,8 +41,8 @@ int main(int argc, char *argv[]) {
         ret = 1; usage();
     } else {
         if (strcmp(argv[1], "call") == 0) ret = call_var_main(argc-1, argv+1);
-        // else if (strcmp(argv[1], "index") == 0)   return index_main(argc, argv);
-        // else if (strcmp(argv[1], "map") == 0)   return map_main(argc, argv);
+        // else if (strcmp(argv[1], "phase") == 0)   return phase_main(argc, argv);
+        // else if (strcmp(argv[1], "tag") == 0)   return tag_main(argc, argv);
         else {
             _err_error("Unrecognized command '%s'\n", argv[1]);
             ret = 1; usage();

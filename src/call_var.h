@@ -33,9 +33,15 @@
 #define LONGCALLD_DENSE_REG_MAX_XGAPS 5 // or 10; dense X/gap region: more than n X/gap bases in a 100-bp window
 #define LONGCALLD_DENSE_REG_SLIDE_WIN 100 //
 #define LONGCALLD_DENSE_FLANK_WIN 0 // 25: 100/(3+1)
+#define LONGCALLD_MIN_NON_LOW_COMP_NOISY_REG_SIZE 500 // >= 500 bp noisy region
+#define LONGCALLD_MIN_NON_LOW_COMP_NOISY_REG_RATIO 0.50 // >= 50% non-low-comp XIDs in noisy region
+#define LONGCALLD_MIN_NON_LOW_COMP_NOISY_REG_XID 10 // not include large INS/DEL
 #define LONGCALLD_NOISY_END_CLIP 100 // >= n bp clipping on both ends
 #define LONGCALLD_NOISY_END_CLIP_WIN 100 // n bp flanking end-clipping region will be considered as low-quality region
 #define LONGCALLD_INDEL_FLANK_WIN 0 // n bp around indel will be considered as low-quality region
+
+#define LONGCALLD_NOISY_REG_READS 10 // >= 10 reads support noisy region
+#define LONGCALLD_NOISY_REG_RATIO 0.25 // >= 25% reads support noisy region
 
 #define LONGCALLD_GAP_LEFT_ALN 1
 #define LONGCALLD_GAP_RIGHT_ALN 2
@@ -81,9 +87,14 @@ typedef struct call_var_opt_t {
     int max_ploid, min_mq, min_bq, min_dp, min_alt_dp; 
     double min_somatic_af, min_af, max_af, max_low_qual_frac;
     int dens_reg_max_xgaps, dens_reg_slide_win, dens_reg_flank_win;
+    // skip read if contans a noisy region with 1) >= min_non_low_comp_noisy_reg_ratio non-low-comp XIDs, and 
+    //                                          2) >= min_non_low_comp_noisy_reg_size bps
+    int min_non_low_comp_noisy_reg_size; float min_non_low_comp_noisy_reg_ratio; int min_non_low_comp_noisy_reg_XID;
     int indel_flank_win;
     int end_clip_reg, end_clip_reg_flank_win;
     int noisy_reg_flank_len; // for re-alignment
+    // filters for noisy region, i.e., coverage/ratio
+    int min_noisy_reg_reads; float min_noisy_reg_ratio;
     // alignment
     int min_gap_len_for_clip; // >= l-bp gaps will be considered for re-alignment of clipping bases 
     int gap_flank_win_for_clip;
@@ -94,7 +105,7 @@ typedef struct call_var_opt_t {
     // output
     htsFile *out_bam; // phased bam
     FILE *out_vcf;
-    int8_t no_vcf_header, no_bam_header; // phased vcf
+    int8_t no_vcf_header, out_amb_base, no_bam_header; // phased vcf
 } call_var_opt_t;
 
 // shared data for all threads

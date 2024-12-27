@@ -8,7 +8,7 @@ step=$1
 deepvariant_sif=/hlilab/yangao/software/deepvariant/deepvariant_1.8.0-gpu.sif
 version=1_8_0
 
-THREADS=16
+THREADS=8
 # region="chr11:10000000-50000000"
 # region=chr11
 model=PACBIO
@@ -17,6 +17,7 @@ ref_fa=/hlilab/yangao/data/HG002/GRCh38_GIABv3_no_alt_analysis_set_maskedGRC_dec
 INPUT_DIR=/hlilab/yangao/data/HG002
 OUTPUT_DIR=/hlilab/yangao/data/HG002/deepvariant/v${version}
 mkdir -p ${OUTPUT_DIR} 2> /dev/null
+mkdir -p ${OUTPUT_DIR}_cpu 2> /dev/null
 # 1st run: deepvariant
 
 output1_vcf=${OUTPUT_DIR}/output1.vcf.gz
@@ -52,11 +53,11 @@ if [[ $step -eq 2 ]]; then
 fi
 
 # 3rd run: deepvariant
-output2_vcf=${OUTPUT_DIR}/output2.vcf.gz
+output2_vcf=${OUTPUT_DIR}_cpu/output2.vcf.gz
 
 if [[ $step -eq 3 ]]; then
   singularity run --nv \
-      -B ${INPUT_DIR},${OUTPUT_DIR} \
+      -B ${INPUT_DIR},${OUTPUT_DIR}_cpu \
       ${deepvariant_sif} \
       /opt/deepvariant/bin/run_deepvariant \
       --model_type ${model} \
