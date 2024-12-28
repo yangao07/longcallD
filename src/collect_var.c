@@ -1141,7 +1141,6 @@ int make_vars_from_caln0(char *chunk_ref_seq, hts_pos_t chunk_ref_seq_beg, hts_p
             continue;
         }
         if (_ref_seq[i] != '-' && _query_seq[i] != '-') { // DIFF
-            // if (ref_pos < active_reg_beg || ref_pos > active_reg_end) continue;
             (*vars)->vars[n_vars].type = BAM_CDIFF;
             (*vars)->vars[n_vars].pos = ref_pos;
             (*vars)->vars[n_vars].ref_len = 1;
@@ -1157,7 +1156,6 @@ int make_vars_from_caln0(char *chunk_ref_seq, hts_pos_t chunk_ref_seq_beg, hts_p
             (*vars)->vars[n_vars].PS = 0;
             i += 1; ref_pos += 1;
         } else if (_ref_seq[i] == '-') { // INS
-            // if (ref_pos-1 < active_reg_beg || ref_pos-1 > active_reg_end) continue;
             int gap_len = 1;
             while (i+gap_len < aln_len && _ref_seq[i+gap_len] == '-' && _query_seq[i+gap_len] != '-') gap_len++;
             (*vars)->vars[n_vars].type = BAM_CINS;
@@ -1180,7 +1178,6 @@ int make_vars_from_caln0(char *chunk_ref_seq, hts_pos_t chunk_ref_seq_beg, hts_p
             (*vars)->vars[n_vars].PS = 0;
             i += gap_len;
         } else if (_query_seq[i] == '-') { // DEL
-            // if (ref_pos-1 < active_reg_beg || ref_pos-1 > active_reg_end) continue;
             int gap_len = 1;
             while (i+gap_len < aln_len && _ref_seq[i+gap_len] != '-' && _query_seq[i+gap_len] == '-') gap_len++;
             (*vars)->vars[n_vars].type = BAM_CDEL;

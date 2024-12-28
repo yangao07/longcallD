@@ -89,7 +89,7 @@ typedef struct call_var_opt_t {
     int dens_reg_max_xgaps, dens_reg_slide_win, dens_reg_flank_win;
     // skip read if contans a noisy region with 1) >= min_non_low_comp_noisy_reg_ratio non-low-comp XIDs, and 
     //                                          2) >= min_non_low_comp_noisy_reg_size bps
-    int min_non_low_comp_noisy_reg_size; float min_non_low_comp_noisy_reg_ratio; int min_non_low_comp_noisy_reg_XID;
+    // int min_non_low_comp_noisy_reg_size; float min_non_low_comp_noisy_reg_ratio; int min_non_low_comp_noisy_reg_XID;
     int indel_flank_win;
     int end_clip_reg, end_clip_reg_flank_win;
     int noisy_reg_flank_len; // for re-alignment

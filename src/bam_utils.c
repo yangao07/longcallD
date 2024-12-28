@@ -3,7 +3,7 @@
 #include "utils.h"
 #include "collect_var.h"
 #include "call_var.h"
-#include "sdust.h"
+// #include "sdust.h"
 
 extern int LONGCALLD_VERBOSE;
 
@@ -69,7 +69,7 @@ void print_digar(digar_t *digar, FILE *fp) {
 
 typedef struct {
     hts_pos_t *pos; int *lens;
-    int *counts, *is_dense; //, *is_low_comp;
+    int *counts, *is_dense;
     int front, rear, count;
     int max_s, win; // max_s: max sub/gaps in win
 } xid_queue_t;
@@ -80,14 +80,13 @@ xid_queue_t *init_xid_queue(int max_sites, int max_s, int win) {
     q->counts = (int*)malloc(max_sites * sizeof(int));
     q->lens = (int*)malloc(max_sites * sizeof(int));
     q->is_dense = (int*)calloc(max_sites, sizeof(int));
-    // q->is_low_comp = (int*)calloc(max_sites, sizeof(int));
     q->front = 0; q->rear = -1; q->count = 0;
     q->max_s = max_s; q->win = win;
     return q;
 }
 
 void free_xid_queue(xid_queue_t *q) {
-    free(q->is_dense); // free(q->is_low_comp);
+    free(q->is_dense);
     free(q->pos); free(q->counts); 
     free(q->lens); 
     free(q);
@@ -117,10 +116,9 @@ void free_xid_queue(xid_queue_t *q) {
 //     }
 // }
 
-// void push_xid_queue_win(xid_queue_t *q, hts_pos_t pos, int len, int count, int is_low_comp, cgranges_t *cr, hts_pos_t *cr_cur_start, hts_pos_t *cr_cur_end) {
 void push_xid_queue_win(xid_queue_t *q, hts_pos_t pos, int len, int count, cgranges_t *cr, hts_pos_t *cr_cur_start, hts_pos_t *cr_cur_end) {
     q->pos[++q->rear] = pos; // left-most pos of the region
-    q->lens[q->rear] = len; q->counts[q->rear] = count; // q->is_low_comp[q->rear] = is_low_comp;
+    q->lens[q->rear] = len; q->counts[q->rear] = count;
     q->count += count;
 
     hts_pos_t noisy_start = -1, noisy_end = -1;
@@ -150,20 +148,6 @@ void push_xid_queue_win(xid_queue_t *q, hts_pos_t pos, int len, int count, cgran
         }
     }
 }
-
-// int is_non_comp_noisy_reg(char *qname, int noisy_reg_start, int noisy_reg_end, xid_queue_t *q, int min_non_low_comp_noisy_reg_size, float min_non_low_comp_noisy_reg_ratio, int min_non_low_comp_noisy_reg_XID) {
-//     if (noisy_reg_end - noisy_reg_start + 1 < min_non_low_comp_noisy_reg_size) return 0;
-//     int n_low_comp = 0, n_non_low_comp = 0;
-//     for (int i = 0; i < q->rear; i++) {
-//         if (q->pos[i] < noisy_reg_start) continue;
-//         else if (q->pos[i]+q->lens[i] > noisy_reg_end) break;
-//         if (q->is_low_comp[i]) n_low_comp++;
-//         else n_non_low_comp++;
-//     }
-//     fprintf(stderr, "%s chr11:%d-%d low_comp: %d, non_low_comp: %d, %.2f\n", qname, noisy_reg_start, noisy_reg_end, n_low_comp, n_non_low_comp, (float)n_non_low_comp/(n_non_low_comp+n_low_comp));
-//     if (n_non_low_comp >= min_non_low_comp_noisy_reg_XID && n_non_low_comp >= (n_non_low_comp+n_low_comp) * min_non_low_comp_noisy_reg_ratio) return 1;
-//     else return 0;
-// }
 
 void check_eqx_cigar_MD_tag(samFile *in_bam, bam_hdr_t *header, uint8_t *has_eqx, uint8_t *has_MD) {
     int n_to_check_reads = 10;
@@ -655,7 +639,6 @@ int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct 
     const uint32_t *cigar = bam_get_cigar(read); int n_cigar = read->core.n_cigar;
     hts_pos_t reg_beg = chunk->reg_beg, reg_end = chunk->reg_end; cgranges_t *chunk_noisy_regs = chunk->chunk_noisy_regs; int noisy_reg_flank_len = opt->noisy_reg_flank_len;
     int max_s = opt->dens_reg_max_xgaps, win = opt->dens_reg_slide_win;
-    int min_non_low_comp_reg_size = opt->min_non_low_comp_noisy_reg_size, min_non_low_comp_reg_XID = opt->min_non_low_comp_noisy_reg_XID; float min_non_low_comp_ratio = opt->min_non_low_comp_noisy_reg_ratio;
     // int dens_reg_flank_win = opt->dens_reg_flank_win, indel_flank_win = opt->indel_flank_win;
     int end_clip_reg = opt->end_clip_reg, end_clip_reg_flank_win = opt->end_clip_reg_flank_win;
     digar->n_digar = 0; digar->m_digar = 2 * n_cigar; digar->digars = (digar1_t*)malloc(n_cigar * 2 * sizeof(digar1_t));
@@ -664,7 +647,6 @@ int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct 
     digar->bseq = bam_get_seq(read); digar->qual = bam_get_qual(read);
     int _n_digar = 0, _m_digar = 2 * n_cigar; digar1_t *_digars = (digar1_t*)malloc(_m_digar * sizeof(digar1_t));
     int rlen = bam_cigar2rlen(n_cigar, cigar); int tlen = faidx_seq_len(pl->fai, chunk->tname);
-    // cgranges_t *low_comp_cr = chunk->low_comp_cr;
     xid_queue_t *q = init_xid_queue(rlen, max_s, win); // for noisy region
     hts_pos_t noisy_start = -1, noisy_end = -1;
 
@@ -677,15 +659,7 @@ int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct 
                 _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
                 set_digar(_digars+_n_digar, pos, op, 1, qi);
                 _n_digar++; // push_xid_queue(q, pos, 1, 1);
-                // if (is_overlap_cr("cr", pos, pos, low_comp_cr)) {
-                //     is_low_comp = 1;
-                //     n_xid_in_low_comp++;
-                // } else {
-                //     is_low_comp = 0;
-                //     n_xid_in_non_low_comp++;
-                // }
                 push_xid_queue_win(q, pos, 1, 1, digar->noisy_regs, &noisy_start, &noisy_end);
-                // }
                 pos++; qi++;
             }
         } else if (op == BAM_CEQUAL) {
@@ -699,13 +673,6 @@ int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct 
             set_digar(_digars+_n_digar, pos, op, len, qi);
             _n_digar++; // push_xid_queue(q, pos, len, 1);
             // push_xid_queue_win(q, pos, len, 1, digar->noisy_regs, &noisy_start, &noisy_end);
-            // if (is_overlap_cr("cr", pos, pos+len-1, low_comp_cr)) {
-            //     is_low_comp = 1;
-            //     n_xid_in_low_comp++;
-            // } else {
-            //     is_low_comp = 0;
-            //     n_xid_in_non_low_comp++;
-            // }
             push_xid_queue_win(q, pos, len, len, digar->noisy_regs, &noisy_start, &noisy_end);
             pos += len;
         } else if (op == BAM_CINS) {
@@ -713,13 +680,6 @@ int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct 
             set_digar(_digars+_n_digar, pos, op, len, qi); // insertion, unset XXX
             _n_digar++; // push_xid_queue(q, pos, 0, 1);
             // push_xid_queue_win(q, pos, 0, 1, digar->noisy_regs, &noisy_start, &noisy_end);
-            // if (is_overlap_cr("cr", pos, pos, low_comp_cr)) {
-                // is_low_comp = 1;
-                // n_xid_in_low_comp++;
-            // } else {
-                // is_low_comp = 0;
-                // n_xid_in_non_low_comp++;
-            // }
             push_xid_queue_win(q, pos, 0, len, digar->noisy_regs, &noisy_start, &noisy_end);
             qi += len;
         } else if (op == BAM_CSOFT_CLIP) {
@@ -768,12 +728,6 @@ int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct 
                                                        // read1:  ---- [noisy] ---- [noisy] ----
                                                        // read2:  --------- [  noisy  ] --------
         // fprintf(stderr, "%s %d-%d\n", bam_get_qname(read), cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i));
-        // XXX check if too many non-repeat/homopolymer XIDs in the noisy region
-        // if so, read is wrongly mapped, mark read as skipped
-        // if (is_non_comp_noisy_reg(bam_get_qname(read), cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i), q, min_non_low_comp_reg_size, min_non_low_comp_ratio, min_non_low_comp_reg_XID)) {
-        //     // these reads may be wrongly mapped, skip them for now, we may rescue them later based on other correct-mapping reads in the same region
-        //     skip = 1; break;
-        // }
         if (is_overlap_reg(cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i), reg_beg, reg_end)) {
             cr_add(chunk_noisy_regs, "cr", cr_start(digar->noisy_regs, i)-noisy_reg_flank_len, cr_end(digar->noisy_regs, i)+noisy_reg_flank_len, 1);
         }
@@ -1115,7 +1069,6 @@ int bam_chunk_realloc(bam_chunk_t *chunk) {
 void bam_chunk_free(bam_chunk_t *chunk) {
     if (chunk->need_free_ref_seq) free(chunk->ref_seq);
     if (chunk->reg_cr != NULL) cr_destroy(chunk->reg_cr);
-    if (chunk->low_comp_cr != NULL) cr_destroy(chunk->low_comp_cr);
     for (int i = 0; i < chunk->m_reads; i++) {
         if (chunk->digars[i].m_digar > 0) {
             free(chunk->digars[i].digars);
@@ -1171,7 +1124,6 @@ char *get_region_seq(ref_reg_seq_t *r, const char *tname, hts_pos_t beg, hts_pos
 
 void get_bam_chunk_reg_ref_seq(faidx_t *fai, ref_reg_seq_t *ref_reg_seq, bam_chunk_t *chunk) {
     cgranges_t *reg_cr = chunk->reg_cr;
-    chunk->low_comp_cr = cr_init();
     assert(reg_cr->n_r > 0);
     if (reg_cr->n_r == 1) {
         char *tname = chunk->tname; hts_pos_t ref_beg = cr_start(reg_cr, 0), ref_end = cr_end(reg_cr, 0);
@@ -1200,15 +1152,6 @@ void get_bam_chunk_reg_ref_seq(faidx_t *fai, ref_reg_seq_t *ref_reg_seq, bam_chu
         chunk->ref_beg = _ref_beg+1;
         chunk->ref_end = _ref_beg+len;
     }
-    // get the low complexity regions
-    uint64_t *r; int n, T=20, W=64;
-    r = sdust(0, (uint8_t*)chunk->ref_seq-chunk->ref_beg+chunk->reg_beg, chunk->reg_end - chunk->reg_beg+1, T, W, &n);
-    for (int i = 0; i < n; ++i) {
-    //    fprintf(stderr, "LowCompReg: %d %d %ld %ld\n", (int)(r[i]>>32), (int)r[i], chunk->reg_beg+(int)(r[i]>>32), chunk->reg_beg+(int)r[i]-1);
-       cr_add(chunk->low_comp_cr, "cr", chunk->reg_beg+(int)(r[i]>>32)-1, chunk->reg_beg+(int)r[i]-1, 0); 
-    }
-    free(r);
-    cr_index(chunk->low_comp_cr);
 }
 
 void get_bam_chunk_reg_cr(cgranges_t *ref_seq_reg_cr, bam_chunk_t *chunk, hts_pos_t chunk_active_reg_beg, hts_pos_t chunk_active_reg_end) {

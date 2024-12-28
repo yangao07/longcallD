@@ -2,10 +2,11 @@
 py=~/software/miniconda3/envs/hap.py/bin/python2
 happy=~/software/miniconda3/envs/hap.py/bin/hap.py
 
-S=5
-N=13
+S=0
+N=1
 in_vcfs=(
-/homes2/yangao/data/HG002/lc.1209.all.sorted.small.vcf.gz
+# /homes2/yangao/data/HG002/lc.1209.all.sorted.small.vcf.gz
+/homes2/yangao/mydata/lc.1227.small.vcf.gz
 /homes2/yangao/data/HG002/clair3/phased_merge_output.small.vcf.gz
 /homes2/yangao/data/HG002/deepvariant/HG002.GRCh38.deepvariant.phased.small.vcf.gz
 /homes2/yangao/data/HG002/deepvariant/v1_8_0_cpu_HG002/output3.small.vcf.gz
@@ -22,7 +23,8 @@ in_vcfs=(
 )
 
 out_dirs=(
-/homes2/yangao/data/HG002/lc.1209.happy
+# /homes2/yangao/data/HG002/lc.1209.happy
+/homes2/yangao/mydata/lc.1227.happy
 /homes2/yangao/data/HG002/clair3/happy_small
 /homes2/yangao/data/HG002/deepvariant/happy_small
 /homes2/yangao/data/HG002/deepvariant/v1_8_0_cpu_HG002/output3.small_happy
@@ -50,4 +52,5 @@ for i in $(seq $S $((N-1))); do
     out_dir=${out_dirs[$i]}
 
     echo "$py $happy --pass-only --threads $n_threads -r $ref_fa -f $bench_bed -o $out_dir $bench_vcf $in_vcf"
+    $py $happy --pass-only --threads $n_threads -r $ref_fa -f $bench_bed -o $out_dir $bench_vcf $in_vcf
 done

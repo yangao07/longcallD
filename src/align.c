@@ -82,7 +82,7 @@ int collect_reg_read_seq(bam_chunk_t *chunk, int read_i, hts_pos_t reg_beg, hts_
     else if (reg_digar_beg == reg_beg) *fully_cover = 1;
     else if (reg_digar_end == reg_end) *fully_cover = 2;
     else *fully_cover = 0;
-    if (2*(reg_read_end-reg_read_beg+1) < (reg_end-reg_beg+1)) return 0;
+    // if (2*(reg_read_end-reg_read_beg+1) < (reg_end-reg_beg+1)) return 0;
     *reg_seq = (uint8_t*)malloc((reg_read_end - reg_read_beg + 1) * sizeof(uint8_t));
     for (int i = reg_read_beg; i <= reg_read_end; ++i) {
         (*reg_seq)[i-reg_read_beg] = seq_nt16_int[bam_seqi(read_digars->bseq, i)];

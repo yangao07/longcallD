@@ -86,9 +86,6 @@ call_var_opt_t *call_var_init_para(void) {
     opt->gap_flank_win_for_clip = LONGCALLD_GAP_FLANK_WIN_FOR_CLIP;
     opt->dens_reg_max_xgaps = LONGCALLD_DENSE_REG_MAX_XGAPS;
     opt->dens_reg_slide_win = LONGCALLD_DENSE_REG_SLIDE_WIN;
-    opt->min_non_low_comp_noisy_reg_size = LONGCALLD_MIN_NON_LOW_COMP_NOISY_REG_SIZE;
-    opt->min_non_low_comp_noisy_reg_ratio = LONGCALLD_MIN_NON_LOW_COMP_NOISY_REG_RATIO;
-    opt->min_non_low_comp_noisy_reg_XID = LONGCALLD_MIN_NON_LOW_COMP_NOISY_REG_XID;
     opt->dens_reg_flank_win = LONGCALLD_DENSE_FLANK_WIN;
     opt->indel_flank_win = LONGCALLD_INDEL_FLANK_WIN;
 

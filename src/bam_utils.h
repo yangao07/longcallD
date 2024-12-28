@@ -109,7 +109,7 @@ typedef struct bam_chunk_t {
     //   only variants within regions will be considered, variants outside will be skipped
     //   for variants across boundaries/spaning multiple regions, they will be processed during stitching
     //   ref_beg <= reg_beg < reg_end <= ref_end, ref_seq may include additional flanking regions (1kb)
-    cgranges_t *reg_cr, *low_comp_cr; hts_pos_t reg_beg, reg_end; // [reg_beg, reg_end]
+    cgranges_t *reg_cr; hts_pos_t reg_beg, reg_end; // [reg_beg, reg_end]
     // hts_pos_t active_reg_beg, active_reg_end; // [active_reg_beg, active_reg_end]: only variants within this region will be considered
                                               // variants spaning this region will be re-processed during stitching
     uint8_t bam_has_eqx_cigar, bam_has_md_tag;
