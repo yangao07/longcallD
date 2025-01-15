@@ -1461,6 +1461,7 @@ int collect_noisy_vars(bam_chunk_t *chunk, var_t *var, const call_var_opt_t *opt
             // insert cand_vars into chunk->cand_vars
             // insert p into chunk->read_var_profile
         }
+        break; //XXX
         if (newly_done == 0) break;
     }
     free(noisy_reg_lens); free(sorted_noisy_regs); free(noisy_reg_is_done);
