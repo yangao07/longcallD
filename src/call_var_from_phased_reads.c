@@ -18,6 +18,7 @@ static inline double genotype_prob_from_phased_counts(int n10, int n11, int n20,
     *p_hom_call = fisher_exact_test_p(n11, n10, n21, n20);
     *p_h1_call = fisher_exact_test_p(n11, n10, n20, n21);
     *p_h2_call = fisher_exact_test_p(n21, n20, n10, n11);
+    return 0;
 }
 
 // TODO: output p for each REP_HET_VAR/DENSE_REEEG_VAR

@@ -5,7 +5,8 @@ happy=~/software/miniconda3/envs/hap.py/bin/hap.py
 S=0
 N=1
 in_vcfs=(
-# /homes2/yangao/data/HG002/lc.1209.all.sorted.small.vcf.gz
+/homes2/yangao/data/HG002/lc_1227/old.small.vcf.gz
+/homes2/yangao/data/HG002/lc/lc.0114.small.vcf.gz
 /homes2/yangao/mydata/lc.1227.small.vcf.gz
 /homes2/yangao/data/HG002/clair3/phased_merge_output.small.vcf.gz
 /homes2/yangao/data/HG002/deepvariant/HG002.GRCh38.deepvariant.phased.small.vcf.gz
@@ -23,7 +24,8 @@ in_vcfs=(
 )
 
 out_dirs=(
-# /homes2/yangao/data/HG002/lc.1209.happy
+/homes2/yangao/data/HG002/lc_1227/old.small.happy
+/homes2/yangao/data/HG002/lc/lc.0114.happy
 /homes2/yangao/mydata/lc.1227.happy
 /homes2/yangao/data/HG002/clair3/happy_small
 /homes2/yangao/data/HG002/deepvariant/happy_small

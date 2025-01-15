@@ -6,7 +6,7 @@
 #include "cgranges.h"
 
 #define LONGCALLD_BAM_CHUNK_READ_COUNT 4000
-#define LONGCALLD_BAM_CHUNK_REG_SIZE 1000000 // 1M XXX smaller or bigger?
+#define LONGCALLD_BAM_CHUNK_REG_SIZE 1000000 // 0.5M/1M
 
 
 #define BAM_RECORD_LOW_QUAL 0x1

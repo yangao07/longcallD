@@ -4,7 +4,8 @@
 S=0
 N=1
 in_vcfs=(
-# /homes2/yangao/data/HG002/lc/lc.1209.all.sorted.SV.vcf.gz
+/homes2/yangao/data/HG002/lc_1227/old.SV.vcf.gz
+/homes2/yangao/data/HG002/lc/lc.0114.SV.vcf.gz
 /homes2/yangao/mydata/lc.1227.SV.vcf.gz
 /homes2/yangao/data/HG002/sniffles/pacbio/sniffles_withTRF_fixed.hiphased.vcf.gz
 /homes2/yangao/data/HG002/sawfish/call/genotyped.sv.vcf.gz
@@ -12,7 +13,8 @@ in_vcfs=(
 )
 
 out_dirs=(
-# /homes2/yangao/data/HG002/lc.1209.all.SV_truvari
+/homes2/yangao/data/HG002/lc_1227/old.SV_truvari
+/homes2/yangao/data/HG002/lc/lc.0114.SV_truvari
 # /homes2/yangao/mydata/lc.1209.SV_truvari
 /homes2/yangao/mydata/lc.1227.SV_truvari
 /homes2/yangao/data/HG002/sniffles/pacbio/sniffles_withTRF_truvari
@@ -35,6 +37,6 @@ for((i=$S;i<$N;i++)); do
     # truvari bench -f $ref_fa --includebed $bench_bed -o $out_dir -b $bench_vcf -c $in_vcf  --passonly --pick ac --dup-to-ins
     echo "truvari bench -f $ref_fa --includebed $bench_bed -o $out_dir -b $bench_vcf -c $in_vcf --pick ac"
     truvari bench -f $ref_fa --includebed $bench_bed -o $out_dir -b $bench_vcf -c $in_vcf --pick ac
-    echo "truvari refine -m '--auto --thread ${threads}' -f $ref_fa --regions ${out_dir}/candidate.refine.bed --recount --use-region-coords --use-original-vcfs --align mafft ${out_dir} "
+    echo "truvari refine -m '--auto --thread ${threads}' -f $ref_fa --regions ${out_dir}/candidate.refine.bed --recount --use-region-coords --use-original-vcfs --align mafft ${out_dir}"
     truvari refine -m '--auto --thread 16' -f $ref_fa --regions ${out_dir}/candidate.refine.bed --recount --use-region-coords --use-original-vcfs --align mafft ${out_dir} 
 done

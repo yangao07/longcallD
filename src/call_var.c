@@ -39,7 +39,8 @@ const struct option call_var_opt [] = {
     { "noisy-flank", 1, NULL, 'f' },
     { "end-clip", 1, NULL, 'c' },
     { "clip-flank", 1, NULL, 'F' },
-    { "gap-pos", 1, NULL, 'a'},
+    { "gap-aln", 1, NULL, 'a'},
+    { "no-re-aln", 1, NULL, 'N'},
     { "threads", 1, NULL, 't' },
     { "help", 0, NULL, 'h' },
     { "version", 0, NULL, 'v' },
@@ -92,6 +93,7 @@ call_var_opt_t *call_var_init_para(void) {
     opt->end_clip_reg = LONGCALLD_NOISY_END_CLIP;
     opt->end_clip_reg_flank_win = LONGCALLD_NOISY_END_CLIP_WIN;
 
+    opt->max_noisy_reg_len  = LONGCALLD_MAX_NOISY_REG_LEN;
     opt->min_noisy_reg_reads = LONGCALLD_NOISY_REG_READS;
     opt->min_noisy_reg_ratio = LONGCALLD_NOISY_REG_RATIO;
 
@@ -100,7 +102,14 @@ call_var_opt_t *call_var_init_para(void) {
     opt->max_af = LONGCALLD_MAX_CAND_AF;
     opt->max_low_qual_frac = LONGCALLD_MAX_LOW_QUAL_FRAC;
 
-    opt->gap_pos = LONGCALLD_GAP_LEFT_ALN;
+    opt->match = LONGCALLD_MATCH_SCORE;
+    opt->mismatch = LONGCALLD_MISMATCH_SCORE;
+    opt->gap_open1 = LONGCALLD_GAP_OPEN1_SCORE;
+    opt->gap_ext1 = LONGCALLD_GAP_EXT1_SCORE;
+    opt->gap_open2 = LONGCALLD_GAP_OPEN2_SCORE;
+    opt->gap_ext2 = LONGCALLD_GAP_EXT2_SCORE;
+    opt->gap_aln = LONGCALLD_GAP_LEFT_ALN;
+    opt->disable_read_realign = 0;
 
     opt->pl_threads = MIN_OF_TWO(CALL_VAR_PL_THREAD_N, get_num_processors());
     opt->n_threads = MIN_OF_TWO(CALL_VAR_THREAD_N, get_num_processors());
@@ -417,7 +426,7 @@ int call_var_main(int argc, char *argv[]) {
     // _err_cmd("%s\n", CMD);
     int c, op_idx; call_var_opt_t *opt = call_var_init_para();
     double realtime0 = realtime();
-    while ((c = getopt_long(argc, argv, "r:o:Hb:d:D:n:x:w:f:F:c:a:t:hvV:", call_var_opt, &op_idx)) >= 0) {
+    while ((c = getopt_long(argc, argv, "r:o:Hb:d:D:n:x:w:f:F:c:a:Nt:hvV:", call_var_opt, &op_idx)) >= 0) {
         switch(c) {
             case 'r': opt->ref_fa_fn = strdup(optarg); break;
             // case 'b': cgp->var_block_size = atoi(optarg); break;
@@ -433,9 +442,10 @@ int call_var_main(int argc, char *argv[]) {
             case 'f': opt->dens_reg_flank_win = atoi(optarg); break;
             case 'c': opt->end_clip_reg = atoi(optarg); break;
             case 'F': opt->end_clip_reg_flank_win = atoi(optarg); break;
-            case 'a': if (strcmp(optarg, "right") == 0 || strcmp(optarg, "r") == 0) opt->gap_pos = LONGCALLD_GAP_RIGHT_ALN;
-                      else if (strcmp(optarg, "left") == 0 || strcmp(optarg, "l") == 0) opt->gap_pos = LONGCALLD_GAP_LEFT_ALN;
+            case 'a': if (strcmp(optarg, "right") == 0 || strcmp(optarg, "r") == 0) opt->gap_aln = LONGCALLD_GAP_RIGHT_ALN;
+                      else if (strcmp(optarg, "left") == 0 || strcmp(optarg, "l") == 0) opt->gap_aln = LONGCALLD_GAP_LEFT_ALN;
                       else _err_error_exit("\'-a/--gap-aln\' can only be \'left\'/\'l\' or \'right\'/\'r\'\n"); // call_var_usage();
+            case 'N': opt->disable_read_realign = 1; break;
             case 't': opt->n_threads = atoi(optarg); break;
             case 'h': call_var_free_para(opt); call_var_usage();
             case 'v': fprintf(stderr, "%s\n", VERSION); call_var_free_para(opt); return 0;

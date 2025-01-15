@@ -278,7 +278,7 @@ int update_var_hap_profile_based_on_changed_hap(int new_hap, int old_hap, cand_v
 //             until no changes to any reads
 // output chunk->haps[i] to 1 or 2, 0: unknown
 char read_name[1024] = "m84039_231005_222902_s1/80479720/ccs";
-int assign_hap_based_on_het_vars(bam_chunk_t *chunk, int target_var_cate, const call_var_opt_t *opt) {
+int assign_hap_based_on_het_vars(bam_chunk_t *chunk, int target_var_cate, call_var_opt_t *opt) {
     read_var_profile_t *p = chunk->read_var_profile;
     // int n_cand_vars = chunk->var_cate_counts[target_var_cate];
     int n_cand_vars = chunk->n_cand_vars;

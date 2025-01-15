@@ -27,6 +27,8 @@
 #define LONGCALLD_ALT_ALLELE2 2
 #define LONGCALLD_OTHER_ALT_ALLELE 3
 
+#define LONGCALLD_MAX_NOISY_REG_LEN 50000 // >15kb noisy region will be skipped
+
 #define LONGCALLD_NOISY_REG_FLANK_LEN 10 // add 10-bp flanking region for both ends of noisy region
 #define LONGCALLD_MIN_GAP_LEN_FOR_CLIP 100 // >= 100-bp gaps will be considered for re-alignment of clipping bases
 #define LONGCALLD_GAP_FLANK_WIN_FOR_CLIP 500
@@ -43,8 +45,6 @@
 #define LONGCALLD_NOISY_REG_READS 10 // >= 10 reads support noisy region
 #define LONGCALLD_NOISY_REG_RATIO 0.25 // >= 25% reads support noisy region
 
-#define LONGCALLD_GAP_LEFT_ALN 1
-#define LONGCALLD_GAP_RIGHT_ALN 2
 
 #ifdef __cplusplus
 extern "C" {
@@ -94,11 +94,13 @@ typedef struct call_var_opt_t {
     int end_clip_reg, end_clip_reg_flank_win;
     int noisy_reg_flank_len; // for re-alignment
     // filters for noisy region, i.e., coverage/ratio
-    int min_noisy_reg_reads; float min_noisy_reg_ratio;
+    int max_noisy_reg_len, min_noisy_reg_reads; float min_noisy_reg_ratio;
     // alignment
+    int match, mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2;
     int min_gap_len_for_clip; // >= l-bp gaps will be considered for re-alignment of clipping bases 
     int gap_flank_win_for_clip;
-    int gap_pos; // default: 1: left (minimap2, abpoa), 2: right (wfa2)
+    int gap_aln; // default: 1: left (minimap2, abpoa), 2: right (wfa2)
+    int disable_read_realign; // disable re-alignment of clipping bases
     // general
     // int max_ploidy;
     int pl_threads, n_threads;
@@ -116,7 +118,7 @@ typedef struct call_var_pl_t {
     samFile *bam; bam_hdr_t *header; hts_tpool *p; uint8_t reach_bam_end;
     hts_idx_t *idx; hts_itr_t *iter; int use_iter;
     // parameters, output files
-    const call_var_opt_t *opt;
+    struct call_var_opt_t *opt;
     // m-threads
     int max_reads_per_chunk, max_reg_len_per_chunk;
     int n_threads;
@@ -125,7 +127,7 @@ typedef struct call_var_pl_t {
 struct bam_chunk_t;
 // separately/parallelly processed
 typedef struct call_var_step_t {
-    const call_var_pl_t *pl;
+    struct call_var_pl_t *pl;
     int n_chunks, max_chunks; // 64
     struct bam_chunk_t *chunks;
     var_t *vars; // size: n_chunks; SNP/indel, SV, etc.

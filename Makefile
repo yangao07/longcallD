@@ -29,8 +29,12 @@ ABPOA_INC_DIR = $(ABPOA_DIR)/include
 
 WFA2_DIR    = ./WFA2-lib
 WFA2_LIB    = $(WFA2_DIR)/lib/libwfa.a
-LIB         = $(HTSLIB) $(ABPOA_LIB) $(WFA2_LIB) -lm -lz -lpthread -llzma -lbz2 -lcurl
-INCLUDE     = -I $(HTSLIB_DIR) -I $(EDLIB_INC_DIR) -I $(ABPOA_INC_DIR) -I $(WFA2_DIR)
+
+KSW2_DIR    = ./ksw2
+KSW2_LIB    = $(KSW2_DIR)/ksw2_extd2_sse.o
+
+LIB         = $(HTSLIB) $(ABPOA_LIB) $(WFA2_LIB) $(KSW2_LIB) -lm -lz -lpthread -llzma -lbz2 -lcurl
+INCLUDE     = -I $(HTSLIB_DIR) -I $(EDLIB_INC_DIR) -I $(ABPOA_INC_DIR) -I $(WFA2_DIR) -I $(KSW2_DIR)
 
 ifeq ($(UNAME_S),Linux) # Linux
 	LIB += -lcrypto
@@ -76,6 +80,7 @@ HTS_ALL = hts_all
 EDLIB_ALL = edlib_all
 ABPOA_ALL = abpoa_all
 WFA2_ALL = wfa2_all
+KSW2_ALL = ksw2_all
 CSOURCE    = $(wildcard ${SRC_DIR}/*.c) 
 CPPSOURCE  = $(wildcard $(SRC_DIR)/*.cpp)
 CPPSOURCE += $(EDLIB_DIR)/src/edlib.cpp
@@ -88,7 +93,7 @@ endif
 .c.o:
 	$(CC) -c $(CFLAGS) $(INCLUDE) $< -o $@
 
-all: $(HTS_ALL) $(EDLIB) $(ABPOA_LIB) $(WFA2_LIB) $(BIN)
+all: $(HTS_ALL) $(EDLIB) $(ABPOA_LIB) $(WFA2_LIB) $(KSW2_LIB) $(BIN)
 
 $(HTS_ALL): $(HTSLIB)
 
@@ -111,12 +116,16 @@ $(WFA2_LIB):
 	cd $(WFA2_DIR); make setup lib_wfa CC=gcc
 $(WFA2_ALL): $(WFA2_LIB)
 
+$(KSW2_LIB):
+	cd $(KSW2_DIR); make ksw2_extd2_sse.o
+$(KSW2_ALL): $(KSW2_LIB)
+
 $(BIN): $(OBJS)
 	if [ ! -d $(BIN_DIR) ]; then mkdir $(BIN_DIR); fi
 	$(CXX) $(OBJS) -o $@ $(LIB) $(PG_FLAG)
 
-$(SRC_DIR)/align.o: $(SRC_DIR)/align.c $(SRC_DIR)/align.h $(SRC_DIR)/utils.h
-	$(CC) -c -DUSE_SIMDE -DSIMDE_ENABLE_NATIVE_ALIASES $(CFLAGS) $< $(INCLUDE) -o $@
+# $(SRC_DIR)/align.o: $(SRC_DIR)/align.c $(SRC_DIR)/align.h $(SRC_DIR)/utils.h
+# 	$(CC) -c -DUSE_SIMDE -DSIMDE_ENABLE_NATIVE_ALIASES $(CFLAGS) $< $(INCLUDE) -o $@
 
 $(SRC_DIR)/assign_aln_hap.o: $(SRC_DIR)/assign_aln_hap.c $(SRC_DIR)/assign_aln_hap.h $(SRC_DIR)/utils.h $(SRC_DIR)/bam_utils.h
 $(SRC_DIR)/bam_utils.o: $(SRC_DIR)/bam_utils.c $(SRC_DIR)/bam_utils.h $(SRC_DIR)/utils.h
