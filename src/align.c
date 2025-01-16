@@ -7,7 +7,7 @@
 #include <stdint.h>
 #include "abpoa.h"
 #include "edlib.h"
-#include "ksw2.h"
+// #include "ksw2.h"
 #include "call_var_main.h"
 #include "bam_utils.h"
 #include "utils.h"
@@ -168,29 +168,29 @@ static void ksw_gen_simple_mat(int m, int8_t *mat, int8_t a, int8_t b) {
         mat[(m - 1) * m + j] = 0;
 }
 
-int ksw2_aln(int gap_aln, uint8_t *tseq, int tlen, uint8_t *qseq, int qlen, int a, int b, int q, int e, int q2, int e2, uint32_t **cigar_buf) {
-    ksw_extz_t ez; uint8_t c[256];
-    int w = -1, zdrop = -1;
-    int8_t mat[25]; ksw_gen_simple_mat(5, mat, a, -b);
-    memset(&ez, 0, sizeof(ksw_extz_t));
-    int flag = KSW_EZ_EQX;
-    if (gap_aln == LONGCALLD_GAP_RIGHT_ALN) flag |= KSW_EZ_RIGHT;
-    ksw_extd2_sse(0, qlen, qseq, tlen, tseq, 5, mat, q, e, q2, e2, w, zdrop, 0, flag, &ez);
-    if (LONGCALLD_VERBOSE >= 2) {
-        fprintf(stderr, "ksw2-score: %d\n", ez.score);
-        for (int i = 0; i < ez.n_cigar; ++i) {
-            int op = ez.cigar[i] & 0xf; int len = ez.cigar[i] >> 4;
-            fprintf(stderr, "%d%c", len, BAM_CIGAR_STR[op]);
-        }
-        fprintf(stderr, "\n");
-        for (int i = 0; i < tlen; ++i) fprintf(stderr, "%c", "ACGTN"[tseq[i]]);
-        fprintf(stderr, "\n");
-        for (int i = 0; i < qlen; ++i) fprintf(stderr, "%c", "ACGTN"[qseq[i]]);
-        fprintf(stderr, "\n");
-    }
-    *cigar_buf = ez.cigar;
-    return ez.n_cigar;
-}
+// int ksw2_aln(int gap_aln, uint8_t *tseq, int tlen, uint8_t *qseq, int qlen, int a, int b, int q, int e, int q2, int e2, uint32_t **cigar_buf) {
+//     ksw_extz_t ez; uint8_t c[256];
+//     int w = -1, zdrop = -1;
+//     int8_t mat[25]; ksw_gen_simple_mat(5, mat, a, -b);
+//     memset(&ez, 0, sizeof(ksw_extz_t));
+//     int flag = KSW_EZ_EQX;
+//     if (gap_aln == LONGCALLD_GAP_RIGHT_ALN) flag |= KSW_EZ_RIGHT;
+//     ksw_extd2_sse(0, qlen, qseq, tlen, tseq, 5, mat, q, e, q2, e2, w, zdrop, 0, flag, &ez);
+//     if (LONGCALLD_VERBOSE >= 2) {
+//         fprintf(stderr, "ksw2-score: %d\n", ez.score);
+//         for (int i = 0; i < ez.n_cigar; ++i) {
+//             int op = ez.cigar[i] & 0xf; int len = ez.cigar[i] >> 4;
+//             fprintf(stderr, "%d%c", len, BAM_CIGAR_STR[op]);
+//         }
+//         fprintf(stderr, "\n");
+//         for (int i = 0; i < tlen; ++i) fprintf(stderr, "%c", "ACGTN"[tseq[i]]);
+//         fprintf(stderr, "\n");
+//         for (int i = 0; i < qlen; ++i) fprintf(stderr, "%c", "ACGTN"[qseq[i]]);
+//         fprintf(stderr, "\n");
+//     }
+//     *cigar_buf = ez.cigar;
+//     return ez.n_cigar;
+// }
 
 int end2end_aln(const call_var_opt_t *opt, char *tseq, int tlen, uint8_t *qseq, int qlen, uint32_t **cigar_buf) {
     if (qlen <= 0 || tlen <= 0) return 0;
@@ -970,19 +970,19 @@ int test_abpoa(uint8_t **bseqs, int n_seqs, int *seq_lens) {
     return 0;
 }
 
-int test_ksw2(char *pattern, char *text, const call_var_opt_t *opt) {
-    uint8_t *p = (uint8_t*)malloc(strlen(pattern)*sizeof(uint8_t));
-    uint8_t *t = (uint8_t*)malloc(strlen(text)*sizeof(uint8_t));
-    for (int i = 0; i < strlen(pattern); ++i) p[i] = nst_nt4_table[(int)pattern[i]];
-    for (int i = 0; i < strlen(text); ++i) t[i] = nst_nt4_table[(int)text[i]];
-    uint32_t *cigar=NULL;
-    int cigar_len = ksw2_aln(opt->gap_aln, p, strlen(pattern), t, strlen(text), opt->match, opt->mismatch, opt->gap_open1, opt->gap_ext1, opt->gap_open2, opt->gap_ext2, &cigar);
-    if (cigar_len > 0) {
-        for (int i = 0; i < cigar_len; ++i) {
-            int op = cigar[i]&0xf, len = cigar[i]>>4;
-            fprintf(stderr, "%d%c", len, BAM_CIGAR_STR[op]);
-        } fprintf(stderr, "\n");
-        free(cigar);
-    }
-    return 0;
-}
+// int test_ksw2(char *pattern, char *text, const call_var_opt_t *opt) {
+//     uint8_t *p = (uint8_t*)malloc(strlen(pattern)*sizeof(uint8_t));
+//     uint8_t *t = (uint8_t*)malloc(strlen(text)*sizeof(uint8_t));
+//     for (int i = 0; i < strlen(pattern); ++i) p[i] = nst_nt4_table[(int)pattern[i]];
+//     for (int i = 0; i < strlen(text); ++i) t[i] = nst_nt4_table[(int)text[i]];
+//     uint32_t *cigar=NULL;
+//     int cigar_len = ksw2_aln(opt->gap_aln, p, strlen(pattern), t, strlen(text), opt->match, opt->mismatch, opt->gap_open1, opt->gap_ext1, opt->gap_open2, opt->gap_ext2, &cigar);
+//     if (cigar_len > 0) {
+//         for (int i = 0; i < cigar_len; ++i) {
+//             int op = cigar[i]&0xf, len = cigar[i]>>4;
+//             fprintf(stderr, "%d%c", len, BAM_CIGAR_STR[op]);
+//         } fprintf(stderr, "\n");
+//         free(cigar);
+//     }
+//     return 0;
+// }
