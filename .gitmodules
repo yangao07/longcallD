@@ -13,3 +13,8 @@
 	url = https://github.com/smarco/WFA2-lib.git
 	ignore = dirty
 
+[submodule "ksw2"]
+	path = ksw2
+	url = https://github.com/yangao07/ksw2.git
+	ignore = dirty
+

@@ -5,7 +5,7 @@
 #include "main.h"
 #include "bam_utils.h"
 #include "collect_var.h"
-#include "call_var.h"
+#include "call_var_main.h"
 #include "htslib/vcf.h"
 #include "htslib/sam.h"
 

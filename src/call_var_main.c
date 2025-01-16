@@ -12,7 +12,7 @@
 #error "Unsupported platform"
 #endif
 #include "main.h"
-#include "call_var.h"
+#include "call_var_main.h"
 #include "bam_utils.h"
 #include "vcf_utils.h"
 #include "utils.h"
@@ -34,12 +34,13 @@ const struct option call_var_opt [] = {
     { "min-depth", 1, NULL, 'd' },
     { "min-alt-depth", 1, NULL, 'D' },
     { "max-ploidy", 1, NULL, 'p' },
-    { "max-xgaps", 1, NULL, 'x' },
+    { "max-xgap", 1, NULL, 'x' },
     { "win-size", 1, NULL, 'w'},
     { "noisy-flank", 1, NULL, 'f' },
     { "end-clip", 1, NULL, 'c' },
     { "clip-flank", 1, NULL, 'F' },
-    { "gap-pos", 1, NULL, 'a'},
+    { "gap-aln", 1, NULL, 'a'},
+    { "no-re-aln", 1, NULL, 'N'},
     { "threads", 1, NULL, 't' },
     { "help", 0, NULL, 'h' },
     { "version", 0, NULL, 'v' },
@@ -92,6 +93,7 @@ call_var_opt_t *call_var_init_para(void) {
     opt->end_clip_reg = LONGCALLD_NOISY_END_CLIP;
     opt->end_clip_reg_flank_win = LONGCALLD_NOISY_END_CLIP_WIN;
 
+    opt->max_noisy_reg_len  = LONGCALLD_MAX_NOISY_REG_LEN;
     opt->min_noisy_reg_reads = LONGCALLD_NOISY_REG_READS;
     opt->min_noisy_reg_ratio = LONGCALLD_NOISY_REG_RATIO;
 
@@ -100,7 +102,14 @@ call_var_opt_t *call_var_init_para(void) {
     opt->max_af = LONGCALLD_MAX_CAND_AF;
     opt->max_low_qual_frac = LONGCALLD_MAX_LOW_QUAL_FRAC;
 
-    opt->gap_pos = LONGCALLD_GAP_LEFT_ALN;
+    opt->match = LONGCALLD_MATCH_SCORE;
+    opt->mismatch = LONGCALLD_MISMATCH_SCORE;
+    opt->gap_open1 = LONGCALLD_GAP_OPEN1_SCORE;
+    opt->gap_ext1 = LONGCALLD_GAP_EXT1_SCORE;
+    opt->gap_open2 = LONGCALLD_GAP_OPEN2_SCORE;
+    opt->gap_ext2 = LONGCALLD_GAP_EXT2_SCORE;
+    opt->gap_aln = LONGCALLD_GAP_LEFT_ALN;
+    opt->disable_read_realign = 0;
 
     opt->pl_threads = MIN_OF_TWO(CALL_VAR_PL_THREAD_N, get_num_processors());
     opt->n_threads = MIN_OF_TWO(CALL_VAR_THREAD_N, get_num_processors());
@@ -287,7 +296,7 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
         call_var_step_t *s;
         s = calloc(1, sizeof(call_var_step_t));
         s->pl = p;
-        s->max_chunks = 64; s->chunks = calloc(s->max_chunks, sizeof(bam_chunk_t));
+        s->max_chunks = 4*p->opt->n_threads; s->chunks = calloc(s->max_chunks, sizeof(bam_chunk_t));
         int r, n_last_chunk_reads=0, *last_chunk_read_i=NULL; hts_pos_t cur_active_reg_beg=-1;
         // for each round, collect s->max_chunks of reads
         // TODO:
@@ -389,7 +398,7 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "    -d --min-depth   INT  min. depth to call a variant [%d]\n", LONGCALLD_MIN_CAND_DP);
     fprintf(stderr, "    -D --alt-depth   INT  min. alt. depth to call a variant[%d]\n", LONGCALLD_MIN_ALT_DP);
     // fprintf(stderr, "    -p --max-ploidy  INT  max. ploidy [%d]\n", LONGCALLD_DEF_PLOID);
-    fprintf(stderr, "    -x --max-xgaps    INT  max. number of substitutions/gaps in a window(-w/--win-size) [%d]\n", LONGCALLD_DENSE_REG_MAX_XGAPS);
+    fprintf(stderr, "    -x --max-xgap   INT  max. number of substitutions/gaps in a window(-w/--win-size) [%d]\n", LONGCALLD_DENSE_REG_MAX_XGAPS);
     fprintf(stderr, "    -w --win-size    INT  window size for noisy region [%d]\n", LONGCALLD_DENSE_REG_SLIDE_WIN);
     fprintf(stderr, "                          noisy region with more than -s subs/gaps in a window of -w bases will be skipped for initial haplotype assignment\n");
     // fprintf(stderr, "    -f --noisy-flank INT  flanking mask window size for noisy region [%d]\n", LONGCALLD_DENSE_FLANK_WIN);
@@ -401,6 +410,7 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "    -a --gap-aln     STR  put gap on the \'left\' or \'right\' side in alignment [left/l]\n");
     fprintf(stderr, "                          \'left\': minimap2/abPOA\n");
     fprintf(stderr, "                          \'right\': WFA/WFA2\n");
+    fprintf(stderr, "    -N --no-re-aln        disable read realignment\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "  General:\n");
     fprintf(stderr, "    -t --threads     INT  number of threads to use [%d]\n", MIN_OF_TWO(CALL_VAR_THREAD_N, get_num_processors()));
@@ -417,7 +427,7 @@ int call_var_main(int argc, char *argv[]) {
     // _err_cmd("%s\n", CMD);
     int c, op_idx; call_var_opt_t *opt = call_var_init_para();
     double realtime0 = realtime();
-    while ((c = getopt_long(argc, argv, "r:o:Hb:d:D:n:x:w:f:F:c:a:t:hvV:", call_var_opt, &op_idx)) >= 0) {
+    while ((c = getopt_long(argc, argv, "r:o:Hb:d:D:n:x:w:f:F:c:a:Nt:hvV:", call_var_opt, &op_idx)) >= 0) {
         switch(c) {
             case 'r': opt->ref_fa_fn = strdup(optarg); break;
             // case 'b': cgp->var_block_size = atoi(optarg); break;
@@ -433,9 +443,10 @@ int call_var_main(int argc, char *argv[]) {
             case 'f': opt->dens_reg_flank_win = atoi(optarg); break;
             case 'c': opt->end_clip_reg = atoi(optarg); break;
             case 'F': opt->end_clip_reg_flank_win = atoi(optarg); break;
-            case 'a': if (strcmp(optarg, "right") == 0 || strcmp(optarg, "r") == 0) opt->gap_pos = LONGCALLD_GAP_RIGHT_ALN;
-                      else if (strcmp(optarg, "left") == 0 || strcmp(optarg, "l") == 0) opt->gap_pos = LONGCALLD_GAP_LEFT_ALN;
+            case 'a': if (strcmp(optarg, "right") == 0 || strcmp(optarg, "r") == 0) opt->gap_aln = LONGCALLD_GAP_RIGHT_ALN;
+                      else if (strcmp(optarg, "left") == 0 || strcmp(optarg, "l") == 0) opt->gap_aln = LONGCALLD_GAP_LEFT_ALN;
                       else _err_error_exit("\'-a/--gap-aln\' can only be \'left\'/\'l\' or \'right\'/\'r\'\n"); // call_var_usage();
+            case 'N': opt->disable_read_realign = 1; break;
             case 't': opt->n_threads = atoi(optarg); break;
             case 'h': call_var_free_para(opt); call_var_usage();
             case 'v': fprintf(stderr, "%s\n", VERSION); call_var_free_para(opt); return 0;
@@ -468,7 +479,7 @@ int call_var_main(int argc, char *argv[]) {
         opt->n_threads = 1; opt->pl_threads = 1;
     } else {
         opt->n_threads = MIN_OF_TWO(opt->n_threads, get_num_processors());
-        opt->pl_threads = opt->n_threads; // MIN_OF_TWO(opt->n_threads, CALL_VAR_PL_THREAD_N);
+        opt->pl_threads = MIN_OF_TWO(4, opt->n_threads); // MIN_OF_TWO(opt->n_threads, CALL_VAR_PL_THREAD_N);
     }
     // if (opt->out_bam == NULL) // output to stdout
         // opt->out_bam = hts_open("-", "wb");

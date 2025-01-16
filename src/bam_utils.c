@@ -2,7 +2,7 @@
 #include "bam_utils.h"
 #include "utils.h"
 #include "collect_var.h"
-#include "call_var.h"
+#include "call_var_main.h"
 // #include "sdust.h"
 
 extern int LONGCALLD_VERBOSE;
@@ -634,6 +634,15 @@ void post_update_digar(digar1_t *_digars, int _n_digar, const struct call_var_op
     free(up_low_qual_len); free(down_low_qual_len);
 }
 
+int collect_noisy_region_len(cgranges_t *noisy_reg) {
+    int len = 0;
+    for (int i = 0; i < noisy_reg->n_r; ++i) {
+        hts_pos_t noisy_reg_beg = cr_start(noisy_reg, i), noisy_reg_end = cr_end(noisy_reg, i);
+        len += (noisy_reg_end - noisy_reg_beg + 1);
+    }
+    return len;
+}
+
 int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct call_var_pl_t *pl, const struct call_var_opt_t *opt, digar_t *digar) {
     hts_pos_t pos = read->core.pos+1, qi = 0;
     const uint32_t *cigar = bam_get_cigar(read); int n_cigar = read->core.n_cigar;
@@ -729,9 +738,14 @@ int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct 
                                                        // read2:  --------- [  noisy  ] --------
         // fprintf(stderr, "%s %d-%d\n", bam_get_qname(read), cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i));
         if (is_overlap_reg(cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i), reg_beg, reg_end)) {
-            cr_add(chunk_noisy_regs, "cr", cr_start(digar->noisy_regs, i)-noisy_reg_flank_len, cr_end(digar->noisy_regs, i)+noisy_reg_flank_len, 1);
+            int flank_len = noisy_reg_flank_len;
+            cr_add(chunk_noisy_regs, "cr", cr_start(digar->noisy_regs, i)-flank_len, cr_end(digar->noisy_regs, i)+flank_len, 1);
         }
     }
+    // if total noisy region length > mapped length * 0.8, skip the read
+    int total_noisy_reg_len = collect_noisy_region_len(digar->noisy_regs);
+    int mapped_len = digar->end - digar->beg + 1;
+    if (total_noisy_reg_len > mapped_len * 0.8) skip = 1; // XXX 0.7 ?
     free(_digars); free_xid_queue(q);
     if (LONGCALLD_VERBOSE >= 2) {
         fprintf(stderr, "DIGAR1: %s\n", bam_get_qname(read));

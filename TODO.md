@@ -31,6 +31,7 @@ TODO:
   - Non-repeat/homopolyer XID density
 - [ ] BAM and Ref.FA not match
 - [ ] Learn sequencing error profile from BAM
+- [ ] Methylation
 ---
 
 * Tumour purity $\alpha$: est. -> max. -> est. ... -> converge

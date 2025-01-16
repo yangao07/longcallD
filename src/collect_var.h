@@ -2,7 +2,7 @@
 #define LONGCALLD_COLLECT_VAR_H
 
 #include <math.h>
-
+#include "htslib/sam.h"
 
 // category of candidate variants
 // #define LONGCALLD_VAR_CATE_N 8
@@ -56,7 +56,7 @@ int comp_ovlp_var_site(var_site_t *var1, var_site_t *var2, int *is_ovlp);
 var_site_t make_var_site_from_digar(int tid, struct digar1_t *digar);
 var_site_t make_var_site_from_cand_var(struct cand_var_t *cand_var);
 void collect_var_main(const struct call_var_pl_t *pl, struct bam_chunk_t *bam_chunk, struct var_t *var);
-void stitch_var_main(const struct call_var_step_t *step, struct bam_chunk_t *bam_chunk, struct var_t *var, long ii);
+void stitch_var_main(struct call_var_step_t *step, struct bam_chunk_t *bam_chunk, struct var_t *var, long ii);
 void free_cand_vars(struct cand_var_t *cand_vars, int m);
 
 #ifdef __cplusplus

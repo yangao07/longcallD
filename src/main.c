@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <getopt.h>
 #include <string.h>
-#include "call_var.h"
+#include "call_var_main.h"
 #include "utils.h"
 #include "htslib/kstring.h"
 
