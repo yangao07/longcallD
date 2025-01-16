@@ -12,7 +12,7 @@
 #error "Unsupported platform"
 #endif
 #include "main.h"
-#include "call_var.h"
+#include "call_var_main.h"
 #include "bam_utils.h"
 #include "vcf_utils.h"
 #include "utils.h"
@@ -34,7 +34,7 @@ const struct option call_var_opt [] = {
     { "min-depth", 1, NULL, 'd' },
     { "min-alt-depth", 1, NULL, 'D' },
     { "max-ploidy", 1, NULL, 'p' },
-    { "max-xgaps", 1, NULL, 'x' },
+    { "max-xgap", 1, NULL, 'x' },
     { "win-size", 1, NULL, 'w'},
     { "noisy-flank", 1, NULL, 'f' },
     { "end-clip", 1, NULL, 'c' },
@@ -296,7 +296,7 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
         call_var_step_t *s;
         s = calloc(1, sizeof(call_var_step_t));
         s->pl = p;
-        s->max_chunks = 64; s->chunks = calloc(s->max_chunks, sizeof(bam_chunk_t));
+        s->max_chunks = 4*p->opt->n_threads; s->chunks = calloc(s->max_chunks, sizeof(bam_chunk_t));
         int r, n_last_chunk_reads=0, *last_chunk_read_i=NULL; hts_pos_t cur_active_reg_beg=-1;
         // for each round, collect s->max_chunks of reads
         // TODO:
@@ -398,7 +398,7 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "    -d --min-depth   INT  min. depth to call a variant [%d]\n", LONGCALLD_MIN_CAND_DP);
     fprintf(stderr, "    -D --alt-depth   INT  min. alt. depth to call a variant[%d]\n", LONGCALLD_MIN_ALT_DP);
     // fprintf(stderr, "    -p --max-ploidy  INT  max. ploidy [%d]\n", LONGCALLD_DEF_PLOID);
-    fprintf(stderr, "    -x --max-xgaps    INT  max. number of substitutions/gaps in a window(-w/--win-size) [%d]\n", LONGCALLD_DENSE_REG_MAX_XGAPS);
+    fprintf(stderr, "    -x --max-xgap   INT  max. number of substitutions/gaps in a window(-w/--win-size) [%d]\n", LONGCALLD_DENSE_REG_MAX_XGAPS);
     fprintf(stderr, "    -w --win-size    INT  window size for noisy region [%d]\n", LONGCALLD_DENSE_REG_SLIDE_WIN);
     fprintf(stderr, "                          noisy region with more than -s subs/gaps in a window of -w bases will be skipped for initial haplotype assignment\n");
     // fprintf(stderr, "    -f --noisy-flank INT  flanking mask window size for noisy region [%d]\n", LONGCALLD_DENSE_FLANK_WIN);
@@ -410,6 +410,7 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "    -a --gap-aln     STR  put gap on the \'left\' or \'right\' side in alignment [left/l]\n");
     fprintf(stderr, "                          \'left\': minimap2/abPOA\n");
     fprintf(stderr, "                          \'right\': WFA/WFA2\n");
+    fprintf(stderr, "    -N --no-re-aln        disable read realignment\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "  General:\n");
     fprintf(stderr, "    -t --threads     INT  number of threads to use [%d]\n", MIN_OF_TWO(CALL_VAR_THREAD_N, get_num_processors()));
@@ -478,7 +479,7 @@ int call_var_main(int argc, char *argv[]) {
         opt->n_threads = 1; opt->pl_threads = 1;
     } else {
         opt->n_threads = MIN_OF_TWO(opt->n_threads, get_num_processors());
-        opt->pl_threads = opt->n_threads; // MIN_OF_TWO(opt->n_threads, CALL_VAR_PL_THREAD_N);
+        opt->pl_threads = MIN_OF_TWO(4, opt->n_threads); // MIN_OF_TWO(opt->n_threads, CALL_VAR_PL_THREAD_N);
     }
     // if (opt->out_bam == NULL) // output to stdout
         // opt->out_bam = hts_open("-", "wb");

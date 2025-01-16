@@ -2,7 +2,7 @@
 #include "bam_utils.h"
 #include "utils.h"
 #include "collect_var.h"
-#include "call_var.h"
+#include "call_var_main.h"
 // #include "sdust.h"
 
 extern int LONGCALLD_VERBOSE;
@@ -738,7 +738,7 @@ int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct 
                                                        // read2:  --------- [  noisy  ] --------
         // fprintf(stderr, "%s %d-%d\n", bam_get_qname(read), cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i));
         if (is_overlap_reg(cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i), reg_beg, reg_end)) {
-            int flank_len = MAX_OF_TWO(noisy_reg_flank_len, cr_end(digar->noisy_regs, i)-cr_start(digar->noisy_regs, i));
+            int flank_len = noisy_reg_flank_len;
             cr_add(chunk_noisy_regs, "cr", cr_start(digar->noisy_regs, i)-flank_len, cr_end(digar->noisy_regs, i)+flank_len, 1);
         }
     }

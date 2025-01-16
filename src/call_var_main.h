@@ -10,7 +10,7 @@
 #include "htslib/sam.h"
 #include "htslib/thread_pool.h"
 
-#define CALL_VAR_PL_THREAD_N 3
+#define CALL_VAR_PL_THREAD_N 4 // num of steps
 #define CALL_VAR_THREAD_N 8
 
 #define LONGCALLD_MIN_CAND_MQ 30 // low-qual

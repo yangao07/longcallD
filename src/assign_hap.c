@@ -1,7 +1,7 @@
 #include "assign_hap.h"
 #include "cgranges.h"
 #include "utils.h"
-#include "call_var.h"
+#include "call_var_main.h"
 #include "bam_utils.h"
 #include "collect_var.h"
 #include <inttypes.h>

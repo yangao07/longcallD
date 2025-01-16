@@ -1,8 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include "call_var_from_phased_reads.h"
 #include "collect_var.h"
-#include "call_var.h"
+#include "call_var_main.h"
 #include "utils.h"
 #include "bam_utils.h"
 #include "align.h"
@@ -310,8 +309,8 @@ int classify_var_cate(char *ref_seq, hts_pos_t ref_beg, hts_pos_t ref_end,
     // if (af1 < min_af || af1 > max_af || af2 < min_af || af2 > max_af) return LONGCALLD_CAND_SOMA_VAR; // unlikely germline het., likely hom or somatic, require full phasing info
     // if (total_alt_af < min_af || total_alt_af > max_af || (1-total_alt_af) < min_af || (1-total_alt_af) > max_af) return LONGCALLD_CAND_SOMA_VAR; // unlikely germline het., likely hom or somatic, require full phasing info
     // snps & indels in homo/repeat regions
-    if ((var->var_type == BAM_CINS || var->var_type == BAM_CDEL) && (var_is_homopolymer(ref_seq, ref_beg, ref_end, var) || var_is_repeat_region(ref_seq, ref_beg, ref_end, var))) return LONGCALLD_REP_HET_VAR; // require basic phasing info, MSA, provide additional phasing info
-    // if (var_is_homopolymer(ref_seq, ref_beg, ref_end, var) || var_is_repeat_region(ref_seq, ref_beg, ref_end, var)) return LONGCALLD_REP_HET_VAR; // require basic phasing info, MSA, provide additional phasing info
+    // if ((var->var_type == BAM_CINS || var->var_type == BAM_CDEL) && (var_is_homopolymer(ref_seq, ref_beg, ref_end, var) || var_is_repeat_region(ref_seq, ref_beg, ref_end, var))) return LONGCALLD_REP_HET_VAR; // require basic phasing info, MSA, provide additional phasing info
+    if (var_is_homopolymer(ref_seq, ref_beg, ref_end, var) || var_is_repeat_region(ref_seq, ref_beg, ref_end, var)) return LONGCALLD_REP_HET_VAR; // require basic phasing info, MSA, provide additional phasing info
     // not call somatic variant around homopolymer/repeat region
     // if (alt_af1 < min_af_thres) return LONGCALLD_CAND_SOMA_VAR; // XXX could be het in homopolymer region
     if (var->var_type == BAM_CDIFF) return LONGCALLD_EASY_HET_SNP;
@@ -1434,7 +1433,7 @@ int collect_noisy_vars(bam_chunk_t *chunk, var_t *var, const call_var_opt_t *opt
             // collect candicate variants in noisy region based on XID-profile
             hts_pos_t noisy_reg_beg = cr_start(noisy_regs, reg_i), noisy_reg_end = cr_end(noisy_regs, reg_i);
             if (noisy_reg_end - noisy_reg_beg > opt->max_noisy_reg_len) {
-                fprintf(stderr, "Skipped noisy region: %s:%ld-%ld %ld\n", chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end - noisy_reg_beg);
+                fprintf(stderr, "Skipped (>%d) noisy region: %s:%ld-%ld %ld\n", opt->max_noisy_reg_len, chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end - noisy_reg_beg);
                 continue; // XXX
             }
             if (LONGCALLD_VERBOSE >= 2)

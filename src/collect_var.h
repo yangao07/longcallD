@@ -2,7 +2,7 @@
 #define LONGCALLD_COLLECT_VAR_H
 
 #include <math.h>
-
+#include "htslib/sam.h"
 
 // category of candidate variants
 // #define LONGCALLD_VAR_CATE_N 8

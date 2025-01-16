@@ -8,7 +8,7 @@
 #include "abpoa.h"
 #include "edlib.h"
 #include "ksw2.h"
-#include "call_var.h"
+#include "call_var_main.h"
 #include "bam_utils.h"
 #include "utils.h"
 #include "align.h"
@@ -200,11 +200,11 @@ int end2end_aln(const call_var_opt_t *opt, char *tseq, int tlen, uint8_t *qseq, 
     uint8_t *tseq2 = (uint8_t*)malloc(max_len); int cigar_len = 0;
     for (int i = 0; i < tlen; ++i) tseq2[i] = nst_nt4_table[(uint8_t)tseq[i]];
     // use wfa if the length difference is small
-    if (max_len * delta_len + delta_len * delta_len < max_len * min_len) {
+    // if (max_len * delta_len + delta_len * delta_len < max_len * min_len) {
         cigar_len = wfa_aln(opt->gap_aln, tseq2, tlen, qseq, qlen, opt->match, opt->mismatch, opt->gap_open1, opt->gap_ext1, opt->gap_open2, opt->gap_ext2, cigar_buf);
-    } else { // if (max_len - min_len > 1000) { // use ksw2 if the length difference is large
-        cigar_len = ksw2_aln(opt->gap_aln, tseq2, tlen, qseq, qlen, opt->match, opt->mismatch, opt->gap_open1, opt->gap_ext1, opt->gap_open2, opt->gap_ext2, cigar_buf);
-    }
+    // } else { // if (max_len - min_len > 1000) { // use ksw2 if the length difference is large
+        // cigar_len = ksw2_aln(opt->gap_aln, tseq2, tlen, qseq, qlen, opt->match, opt->mismatch, opt->gap_open1, opt->gap_ext1, opt->gap_open2, opt->gap_ext2, cigar_buf);
+    // }
     free(tseq2);
     return cigar_len;
 }
@@ -289,7 +289,7 @@ int abpoa_partial_aln(int n_reads, uint8_t **read_seqs, int *read_lens, int *rea
     abpoa_para_t *abpt = abpoa_init_para();
     // abpt->wb = -1;
     abpt->out_msa = 0;
-    // abpt->cons_algrm = ABPOA_MF;
+    abpt->cons_algrm = ABPOA_MF;
     abpt->sort_input_seq = 1;
     abpt->max_n_cons = max_n_cons;
     // msa
@@ -688,7 +688,8 @@ int collect_noisy_cons_seq_no_ps_hap(const call_var_opt_t *opt, hts_pos_t ps, in
     return n_cons;
 }
 
-hts_pos_t collect_one_phase_set(int n_reads, int *read_haps, hts_pos_t *phase_sets, int *fully_covers) {
+// collect phase set with both haps having >= min_minor_hap_read_count reads
+hts_pos_t collect_phase_set_with_both_haps(int n_reads, int *read_haps, hts_pos_t *phase_sets, int *fully_covers, int min_minor_hap_read_count) {
     int n_uniq_phase_sets = 0, phase_set_i = 0;
     hts_pos_t *uniq_phase_sets = (hts_pos_t*)calloc(n_reads, sizeof(hts_pos_t));
     int **phase_set_to_hap_read_count = (int**)malloc(n_reads * sizeof(int*));
@@ -718,7 +719,7 @@ hts_pos_t collect_one_phase_set(int n_reads, int *read_haps, hts_pos_t *phase_se
     }
     for (int i = 0; i < n_reads; ++i) free(phase_set_to_hap_read_count[i]);
     free(uniq_phase_sets); free(phase_set_to_hap_read_count);
-    if (max_ps_read_count1 > 0) return max_ps;
+    if (max_ps_read_count1 >= min_minor_hap_read_count) return max_ps;
     else return -1;
 }
 
@@ -903,25 +904,28 @@ int collect_noisy_reg_cons_seqs0(const call_var_opt_t *opt, bam_chunk_t *chunk, 
     char **names = NULL; uint8_t **seqs = NULL; int *fully_covers = NULL, *lens = NULL, *haps = NULL; hts_pos_t *phase_sets = NULL;
     // collect reads in the noisy region
     collect_noisy_reads(chunk, noisy_reg_i, &lens, &seqs, &names, &fully_covers, &haps, &phase_sets);
-    hts_pos_t ps_with_full_hap_reads;
-    int n_full_cover_reads = collect_noisy_full_hap_reads(n_noisy_reg_reads, haps, phase_sets, fully_covers, &ps_with_full_hap_reads);
-    hts_pos_t max_ps = collect_one_phase_set(n_noisy_reg_reads, haps, phase_sets, fully_covers);
+    // hts_pos_t ps_with_full_hap_reads;
+    // int n_full_cover_reads = collect_noisy_full_hap_reads(n_noisy_reg_reads, haps, phase_sets, fully_covers, &ps_with_full_hap_reads);
+    hts_pos_t ps_with_both_haps = collect_phase_set_with_both_haps(n_noisy_reg_reads, haps, phase_sets, fully_covers, 2);
+    int n_full_reads = 0;
+    for (int i = 0; i < n_noisy_reg_reads; ++i) if (fully_covers[i] == 3) n_full_reads++;
     int n_cons = 0;
+    // XXX only use fully-covered reads, including cliping reads (after re-align to backbone read)
     // two cases to call consensus sequences
-    if (max_ps > 0) { // call consensus sequences for each haplotype
+    if (ps_with_both_haps > 0) { // call consensus sequences for each haplotype
         // fprintf(stderr, "PerHap calling region: %s:%ld-%ld %ld %d (all)\n", chunk->tname, reg_beg, reg_end, reg_end-reg_beg+1, n_noisy_reg_reads);
         // n_cons = collect_noisy_cons_seqs_with_ps_hap(opt, n_noisy_reg_reads, lens, seqs, names, haps, phase_sets, fully_covers, ps_with_full_hap_reads, cons_lens, cons_seqs);
-        n_cons = collect_noisy_cons_seqs_with_ps_hap(opt, n_noisy_reg_reads, lens, seqs, names, haps, phase_sets, fully_covers, max_ps, cons_lens, cons_seqs);
-    } else if (n_full_cover_reads > n_noisy_reg_reads * 0.75 && reg_end - reg_beg + 1 <= 10000) { // de novo consensus calling using all reads, up to 2 consensus sequences
+        n_cons = collect_noisy_cons_seqs_with_ps_hap(opt, n_noisy_reg_reads, lens, seqs, names, haps, phase_sets, fully_covers, ps_with_both_haps, cons_lens, cons_seqs);
+    // } else if (n_full_cover_reads > n_noisy_reg_reads * 0.75 && reg_end - reg_beg + 1 <= 10000) { // de novo consensus calling using all reads, up to 2 consensus sequences
+    } else if (n_full_reads >= 10) {
         // fprintf(stderr, "De nove calling region: %s:%ld-%ld %ld %d (all)\n", chunk->tname, reg_beg, reg_end, reg_end-reg_beg+1, n_noisy_reg_reads);
         n_cons = collect_noisy_cons_seq_no_ps_hap(opt, reg_beg, n_noisy_reg_reads, lens, seqs, names, haps, phase_sets, fully_covers, cons_lens, cons_seqs);
     } else { // if (n_full_cover_reads <= 0 || reg_end - reg_beg + 1 > 5000) {
-        fprintf(stderr, "Skipped region: %s:%ld-%ld %ld %d reads (%d full)\n", chunk->tname, reg_beg, reg_end, reg_end-reg_beg+1, n_noisy_reg_reads, n_full_cover_reads);
+        fprintf(stderr, "Skipped region: %s:%ld-%ld %ld %d reads (%d full)\n", chunk->tname, reg_beg, reg_end, reg_end-reg_beg+1, n_noisy_reg_reads, n_full_reads);
     }
 
     // update phase-set and HAP
     // updated_ps_hap(chunk, noisy_reg_i, n_noisy_reg_reads, haps, phase_sets);
-
     for (int i = 0; i < n_noisy_reg_reads; ++i) free(seqs[i]);
     free(names); free(seqs); free(lens); free(fully_covers); free(haps); free(phase_sets);
     return n_cons;

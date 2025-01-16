@@ -134,10 +134,9 @@ $(SRC_DIR)/collect_var.o: $(SRC_DIR)/collect_var.c $(SRC_DIR)/collect_var.h $(SR
 $(SRC_DIR)/kalloc.o: $(SRC_DIR)/kalloc.c $(SRC_DIR)/kalloc.h
 $(SRC_DIR)/kmedoids.o : $(SRC_DIR)/kmedoids.c $(SRC_DIR)/kmedoids.h
 $(SRC_DIR)/kthread.o: $(SRC_DIR)/kthread.c
-$(SRC_DIR)/main.o: $(SRC_DIR)/main.c $(SRC_DIR)/call_var.h
-$(SRC_DIR)/call_var.o: $(SRC_DIR)/bam_utils.c $(SRC_DIR)/call_var.c $(SRC_DIR)/call_var.h $(SRC_DIR)/main.h $(SRC_DIR)/utils.h $(SRC_DIR)/seq.h \
-                        $(SRC_DIR)/collect_var.h
-$(SRC_DIR)/phase_based_call_var.o: $(SRC_DIR)/phase_based_call_var.c $(SRC_DIR)/phase_based_call_var.h $(SRC_DIR)/align.h $(SRC_DIR)/utils.h
+$(SRC_DIR)/main.o: $(SRC_DIR)/main.c $(SRC_DIR)/call_var_main.h
+$(SRC_DIR)/call_var_main.o: $(SRC_DIR)/bam_utils.c $(SRC_DIR)/call_var_main.c $(SRC_DIR)/call_var_main.h $(SRC_DIR)/main.h $(SRC_DIR)/utils.h $(SRC_DIR)/seq.h \
+                            $(SRC_DIR)/collect_var.h
 $(SRC_DIR)/seq.o: $(SRC_DIR)/seq.c $(SRC_DIR)/seq.h $(SRC_DIR)/utils.h
 $(SRC_DIR)/utils.o: $(SRC_DIR)/utils.c $(SRC_DIR)/utils.h $(SRC_DIR)/ksort.h $(SRC_DIR)/kseq.h
 $(SRC_DIR)/vcf_utils.o: $(SRC_DIR)/vcf_utils.c $(SRC_DIR)/vcf_utils.h $(SRC_DIR)/utils.h

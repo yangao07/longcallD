@@ -5,8 +5,8 @@ happy=~/software/miniconda3/envs/hap.py/bin/hap.py
 S=0
 N=1
 in_vcfs=(
-/homes2/yangao/data/HG002/lc_1227/old.small.vcf.gz
-/homes2/yangao/data/HG002/lc/lc.0114.small.vcf.gz
+# /homes2/yangao/data/HG002/lc/0115/0115_10k.small.vcf.gz
+/homes2/yangao/data/HG002/lc/0115/0116.small.vcf.gz
 /homes2/yangao/mydata/lc.1227.small.vcf.gz
 /homes2/yangao/data/HG002/clair3/phased_merge_output.small.vcf.gz
 /homes2/yangao/data/HG002/deepvariant/HG002.GRCh38.deepvariant.phased.small.vcf.gz
@@ -24,9 +24,9 @@ in_vcfs=(
 )
 
 out_dirs=(
-/homes2/yangao/data/HG002/lc_1227/old.small.happy
-/homes2/yangao/data/HG002/lc/lc.0114.happy
-/homes2/yangao/mydata/lc.1227.happy
+# /homes2/yangao/data/HG002/lc/0115/0115_10k_happy
+/homes2/yangao/data/HG002/lc/0115/0116_happy
+/homes2/yangao/mydata/lc.1227.chr1_happy
 /homes2/yangao/data/HG002/clair3/happy_small
 /homes2/yangao/data/HG002/deepvariant/happy_small
 /homes2/yangao/data/HG002/deepvariant/v1_8_0_cpu_HG002/output3.small_happy
@@ -42,7 +42,7 @@ out_dirs=(
 /homes2/yangao/data/HG002/deepvariant/ont/PAO89685/sup/happy
 )
 
-n_threads=4
+n_threads=32
 
 bench_vcf=/homes2/yangao/data/HG002/02benchmark_truth_set/T2T_v1.1/GRCh38_HG2-T2TQ100-V1.1.small.vcf.gz
 bench_bed=/homes2/yangao/data/HG002/02benchmark_truth_set/T2T_v1.1/GRCh38_HG2-T2TQ100-V1.1_smvar.benchmark.bed
