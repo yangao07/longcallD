@@ -1428,8 +1428,7 @@ int collect_noisy_vars(bam_chunk_t *chunk, var_t *var, const call_var_opt_t *opt
         int newly_done = 0;
         for (int _i = 0; _i < n_noisy_regs; ++_i) {
             int reg_i = sorted_noisy_regs[_i];
-            if (cr_label(noisy_regs, reg_i) < 10) continue; // XXX
-            if (noisy_reg_is_done[reg_i]) continue;
+            // if (noisy_reg_is_done[reg_i]) continue;
             // collect candicate variants in noisy region based on XID-profile
             hts_pos_t noisy_reg_beg = cr_start(noisy_regs, reg_i), noisy_reg_end = cr_end(noisy_regs, reg_i);
             if (noisy_reg_end - noisy_reg_beg > opt->max_noisy_reg_len) {
@@ -1454,7 +1453,7 @@ int collect_noisy_vars(bam_chunk_t *chunk, var_t *var, const call_var_opt_t *opt
             for (int j = 0; j < 2; ++j) {
                 if (cons_seqs[j] != NULL) free(cons_seqs[j]);
             } free(cons_seqs);
-            noisy_reg_is_done[reg_i] = 1;
+            // noisy_reg_is_done[reg_i] = 1;
             newly_done = 1;
             // read_var_profile_t *p = collect_noisy_read_var_profile(chunk, i, n_cand_vars, cand_vars);
             // insert cand_vars into chunk->cand_vars
@@ -1473,7 +1472,7 @@ void pre_process_noisy_regs(bam_chunk_t *chunk, call_var_opt_t *opt) {
     chunk->chunk_noisy_regs = cr_merge(chunk->chunk_noisy_regs);
 
     // for (int i = 0; i < chunk->chunk_noisy_regs->n_r; ++i) {
-    //     fprintf(stderr, "ChunkNoisyRegs: %s:%d-%d %d\n", chunk->tname, cr_start(chunk->chunk_noisy_regs, i), cr_end(chunk->chunk_noisy_regs, i), cr_label(chunk->chunk_noisy_regs, i));
+        // fprintf(stderr, "ChunkNoisyRegs: %s:%d-%d %d\n", chunk->tname, cr_start(chunk->chunk_noisy_regs, i), cr_end(chunk->chunk_noisy_regs, i), cr_label(chunk->chunk_noisy_regs, i));
     // }
     // remove noisy_regions that have low coverage, i.e., either low ratio or low absolute read count
     cgranges_t *noisy_regs = chunk->chunk_noisy_regs;

@@ -29,7 +29,7 @@
 
 #define LONGCALLD_MAX_NOISY_REG_LEN 50000 // >15kb noisy region will be skipped
 
-#define LONGCALLD_NOISY_REG_FLANK_LEN 10 // add 10-bp flanking region for both ends of noisy region
+#define LONGCALLD_NOISY_REG_FLANK_LEN 100 // add 10-bp flanking region for both ends of noisy region
 #define LONGCALLD_MIN_GAP_LEN_FOR_CLIP 100 // >= 100-bp gaps will be considered for re-alignment of clipping bases
 #define LONGCALLD_GAP_FLANK_WIN_FOR_CLIP 500
 #define LONGCALLD_DENSE_REG_MAX_XGAPS 5 // or 10; dense X/gap region: more than n X/gap bases in a 100-bp window
@@ -42,7 +42,7 @@
 #define LONGCALLD_NOISY_END_CLIP_WIN 100 // n bp flanking end-clipping region will be considered as low-quality region
 #define LONGCALLD_INDEL_FLANK_WIN 0 // n bp around indel will be considered as low-quality region
 
-#define LONGCALLD_NOISY_REG_READS 10 // >= 10 reads support noisy region
+#define LONGCALLD_NOISY_REG_READS 5 // >= 10 reads support noisy region
 #define LONGCALLD_NOISY_REG_RATIO 0.25 // >= 25% reads support noisy region
 
 
