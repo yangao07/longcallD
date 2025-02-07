@@ -20,30 +20,33 @@
 #define LONGCALLD_MIN_SOMATIC_AF 0.05 // AF < 0.05: filtered out, 0.05~0.25: candidate somatic
 #define LONGCALLD_MIN_CAND_AF 0.25 // AF < 0.25: not germline het.
 #define LONGCALLD_MAX_CAND_AF 0.75 // AF > 0.75: not germline het.
-#define LONGCALLD_MAX_LOW_QUAL_FRAC 0.20 // LOW_FRAC > 0.25: low-qual
 #define LONGCALLD_DEF_PLOID 2 // diploid
 #define LONGCALLD_REF_ALLELE 0
 #define LONGCALLD_ALT_ALLELE1 1
 #define LONGCALLD_ALT_ALLELE2 2
 
-#define LONGCALLD_MAX_NOISY_REG_LEN 50000 // >50kb noisy region will be skipped
 
 // #define LONGCALLD_NOISY_REG_MERGE_WIN 100 // dynamically set merge_win based on insertion size
 #define LONGCALLD_NOISY_REG_FLANK_LEN 10 // 10-bp flanking region for both ends of noisy region
 
 #define LONGCALLD_NOISY_REG_MAX_XGAPS 5 // or 10; dense X/gap region: more than n X/gap bases in a 100-bp window
 #define LONGCALLD_NOISY_REG_SLIDE_WIN 100 //
+#define LONGCALLD_MAX_NOISY_FRAC_PER_READ 0.8 // skip reads with more than 80% bases in noisy region
 #define LONGCALLD_NOISY_FLANK_WIN 0 // 25: 100/(3+1)
 #define LONGCALLD_NOISY_END_CLIP 100 // >= n bp clipping on both ends
 #define LONGCALLD_NOISY_END_CLIP_WIN 100 // n bp flanking end-clipping region will be considered as low-quality region
 #define LONGCALLD_INDEL_FLANK_WIN 0 // n bp around indel will be considered as low-quality region
 
+#define LONGCALLD_MAX_NOISY_REG_LEN 50000 // >50kb noisy region will be skipped
+#define LONGCALLD_NOISY_REG_READS 5 // >= 5 reads supporting noisy region
+#define LONGCALLD_NOISY_REG_RATIO 0.25 // >= 25% reads supporting noisy region
+
+#define LONGCALLD_MIN_HAP_FULL_READS 5 // full read supporting each haplotype
+#define LONGCALLD_MIN_NO_HAP_FULL_READS 10 // total full reads in noisy region
 // for sdust
 #define LONGCALLD_SDUST_T 5
 #define LONGCALLD_SDUST_W 20
 
-#define LONGCALLD_NOISY_REG_READS 5 // >= 5 reads supporting noisy region
-#define LONGCALLD_NOISY_REG_RATIO 0.20 // >= 25% reads supporting noisy region
 
 
 #define LONGCALLD_MAX_READ_DEPTH 500 // vars with >500 reads will be skipped
@@ -89,8 +92,8 @@ typedef struct call_var_opt_t {
     char *region_list; uint8_t region_is_file; // for -R/--region/--region-file option
     // filters for variant calling
     int max_ploid, min_mq, min_bq, min_dp, min_alt_dp;
-    double min_af, max_af, min_somatic_af, max_low_qual_frac;
-    int dens_reg_max_xgaps, dens_reg_slide_win, dens_reg_flank_win;
+    double min_af, max_af, min_somatic_af;
+    int noisy_reg_max_xgaps, noisy_reg_slide_win, noisy_reg_flank_win;
     // skip read if contans a noisy region with 1) >= min_non_low_comp_noisy_reg_ratio non-low-comp XIDs, and 
     //                                          2) >= min_non_low_comp_noisy_reg_size bps
     // int min_non_low_comp_noisy_reg_size; float min_non_low_comp_noisy_reg_ratio; int min_non_low_comp_noisy_reg_XID;
@@ -98,7 +101,9 @@ typedef struct call_var_opt_t {
     int end_clip_reg, end_clip_reg_flank_win;
     int noisy_reg_flank_len; // noisy_reg_merge_win; // for re-alignment
     // filters for noisy region, i.e., coverage/ratio
-    int max_noisy_reg_reads, max_noisy_reg_len, min_noisy_reg_reads; float min_noisy_reg_ratio;
+    int max_noisy_reg_reads, max_noisy_reg_len, min_noisy_reg_reads; 
+    float max_noisy_frac_per_read, min_noisy_reg_ratio;
+    int min_hap_full_reads, min_no_hap_full_reads;
     // alignment
     int match, mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2;
     int gap_aln; // default: 1: left (minimap2, abpoa), 2: right (wfa2)

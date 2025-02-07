@@ -32,18 +32,25 @@ const struct option call_var_opt [] = {
     { "out-vcf", 1, NULL, 'o'},
     { "out-bam", 1, NULL, 'b' },
     { "no-vcf-header", 0, NULL, 'H'},
+    { "gap-aln", 1, NULL, 'g'},
     // { "out-bam", 1, NULL, 'b' },
     { "sample-name", 1, NULL, 'n'},
+
     { "min-depth", 1, NULL, 'd' },
+    { "min-allele-freq", 1, NULL, 'a' },
     { "min-alt-depth", 1, NULL, 'D' },
-    { "max-ploidy", 1, NULL, 'p' },
+    // { "max-ploidy", 1, NULL, 'p' },
+
     { "max-xgap", 1, NULL, 'x' },
     { "win-size", 1, NULL, 'w'},
+    { "noisy-rat", 1, NULL, 'j' },
     { "noisy-flank", 1, NULL, 'f' },
     { "end-clip", 1, NULL, 'c' },
     { "clip-flank", 1, NULL, 'F' },
-    { "gap-aln", 1, NULL, 'g'},
+    { "hap-reads", 1, NULL, 'p' },
+    { "full-reads", 1, NULL, 'f' },
     { "no-re-aln", 1, NULL, 'N'},
+
     { "threads", 1, NULL, 't' },
     { "help", 0, NULL, 'h' },
     { "version", 0, NULL, 'v' },
@@ -87,9 +94,9 @@ call_var_opt_t *call_var_init_para(void) {
     // opt->noisy_reg_merge_win = LONGCALLD_NOISY_REG_MERGE_WIN;
     opt->noisy_reg_flank_len = LONGCALLD_NOISY_REG_FLANK_LEN;
 
-    opt->dens_reg_max_xgaps = LONGCALLD_NOISY_REG_MAX_XGAPS;
-    opt->dens_reg_slide_win = LONGCALLD_NOISY_REG_SLIDE_WIN;
-    opt->dens_reg_flank_win = LONGCALLD_NOISY_FLANK_WIN;
+    opt->noisy_reg_max_xgaps = LONGCALLD_NOISY_REG_MAX_XGAPS;
+    opt->noisy_reg_slide_win = LONGCALLD_NOISY_REG_SLIDE_WIN;
+    opt->noisy_reg_flank_win = LONGCALLD_NOISY_FLANK_WIN;
     opt->indel_flank_win = LONGCALLD_INDEL_FLANK_WIN;
 
     opt->end_clip_reg = LONGCALLD_NOISY_END_CLIP;
@@ -99,11 +106,13 @@ call_var_opt_t *call_var_init_para(void) {
     opt->max_noisy_reg_len  = LONGCALLD_MAX_NOISY_REG_LEN;
     opt->min_noisy_reg_reads = LONGCALLD_NOISY_REG_READS;
     opt->min_noisy_reg_ratio = LONGCALLD_NOISY_REG_RATIO;
+    opt->max_noisy_frac_per_read = LONGCALLD_MAX_NOISY_FRAC_PER_READ;
+    opt->min_hap_full_reads = LONGCALLD_MIN_HAP_FULL_READS;
+    opt->min_no_hap_full_reads = LONGCALLD_MIN_NO_HAP_FULL_READS;
 
     opt->min_somatic_af = LONGCALLD_MIN_SOMATIC_AF;
     opt->min_af = LONGCALLD_MIN_CAND_AF;
     opt->max_af = LONGCALLD_MAX_CAND_AF;
-    opt->max_low_qual_frac = LONGCALLD_MAX_LOW_QUAL_FRAC;
 
     opt->match = LONGCALLD_MATCH_SCORE;
     opt->mismatch = LONGCALLD_MISMATCH_SCORE;
@@ -385,20 +394,6 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "    -H --no-vcf-header    do NOT output VCF header\n");
     fprintf(stderr, "       --amb-base         output variant with ambiguous base [False]\n");
     fprintf(stderr, "    -b --out-bam     STR  output phased BAM file [NULL]\n");
-    // fprintf(stderr, "\n");
-    fprintf(stderr, "  Variant:\n");
-    fprintf(stderr, "    -d --min-depth   INT  min. depth to call a variant [%d]\n", LONGCALLD_MIN_CAND_DP);
-    fprintf(stderr, "    -D --alt-depth   INT  min. alt. depth to call a variant [%d]\n", LONGCALLD_MIN_ALT_DP);
-    // fprintf(stderr, "    -p --max-ploidy  INT  max. ploidy [%d]\n", LONGCALLD_DEF_PLOID);
-    fprintf(stderr, "    -x --max-xgap    INT  max. number of allowed substitutions/gap-bases in a searching window(-w/--win-size) [%d]\n", LONGCALLD_NOISY_REG_MAX_XGAPS);
-    fprintf(stderr, "                          window with more than -x subs/gap-bases will be considered as noisy region\n");
-    fprintf(stderr, "    -w --win-size    INT  window size for searching noisy region [%d]\n", LONGCALLD_NOISY_REG_SLIDE_WIN);
-    // fprintf(stderr, "    -f --noisy-flank INT  flanking mask window size for noisy region [%d]\n", LONGCALLD_DENSE_FLANK_WIN);
-    fprintf(stderr, "    -c --end-clip    INT  max. number of clipping bases on both ends [%d]\n", LONGCALLD_NOISY_END_CLIP);
-    fprintf(stderr, "                          end-clipping region with more than -c bases will be considered as noisy clipping region\n");
-    fprintf(stderr, "    -F --clip-flank  INT  flanking mask window size for noisy clipping region [%d]\n", LONGCALLD_NOISY_END_CLIP_WIN);
-    // fprintf(stderr, "\n");
-    fprintf(stderr, "  Alignment\n");
     fprintf(stderr, "    -g --gap-aln     STR  put gap on the \'left\' or \'right\' side in alignment [left/l]\n");
     fprintf(stderr, "                          \'left\':  ATTTG\n");
     fprintf(stderr, "                                   | |||\n");
@@ -406,7 +401,26 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "                          \'right\': ATTTG\n");
     fprintf(stderr, "                                   ||| |\n");
     fprintf(stderr, "                                   ATT-G\n");
-    fprintf(stderr, "    -N --no-re-aln        disable read re-alignment\n");
+    // fprintf(stderr, "\n");
+    fprintf(stderr, "  Variant calling:\n");
+    fprintf(stderr, "    -d --min-depth   INT  min. depth to call a variant [%d]\n", LONGCALLD_MIN_CAND_DP);
+    fprintf(stderr, "    -D --alt-depth   INT  min. alt. depth to call a variant [%d]\n", LONGCALLD_MIN_ALT_DP);
+    fprintf(stderr, "    -a --min-af    FLOAT  min. allele frequency to call a variant [%.2f]\n", LONGCALLD_MIN_CAND_AF);
+    // fprintf(stderr, "    -p --max-ploidy  INT  max. ploidy [%d]\n", LONGCALLD_DEF_PLOID);
+    fprintf(stderr, "  Noisy regions:\n");
+    fprintf(stderr, "    -x --max-xgap    INT  max. number of allowed substitutions/gap-bases in a sliding window(-w/--win-size) [%d]\n", LONGCALLD_NOISY_REG_MAX_XGAPS);
+    fprintf(stderr, "                          window with more than -x subs/gap-bases will be considered as noisy region\n");
+    fprintf(stderr, "    -w --win-size    INT  window size for searching noisy region [%d]\n", LONGCALLD_NOISY_REG_SLIDE_WIN);
+    fprintf(stderr, "    -j --noisy-rat FLOAT  min. ratio of noisy reads in a window to call a noisy region [%.2f]\n", LONGCALLD_NOISY_REG_RATIO);
+    // fprintf(stderr, "    -f --noisy-flank INT  flanking mask window size for noisy region [%d]\n", LONGCALLD_DENSE_FLANK_WIN);
+    // fprintf(stderr, "    -c --end-clip    INT  max. number of clipping bases on both ends [%d]\n", LONGCALLD_NOISY_END_CLIP);
+    // fprintf(stderr, "                          end-clipping region with more than -c bases will be considered as noisy clipping region\n");
+    // fprintf(stderr, "    -F --clip-flank  INT  flanking mask window size for noisy clipping region [%d]\n", LONGCALLD_NOISY_END_CLIP_WIN);
+    // fprintf(stderr, "\n");
+    fprintf(stderr, "    -p --hap-reads   INT  when haplotype is available, min. number of full-spanning reads for each haplotype in noisy region to call a variant [%d]\n", LONGCALLD_MIN_HAP_FULL_READS);
+    fprintf(stderr, "    -f --full-reads  INT  when haplotype is not available, min. number of full-spanning reads in noisy region to call a variant [%d]\n", LONGCALLD_MIN_NO_HAP_FULL_READS);
+
+    // fprintf(stderr, "    -N --no-re-aln        disable read re-alignment\n");
     // fprintf(stderr, "\n");
     fprintf(stderr, "  General:\n");
     fprintf(stderr, "    -t --threads     INT  number of threads to use [%d]\n", MIN_OF_TWO(CALL_VAR_THREAD_N, get_num_processors()));
@@ -423,7 +437,7 @@ int call_var_main(int argc, char *argv[]) {
     // _err_cmd("%s\n", CMD);
     int c, op_idx; call_var_opt_t *opt = call_var_init_para();
     double realtime0 = realtime();
-    while ((c = getopt_long(argc, argv, "r:o:Hb:d:D:n:x:w:f:F:c:a:Nt:hvV:", call_var_opt, &op_idx)) >= 0) {
+    while ((c = getopt_long(argc, argv, "r:o:Hb:d:D:a:n:x:w:j:f:p:g:Nt:hvV:", call_var_opt, &op_idx)) >= 0) {
         switch(c) {
             case 'r': opt->ref_fa_fn = strdup(optarg); break;
             // case 'b': cgp->var_block_size = atoi(optarg); break;
@@ -433,13 +447,17 @@ int call_var_main(int argc, char *argv[]) {
             case 'b': opt->out_bam = hts_open(optarg, "wb"); break;
             case 'd': opt->min_dp = atoi(optarg); break;
             case 'D': opt->min_alt_dp = atoi(optarg); break;
+            case 'a': opt->min_af = atof(optarg); break;
             case 'n': opt->sample_name = strdup(optarg); break;
-            case 'x': opt->dens_reg_max_xgaps = atoi(optarg); break;
-            case 'w': opt->dens_reg_slide_win = atoi(optarg); break;
-            case 'f': opt->dens_reg_flank_win = atoi(optarg); break;
-            case 'c': opt->end_clip_reg = atoi(optarg); break;
-            case 'F': opt->end_clip_reg_flank_win = atoi(optarg); break;
-            case 'a': if (strcmp(optarg, "right") == 0 || strcmp(optarg, "r") == 0) opt->gap_aln = LONGCALLD_GAP_RIGHT_ALN;
+            case 'x': opt->noisy_reg_max_xgaps = atoi(optarg); break;
+            case 'w': opt->noisy_reg_slide_win = atoi(optarg); break;
+            case 'p': opt->min_hap_full_reads = atoi(optarg); break;
+            case 'f': opt->min_no_hap_full_reads = atoi(optarg); break;
+            case 'j': opt->min_noisy_reg_ratio = atof(optarg); break;
+            // case 'f': opt->dens_reg_flank_win = atoi(optarg); break;
+            // case 'c': opt->end_clip_reg = atoi(optarg); break;
+            // case 'F': opt->end_clip_reg_flank_win = atoi(optarg); break;
+            case 'g': if (strcmp(optarg, "right") == 0 || strcmp(optarg, "r") == 0) opt->gap_aln = LONGCALLD_GAP_RIGHT_ALN;
                       else if (strcmp(optarg, "left") == 0 || strcmp(optarg, "l") == 0) opt->gap_aln = LONGCALLD_GAP_LEFT_ALN;
                       else _err_error_exit("\'-a/--gap-aln\' can only be \'left\'/\'l\' or \'right\'/\'r\'\n"); // call_var_usage();
             case 'N': opt->disable_read_realign = 1; break;

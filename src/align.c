@@ -1550,7 +1550,8 @@ int collect_noisy_reg_msa_cons(const call_var_opt_t *opt, bam_chunk_t *chunk, ht
 
     sort_by_full_cover_and_length(n_noisy_reg_reads, noisy_reads, lens, seqs, fully_covers, names, haps, phase_sets);
     // at least 5 reads for each hap
-    hts_pos_t ps_with_both_haps = collect_phase_set_with_both_haps(n_noisy_reg_reads, haps, phase_sets, fully_covers, 5);
+    int min_hap_full_read_count = opt->min_hap_full_reads, min_no_hap_full_read_count = opt->min_no_hap_full_reads;
+    hts_pos_t ps_with_both_haps = collect_phase_set_with_both_haps(n_noisy_reg_reads, haps, phase_sets, fully_covers, min_hap_full_read_count);
     int n_full_reads = 0;
     for (int i = 0; i < n_noisy_reg_reads; ++i) if (fully_covers[i] == 3) n_full_reads++;
     int n_cons = 0;
@@ -1562,7 +1563,7 @@ int collect_noisy_reg_msa_cons(const call_var_opt_t *opt, bam_chunk_t *chunk, ht
                                                     ref_seq, ref_seq_len,
                                                     cons_lens, cons_seqs, clu_n_seqs, clu_read_ids, msa_len, msa_seqs);
     // } else if (n_full_cover_reads > n_noisy_reg_reads * 0.75 && reg_end - reg_beg + 1 <= 10000) { // de novo consensus calling using all reads, up to 2 consensus sequences
-    } else if (ps_with_both_haps <= 0 && n_full_reads >= 10) { // XXX >= 10
+    } else if (ps_with_both_haps <= 0 && n_full_reads >= min_no_hap_full_read_count) {
         // fprintf(stderr, "De nove calling region: %s:%ld-%ld %ld %d (all)\n", chunk->tname, reg_beg, reg_end, reg_end-reg_beg+1, n_noisy_reg_reads);
         n_cons = collect_noisy_msa_cons_no_ps_hap(opt, n_noisy_reg_reads, noisy_reads, lens, seqs, names, fully_covers, ref_seq, ref_seq_len,
                                                   cons_lens, cons_seqs, clu_n_seqs, clu_read_ids, msa_len, msa_seqs);

@@ -255,7 +255,7 @@ int update_var_aln_hap1(int target_read_i, int cur_hap,  bam_chunk_t *chunk, rea
             if (var->var_type == BAM_CDIFF) var_weight = 2;
             else var_weight = 1;
         } else if (var_i_to_cate[var_i] == LONGCALLD_CLEAN_HET_VAR) {
-            if (var->var_type == BAM_CDIFF) var_weight = 100;
+            if (var->var_type == BAM_CDIFF) var_weight = 4;
             else var_weight = 3;
         }
 
