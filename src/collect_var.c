@@ -15,10 +15,9 @@ char test_read_name[1024] = "m84039_230928_213653_s3/23396787/ccs";
 
 // only 1 variant is stored in each cand_var_t, i.e., SNP/INS/DEL
 // each read with be 
-//   0: ref
-//   1: alt
-//   2: other alt. mostly sequencing errors, should be considered as non-informative during haplotype assignment, i.e. 2!=2
-cand_var_t *init_cand_vars(int n_var_sites, var_site_t *var_sites) {
+//    0: ref ,or 1: alt, or
+//   -1: other alt. mostly sequencing errors, should be considered as non-informative during haplotype assignment, i.e. -1!=-1
+cand_var_t *init_cand_vars_based_on_sites(int n_var_sites, var_site_t *var_sites) {
     cand_var_t *cand_vars = (cand_var_t*)malloc(n_var_sites * sizeof(cand_var_t));
     for (int i = 0; i < n_var_sites; ++i) {
         // static information
@@ -27,13 +26,16 @@ cand_var_t *init_cand_vars(int n_var_sites, var_site_t *var_sites) {
         cand_vars[i].pos = var_sites[i].pos; 
         cand_vars[i].phase_set = 0; // unset
         cand_vars[i].var_type = var_sites[i].var_type;
-        cand_vars[i].ref_len = var_sites[i].ref_len;
+        cand_vars[i].ref_len = var_sites[i].ref_len; cand_vars[i].ref_base = 5; // unknown
 
         cand_vars[i].n_depth = 0; cand_vars[i].n_low_depth = 0; 
-        cand_vars[i].n_uniq_alles = 1; // ref/alt1/alt2/other_alt
-        cand_vars[i].alle_covs = (int*)calloc(1, sizeof(int)); // ref/alt1/alt2/other_alt
-        cand_vars[i].alt_lens = NULL; cand_vars[i].alt_seqs = NULL; // size: n_uniq_alles-1
-
+        cand_vars[i].n_uniq_alles = 2; // ref/alt
+        cand_vars[i].alle_covs = (int*)calloc(2, sizeof(int)); // ref/alt1/alt2/other_alt
+        cand_vars[i].alt_len = var_sites[i].alt_len; // cand_vars[i].alt_seq = var_sites[i].alt_seq;
+        if (cand_vars[i].var_type == BAM_CINS || cand_vars[i].var_type == BAM_CDIFF) {
+            cand_vars[i].alt_seq = (uint8_t*)malloc(cand_vars[i].alt_len * sizeof(uint8_t));
+            for (int j = 0; j < cand_vars[i].alt_len; ++j) cand_vars[i].alt_seq[j] = var_sites[i].alt_seq[j];
+        } else cand_vars[i].alt_seq = NULL;
         // dynamic information, allocate and update during haplotype assignment
         cand_vars[i].alle_to_hap = NULL; cand_vars[i].hap_to_alle_profile = NULL; cand_vars[i].hap_to_cons_alle = NULL;
         cand_vars[i].is_low_qual = 0; cand_vars[i].is_skipped = 0;
@@ -41,27 +43,42 @@ cand_var_t *init_cand_vars(int n_var_sites, var_site_t *var_sites) {
     return cand_vars;
 }
 
-void free_cand_vars(cand_var_t *cand_vars, int m) {
-    if (m > 0) {
-        for (int i = 0; i < m; ++i) {
-            if (cand_vars[i].alle_covs != NULL) free(cand_vars[i].alle_covs); 
-            if (cand_vars[i].alt_lens != NULL) free(cand_vars[i].alt_lens);
-            if (cand_vars[i].alt_seqs != NULL) {
-                for (int j = 0; j < cand_vars[i].n_uniq_alles-1; ++j)
-                    free(cand_vars[i].alt_seqs[j]);
-                free(cand_vars[i].alt_seqs);
-            }
-            if (cand_vars[i].alle_to_hap != NULL) free(cand_vars[i].alle_to_hap);
-            if (cand_vars[i].hap_to_alle_profile != NULL) {
-                for (int j = 0; j <= LONGCALLD_DEF_PLOID; ++j) {
-                    free(cand_vars[i].hap_to_alle_profile[j]);
-                } free(cand_vars[i].hap_to_alle_profile);
-            }
-            if (cand_vars[i].hap_to_cons_alle != NULL) free(cand_vars[i].hap_to_cons_alle);
-        }
+void free_cand_vars1(cand_var_t *cand_vars) {
+    if (cand_vars->alle_covs != NULL) free(cand_vars->alle_covs); 
+    if (cand_vars->alt_seq != NULL) free(cand_vars->alt_seq);
+    if (cand_vars->alle_to_hap != NULL) free(cand_vars->alle_to_hap);
+    if (cand_vars->hap_to_alle_profile != NULL) {
+        for (int j = 0; j <= LONGCALLD_DEF_PLOID; ++j) {
+            free(cand_vars->hap_to_alle_profile[j]);
+        } free(cand_vars->hap_to_alle_profile);
     }
+    if (cand_vars->hap_to_cons_alle != NULL) free(cand_vars->hap_to_cons_alle);
+}
+
+
+void free_cand_vars(cand_var_t *cand_vars, int m) {
+    for (int i = 0; i < m; ++i) free_cand_vars1(cand_vars+i);
     free(cand_vars);
 }
+
+void free_noisy_cand_vars1(cand_var_t *cand_vars) {
+    if (cand_vars->alle_covs != NULL) free(cand_vars->alle_covs); 
+    if (cand_vars->alt_seq != NULL) free(cand_vars->alt_seq);
+
+    if (cand_vars->alle_to_hap != NULL) free(cand_vars->alle_to_hap);
+    if (cand_vars->hap_to_alle_profile != NULL) {
+        for (int j = 0; j <= LONGCALLD_DEF_PLOID; ++j) {
+            free(cand_vars->hap_to_alle_profile[j]);
+        } free(cand_vars->hap_to_alle_profile);
+    }
+    if (cand_vars->hap_to_cons_alle != NULL) free(cand_vars->hap_to_cons_alle);
+}
+
+void free_noisy_cand_vars(cand_var_t *cand_vars, int m) {
+    for (int i = 0; i < m; ++i) free_noisy_cand_vars1(cand_vars+i);
+    free(cand_vars);
+}
+
 
 int merge_x_sites(int n_total_x_sites, hts_pos_t **x_sites, int n_digar, digar1_t *digars) {
     int new_total_x_sites = 0;
@@ -91,7 +108,7 @@ int merge_x_sites(int n_total_x_sites, hts_pos_t **x_sites, int n_digar, digar1_
 }
 
 int collect_cand_vars(bam_chunk_t *chunk, int n_var_sites, var_site_t *var_sites) {
-    chunk->cand_vars = init_cand_vars(n_var_sites, var_sites);
+    chunk->cand_vars = init_cand_vars_based_on_sites(n_var_sites, var_sites);
     cand_var_t *cand_vars = chunk->cand_vars;
     // 2nd pass: update snp_sites, calculate the depth and allele frequency of each site
     int start_var_i = 0;
@@ -106,15 +123,10 @@ int collect_cand_vars(bam_chunk_t *chunk, int n_var_sites, var_site_t *var_sites
             fprintf(stderr, "Type: %c\t", BAM_CIGAR_STR[var_sites[i].var_type]);
             fprintf(stderr, "RefLen: %d\t", var_sites[i].ref_len);
             fprintf(stderr, "Depth: %d\t", cand_vars[i].n_depth);
-            for (int j = 0; j < cand_vars[i].n_uniq_alles; ++j) {
-                fprintf(stderr, "%d ", j);
-                if (j != 0) {
-                    for (int k = 0; k < cand_vars[i].alt_lens[j-1]; ++k) {
-                        fprintf(stderr, "%c", "ACGTN"[cand_vars[i].alt_seqs[j-1][k]]);
-                    }
-                } fprintf(stderr, ": ");
-                fprintf(stderr, "%d\t", cand_vars[i].alle_covs[j]);
-            }
+            for (int k = 0; k < cand_vars[i].alt_len; ++k)
+                fprintf(stderr, "%c", "ACGTN"[cand_vars[i].alt_seq[k]]);
+            fprintf(stderr, ": ");
+            fprintf(stderr, "%d\t", cand_vars[i].alle_covs[1]);
             fprintf(stderr, "Low-Depth: %d\n", cand_vars[i].n_low_depth);
         }
     }
@@ -200,24 +212,24 @@ int var_is_repeat_region(char *ref_seq, hts_pos_t ref_beg, hts_pos_t ref_end, ca
         }
         free(ref_bseq); free(alt_bseq);
     } else { // if (var_type == BAM_CINS) { // [ins] * N vs [pos, pos+ ins_len * N]
-        for (int i = 0; i < var->n_uniq_alles-1; ++i) {
-            int ins_len = var->alt_lens[i];
-            len = ins_len * 3; // see if ins seq is 3-fold repeat
-            if (pos < ref_beg || pos+len >= ref_end) {
-                fprintf(stderr, "InsLen: %d, RefLen: %d, Pos: %" PRId64 ", RefBeg: %" PRId64 ", RefEnd: %" PRId64 "\n", ins_len, ref_len, pos, ref_beg, ref_end);
-                return 0;
-            }
-            ref_bseq = get_bseq(ref_seq+pos-ref_beg, len);
-            alt_bseq = get_bseq(ref_seq+pos-ref_beg, len);
-            for (int j = ins_len; j < len; ++j) alt_bseq[j] = alt_bseq[j-ins_len];
-            for (int j = 0; j < ins_len; ++j) alt_bseq[j] = var->alt_seqs[i][j];
-            is_repeat = 1;
-            for (int k = 0; k < len; ++k) {
-                if (ref_bseq[k] != alt_bseq[k]) { is_repeat = 0; break; }
-            }
-            free(ref_bseq); free(alt_bseq);
-            if (is_repeat == 1) break;
+        // for (int i = 0; i < var->n_uniq_alles-1; ++i) {
+        int ins_len = var->alt_len;
+        len = ins_len * 3; // see if ins seq is 3-fold repeat
+        if (pos < ref_beg || pos+len >= ref_end) {
+            fprintf(stderr, "InsLen: %d, RefLen: %d, Pos: %" PRId64 ", RefBeg: %" PRId64 ", RefEnd: %" PRId64 "\n", ins_len, ref_len, pos, ref_beg, ref_end);
+            return 0;
         }
+        ref_bseq = get_bseq(ref_seq+pos-ref_beg, len);
+        alt_bseq = get_bseq(ref_seq+pos-ref_beg, len);
+        for (int j = ins_len; j < len; ++j) alt_bseq[j] = alt_bseq[j-ins_len];
+        for (int j = 0; j < ins_len; ++j) alt_bseq[j] = var->alt_seq[j];
+        is_repeat = 1;
+        for (int k = 0; k < len; ++k) {
+            if (ref_bseq[k] != alt_bseq[k]) { is_repeat = 0; break; }
+        }
+        free(ref_bseq); free(alt_bseq);
+        // if (is_repeat == 1) break;
+        // }
     }
     if (is_repeat) {
         if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "RepeatRegion: %" PRId64 ", type: %c, refLen: %d\n", pos, BAM_CIGAR_STR[var_type], ref_len);
@@ -225,97 +237,41 @@ int var_is_repeat_region(char *ref_seq, hts_pos_t ref_beg, hts_pos_t ref_end, ca
     return is_repeat;
 }
 
-// for each candidate variant, keep:
-//   ref allele
-//   1 alt alleles, potential HOM
-//   up to 2 alt alleles, if both AF < max_af & > min_af, potential HET
-void refactor_var(cand_var_t *var, int alt_dp1, double alt_af1, int alt_dp2, double alt_af2, 
-                  double min_af_thres, double max_af_thres) {
-    if (alt_af1 > max_af_thres || alt_af1 < min_af_thres) { // HOM_VAR/SOMATIC: only keep one with the highest dp
-        int cov_i = 1, alt_alle_i = 0;
-        for (int i = 1; i < var->n_uniq_alles; ++i) {
-            if (var->alle_covs[i] == alt_dp1) {
-                if (i != cov_i) {
-                    var->alle_covs[cov_i] = alt_dp1;
-                    var->alt_lens[alt_alle_i] = var->alt_lens[i-1];
-                    uint8_t *tmp_seq = var->alt_seqs[alt_alle_i];
-                    var->alt_seqs[alt_alle_i] = var->alt_seqs[i-1];
-                    var->alt_seqs[i-1] = tmp_seq;
-                }
-                break;
-            }
-        }
-        for (int i = alt_alle_i+1; i < var->n_uniq_alles-1; ++i) {
-            free(var->alt_seqs[i]);
-        }
-        // if (var->n_uniq_alles == 2) var->alle_covs = (int*)realloc(var->alle_covs, 3 * sizeof(int)); // for minor_alt_allele
-        var->n_uniq_alles = 2;
-    } else { // HET, keep up to 2 alleles with AF < max_af & > min_af
-        int cov_idx = 1, alt_alle_i = 0;
-        int _alt_dp2 = -1; // alt_af1 < max_af & alt_af1 > min_af
-        if (alt_af2 < max_af_thres && alt_af2 > min_af_thres) _alt_dp2 = alt_dp2;
-        for (int i = 1; i < var->n_uniq_alles; ++i) {
-            if (var->alle_covs[i] == alt_dp1 || var->alle_covs[i] == _alt_dp2) {
-                if (i != cov_idx) {
-                    var->alle_covs[cov_idx] = var->alle_covs[i];
-                    var->alt_lens[alt_alle_i] = var->alt_lens[i-1];
-                    uint8_t *tmp_seq = var->alt_seqs[alt_alle_i];
-                    var->alt_seqs[alt_alle_i] = var->alt_seqs[i-1];
-                    var->alt_seqs[i-1] = tmp_seq;
-                }
-                cov_idx++; alt_alle_i++;
-            }
-        }
-        for (int i = alt_alle_i; i < var->n_uniq_alles-1; ++i) {
-            free(var->alt_seqs[i]);
-        }
-        // if (alt_alle_i == var->n_uniq_alles) var->alle_covs = (int*)realloc(var->alle_covs, (alt_alle_i+1) * sizeof(int)); // for minor_alt_allele
-        var->n_uniq_alles = alt_alle_i+1;
-    }
-}
-
 // 6-tier classification:
 // classify all candidate variants into different categories, process each category sequentially
 //   0) low total cov, skipped
-//   1) easy-to-call germ+het(SNP or indel): high cov, min_af < AF < max_af - basic phasing info
-//   2) repeat region germ+het: high cov, min_af < AF < max_af - additional phasing info
-//   3) dense region (hom/het): high cov - (potential) additional phasing info
+//   1) clean-region germ+het/hom(SNP or indel): high cov, min_af < AF < max_af - used for phasing
+//   2) noisy-region germ+het/hom: high cov, min_af < AF < max_af - used for phasing
 //   4) somatic: high cov, AF < min_af - require full phasing info (alt_af < min_af)
-//   5) hom: high cov, AF > max_af - require full phasing info (alt_af > max_af)
-// Note: category of variant can be changed during the process, i.e., from 0) to 1), or 0) to 4)
-// XXX remove minor alleles in cand_var with low cov/AF
 int classify_var_cate(char *ref_seq, hts_pos_t ref_beg, hts_pos_t ref_end,
                       cand_var_t *var, int min_dp_thres, int min_alt_dp_thres, double min_somatic_af_thres,
                       double min_af_thres, double max_af_thres, double max_low_qual_frac_thres) {
     // total depth < min_dp or total alt depth < min_alt_dp: (skip)
     if (var->n_depth + var->n_low_depth < min_dp_thres) return LONGCALLD_LOW_COV_VAR;
+    // int is_in_low_comp_reg = 0;
+    // if (low_comp_cr != NULL) {
+    //     int64_t *low_comp_b = 0; int64_t low_comp_n = 0, max_low_comp_n = 0;
+    //     low_comp_n = cr_overlap(low_comp_cr, "cr", var->pos-1, var->pos, &low_comp_b, &max_low_comp_n);
+    //     is_in_low_comp_reg = (low_comp_n > 0);
+    //     free(low_comp_b);
+    // }
     // low-qual depth / total depth > max_low_qual_frac: too many low-qual bases, eg., dense X/gap region
-    double af=0.0, alt_af1=0.0, alt_af2=0.0; // alt alleles
-    int ad, alt_dp1=0, alt_dp2=0;
-    for (int j = 1; j < var->n_uniq_alles; ++j) { // alt allele
-        ad = var->alle_covs[j];
-        af = (double) ad / var->n_depth;
-        if (ad > alt_dp1) { alt_dp2 = alt_dp1; alt_dp1 = ad; }
-        else if (ad > alt_dp2 && ad <= alt_dp1) alt_dp2 = ad;
-        if (af > alt_af1) { alt_af2 = alt_af1; alt_af1 = af; }
-        else if (af > alt_af2 && af <= alt_af1) alt_af2 = af;
-    }
-    if (alt_dp1 < min_alt_dp_thres || alt_af1 < min_af_thres) return LONGCALLD_LOW_COV_VAR;
-    // if (alt_dp1 < min_alt_dp_thres || alt_af1 < min_somatic_af_thres) return LONGCALLD_LOW_COV_VAR;
-    refactor_var(var, alt_dp1, alt_af1, alt_dp2, alt_af2, min_af_thres, max_af_thres);
-    if ((double) var->n_low_depth / (var->n_low_depth + var->n_depth) > max_low_qual_frac_thres) return LONGCALLD_DENSE_REG_VAR; // require basic phasing info, MSA, provide additional phasing info
-    // AF < min_af or AF > max_af
-    if (alt_af1 > max_af_thres) return LONGCALLD_CAND_HOM_VAR;
-    // if (af1 < min_af || af1 > max_af || af2 < min_af || af2 > max_af) return LONGCALLD_CAND_SOMA_VAR; // unlikely germline het., likely hom or somatic, require full phasing info
-    // if (total_alt_af < min_af || total_alt_af > max_af || (1-total_alt_af) < min_af || (1-total_alt_af) > max_af) return LONGCALLD_CAND_SOMA_VAR; // unlikely germline het., likely hom or somatic, require full phasing info
+    double alt_af=0.0; int alt_dp=0;
+    alt_dp = var->alle_covs[1]; alt_af = (double) alt_dp / var->n_depth;
+    if (alt_dp < min_alt_dp_thres) return LONGCALLD_LOW_COV_VAR; // skip var with low alt depth 
+    // remaining categories: CLEAN_HET(SNP/INDEL), CLEAN_HOM(SNP/INDEL), NOISY_REG_VAR (others)
+    if (alt_af < min_af_thres) return LONGCALLD_LOW_AF_VAR; // needs to further check
+    if ((double) var->n_low_depth / (var->n_low_depth + var->n_depth) > max_low_qual_frac_thres)
+        return LONGCALLD_NOISY_REG_VAR; // needs to further check
+    if (alt_af > max_af_thres) return LONGCALLD_CAND_HOM_VAR; // unlikely germline het., likely hom or somatic, require full phasing info
     // snps & indels in homo/repeat regions
-    // if ((var->var_type == BAM_CINS || var->var_type == BAM_CDEL) && (var_is_homopolymer(ref_seq, ref_beg, ref_end, var) || var_is_repeat_region(ref_seq, ref_beg, ref_end, var))) return LONGCALLD_REP_HET_VAR; // require basic phasing info, MSA, provide additional phasing info
-    if (var_is_homopolymer(ref_seq, ref_beg, ref_end, var) || var_is_repeat_region(ref_seq, ref_beg, ref_end, var)) return LONGCALLD_REP_HET_VAR; // require basic phasing info, MSA, provide additional phasing info
+    if ((var->var_type == BAM_CINS || var->var_type == BAM_CDEL) && (var_is_homopolymer(ref_seq, ref_beg, ref_end, var) || var_is_repeat_region(ref_seq, ref_beg, ref_end, var))) return LONGCALLD_REP_HET_VAR; // require basic phasing info, MSA, provide additional phasing info
+    // if (var_is_homopolymer(ref_seq, ref_beg, ref_end, var) || var_is_repeat_region(ref_seq, ref_beg, ref_end, var)) return LONGCALLD_REP_HET_VAR; // require basic phasing info, MSA, provide additional phasing info
     // not call somatic variant around homopolymer/repeat region
     // if (alt_af1 < min_af_thres) return LONGCALLD_CAND_SOMA_VAR; // XXX could be het in homopolymer region
-    if (var->var_type == BAM_CDIFF) return LONGCALLD_EASY_HET_SNP;
-    else return LONGCALLD_EASY_HET_INDEL;
-    // return LONGCALLD_EASY_HET_VAR;
+    if (var->var_type == BAM_CDIFF) return LONGCALLD_CLEAN_HET_SNP;
+    else return LONGCALLD_CLEAN_HET_INDEL;
+    // return LONGCALLD_CLEAN_HET_VAR;
 }
 
 void copy_var(cand_var_t *to_var, cand_var_t *from_var) {
@@ -324,38 +280,29 @@ void copy_var(cand_var_t *to_var, cand_var_t *from_var) {
     to_var->ref_len = from_var->ref_len;
     to_var->is_low_qual = from_var->is_low_qual; to_var->is_skipped = from_var->is_skipped;
 
-    // allele_covs, alt_alle_seqs, alt_len
-    if (to_var->alt_lens) free(to_var->alt_lens); 
-    if (to_var->alt_seqs) {
-        for (int i = 0; i < to_var->n_uniq_alles-1; ++i) free(to_var->alt_seqs[i]);
-        free(to_var->alt_seqs);
-    }
-    to_var->alt_lens = (int*)malloc((from_var->n_uniq_alles-1) * sizeof(int));
-    to_var->alt_seqs = (uint8_t**)malloc((from_var->n_uniq_alles-1) * sizeof(int8_t*));
+    // allele_covs, alt_seq, alt_len
     if (to_var->alle_covs) free(to_var->alle_covs);
     to_var->alle_covs = (int*)malloc(from_var->n_uniq_alles * sizeof(int));
     to_var->n_uniq_alles = from_var->n_uniq_alles;
 
     for (int j = 0; j < to_var->n_uniq_alles; ++j) {
         to_var->alle_covs[j] = from_var->alle_covs[j];
-        if (j != 0) {
-            to_var->alt_lens[j-1] = from_var->alt_lens[j-1];
-            to_var->alt_seqs[j-1] = (uint8_t*)malloc(from_var->alt_lens[j-1] * sizeof(uint8_t));
-            for (int k = 0; k < from_var->alt_lens[j-1]; ++k) {
-                to_var->alt_seqs[j-1][k] = from_var->alt_seqs[j-1][k];
-            }
-        }
     }
+    if (to_var->alt_len != from_var->alt_len) {
+        to_var->alt_len = from_var->alt_len;
+        free(to_var->alt_seq); to_var->alt_seq = (uint8_t*)malloc(from_var->alt_len * sizeof(uint8_t));
+    }
+    memcpy(to_var->alt_seq, from_var->alt_seq, from_var->alt_len);
 }
 
+// XXX excluding all vars in the noisy regions
 // update chunk_noisy_regs if any variant is overlapping with it
 int classify_cand_vars(bam_chunk_t *chunk, int n_var_sites, call_var_opt_t *opt) {
-    hts_pos_t reg_beg = chunk->reg_beg, reg_end = chunk->reg_end; cgranges_t *chunk_noisy_regs = chunk->chunk_noisy_regs; int noisy_reg_flank_len = opt->noisy_reg_flank_len;
+    hts_pos_t reg_beg = chunk->reg_beg, reg_end = chunk->reg_end;
     cand_var_t *cand_vars = chunk->cand_vars;
     char *ref_seq = chunk->ref_seq; hts_pos_t ref_beg = chunk->ref_beg, ref_end = chunk->ref_end;
     int *var_i_to_cate = (int*)malloc(n_var_sites * sizeof(int));
-    cgranges_t *var_pos_cr = cr_init();
-    cgranges_t *noisy_var_cr = cr_init();
+    cgranges_t *var_pos_cr = cr_init(); cgranges_t *noisy_var_cr = cr_init(); // overlapping vars: DP needs to be >= min_alt_dp
     chunk->var_i_to_cate = (int*)malloc(n_var_sites * sizeof(int));
     int min_dp = opt->min_dp, min_alt_dp = opt->min_alt_dp;
     double min_somatic_af = opt->min_somatic_af, min_af = opt->min_af, max_af = opt->max_af, max_low_qual_frac = opt->max_low_qual_frac;
@@ -365,60 +312,68 @@ int classify_cand_vars(bam_chunk_t *chunk, int n_var_sites, call_var_opt_t *opt)
         var_cate = classify_var_cate(ref_seq, ref_beg, ref_end, var, min_dp, min_alt_dp, min_somatic_af, min_af, max_af, max_low_qual_frac);
         var_i_to_cate[i] = var_cate;
         if (var_cate == LONGCALLD_LOW_COV_VAR) continue; // skipped
-        cr_add(var_pos_cr, "cr", var->pos-1, var->pos+var->ref_len-1, 1);
+        if (var->var_type == BAM_CINS) cr_add(var_pos_cr, "cr", var->pos-1, var->pos, 1);
+        else cr_add(var_pos_cr, "cr", var->pos-1, var->pos+var->ref_len-1, 1);
         if (LONGCALLD_VERBOSE >= 2) {
-            fprintf(stderr, "CandVarCate-%c: %s:%" PRId64 " type: %c, refLen: %d, depth: %d\t", LONGCALLD_VAR_CATE_TYPE(var_cate), chunk->tname, cand_vars[i].pos, BAM_CIGAR_STR[cand_vars[i].var_type], cand_vars[i].ref_len, cand_vars[i].n_depth);
+            fprintf(stderr, "CandVarCate-%c: %s:%" PRId64 " %d-%c-%d %d\t", LONGCALLD_VAR_CATE_TYPE(var_cate), chunk->tname, cand_vars[i].pos, cand_vars[i].ref_len, BAM_CIGAR_STR[cand_vars[i].var_type], cand_vars[i].alt_len, cand_vars[i].n_depth);
             fprintf(stderr, "Low-Depth: %d\t", cand_vars[i].n_low_depth);
-            for (int j = 0; j < cand_vars[i].n_uniq_alles; ++j) {
-                fprintf(stderr, "%d ", j);
-                if (j != 0) {
-                    for (int k = 0; k < cand_vars[i].alt_lens[j-1]; ++k) {
-                        fprintf(stderr, "%c", "ACGTN"[cand_vars[i].alt_seqs[j-1][k]]);
-                    }
-                } fprintf(stderr, ": ");
-                fprintf(stderr, "%d\t", cand_vars[i].alle_covs[j]);
-            } fprintf(stderr, "\n");
+            for (int k = 0; k < cand_vars[i].alt_len; ++k) fprintf(stderr, "%c", "ACGTN"[cand_vars[i].alt_seq[k]]);
+            fprintf(stderr, ": %d\n", cand_vars[i].alle_covs[1]);
         }
     }
     cr_index(var_pos_cr);
-    int64_t ovlp_i, var_pos_ovlp_n, noisy_ovlp_n, *ovlp_b = 0, max_b = 0;
+    int64_t var_pos_ovlp_n, noisy_ovlp_n, *ovlp_b = 0, max_b = 0;
+    for (int i = 0; i < n_var_sites; ++i) {
+        cand_var_t *var = cand_vars+i;
+        var_cate = var_i_to_cate[i];
+        if (var_cate == LONGCALLD_LOW_COV_VAR) continue;
+        // 1. var is in noisy regions
+        if (chunk->chunk_noisy_regs != NULL && chunk->chunk_noisy_regs->n_r > 0) {
+            int noisy_ovlp_n;
+            if (var->var_type == BAM_CINS) noisy_ovlp_n = cr_overlap(chunk->chunk_noisy_regs, "cr", var->pos-1, var->pos, &ovlp_b, &max_b);
+            else noisy_ovlp_n = cr_overlap(chunk->chunk_noisy_regs, "cr", var->pos-1, var->pos+var->ref_len-1, &ovlp_b, &max_b);
+            if (noisy_ovlp_n > 0) continue; // skip all vars in noisy regions
+        }
+        // 2. var is overlapping with other vars in ref, i.e., two DELs with overlapping bases
+        if (var->var_type == BAM_CINS) var_pos_ovlp_n = cr_overlap(var_pos_cr, "cr", var->pos-1, var->pos, &ovlp_b, &max_b);
+        else var_pos_ovlp_n = cr_overlap(var_pos_cr, "cr", var->pos-1, var->pos+var->ref_len-1, &ovlp_b, &max_b);
+        if (var_cate == LONGCALLD_REP_HET_VAR || var_pos_ovlp_n > 1) {
+            if (var->pos >= reg_beg && var->pos <= reg_end) {
+                // fprintf(stderr, "CATE-R: %s:%" PRId64 " type: %c, refLen: %d, depth: %d\n", chunk->tname, var->pos, BAM_CIGAR_STR[var->var_type], var->ref_len, var->n_depth);
+                if (var->var_type == BAM_CINS) cr_add(noisy_var_cr, "cr", var->pos-1, var->pos, opt->noisy_reg_flank_len+1);
+                else if (var->var_type == BAM_CDEL) cr_add(noisy_var_cr, "cr", var->pos-1, var->pos+var->ref_len-1, opt->noisy_reg_flank_len+1);
+                else cr_add(noisy_var_cr, "cr", var->pos-1, var->pos+var->ref_len-1, opt->noisy_reg_flank_len);
+            }
+            continue;
+        }
+        if (var_cate == LONGCALLD_LOW_AF_VAR) var_i_to_cate[i] = LONGCALLD_LOW_COV_VAR;
+    }
+    if (noisy_var_cr->n_r > 0) {
+        cr_index(noisy_var_cr);
+        cgranges_t *tmp_cr = cr_merge2(chunk->chunk_noisy_regs, noisy_var_cr);
+        cr_destroy(chunk->chunk_noisy_regs);
+        chunk->chunk_noisy_regs = tmp_cr;
+    }
+    // skip all vars that overlap with noisy regions
     int cand_var_i = 0;
     for (int i = 0; i < n_var_sites; ++i) {
         cand_var_t *var = cand_vars+i;
         var_cate = var_i_to_cate[i];
         if (var_cate == LONGCALLD_LOW_COV_VAR) continue;
-        hts_pos_t var_pos = var->pos;
-        if (chunk->chunk_noisy_regs == NULL || chunk_noisy_regs->n_r <= 0) noisy_ovlp_n = 0;
-        else noisy_ovlp_n = cr_overlap(chunk_noisy_regs, "cr", var_pos-1, var_pos, &ovlp_b, &max_b);
-        // collect repeat-region variants
-        if (noisy_ovlp_n > 0) continue;
-        var_pos_ovlp_n = cr_overlap(var_pos_cr, "cr", var_pos-1, var_pos, &ovlp_b, &max_b);
-        if (var_pos_ovlp_n > 1 || var_cate == LONGCALLD_REP_HET_VAR || var_cate == LONGCALLD_DENSE_REG_VAR) { // add variant to chunk_noisy_regs
-            if (var->pos >= reg_beg && var->pos <= reg_end) {
-                // fprintf(stderr, "CATE-R: %s:%" PRId64 " type: %c, refLen: %d, depth: %d\n", chunk->tname, var->pos, BAM_CIGAR_STR[var->var_type], var->ref_len, var->n_depth);
-                // cr_add(chunk_noisy_regs, "cr", var->pos-noisy_reg_flank_len, var->pos+var->ref_len-1+noisy_reg_flank_len, 10);
-                cr_add(noisy_var_cr, "cr", var->pos-noisy_reg_flank_len, var->pos+var->ref_len-1+noisy_reg_flank_len, 10);
-            }
-        } else {
-            // copy i'th to cand_var_i'th
-            if (i != cand_var_i) copy_var(cand_vars+cand_var_i, cand_vars+i);
-            // push var to var_cate's list
-            chunk->var_i_to_cate[cand_var_i++] = var_cate;
-            // var_cate_idx[var_cate][var_cate_counts[var_cate]++] = cand_var_i++;
+        if (chunk->chunk_noisy_regs != NULL && chunk->chunk_noisy_regs->n_r > 0) {
+            int noisy_ovlp_n = cr_overlap(chunk->chunk_noisy_regs, "cr", var->pos-1, var->pos+var->ref_len, &ovlp_b, &max_b);
+            if (noisy_ovlp_n > 0) continue; // skip all vars in noisy regions
         }
+        // copy i'th to cand_var_i'th
+        if (i != cand_var_i) copy_var(cand_vars+cand_var_i, cand_vars+i);
+        chunk->var_i_to_cate[cand_var_i++] = var_cate;
     }
-    if (noisy_var_cr->n_r > 0) {
-        cr_index(noisy_var_cr);
-        cgranges_t *tmp_cr = cr_merge2(chunk->chunk_noisy_regs, noisy_var_cr);
-        cr_destroy(chunk->chunk_noisy_regs); cr_destroy(noisy_var_cr);
-        chunk->chunk_noisy_regs = tmp_cr;
-    }
+
     for (int i = cand_var_i; i < n_var_sites; ++i) {
-        free(cand_vars[i].alle_covs); free(cand_vars[i].alt_lens); 
-        for (int j = 0; j < cand_vars[i].n_uniq_alles-1; ++j) free(cand_vars[i].alt_seqs[j]);
-        free(cand_vars[i].alt_seqs);
+        free(cand_vars[i].alle_covs);
+        if (cand_vars[i].alt_seq != NULL) free(cand_vars[i].alt_seq);
     }
-    free(var_i_to_cate); cr_destroy(var_pos_cr); free(ovlp_b);
+    free(var_i_to_cate); cr_destroy(var_pos_cr); free(ovlp_b); cr_destroy(noisy_var_cr);
     return(chunk->n_cand_vars = cand_var_i);
 }
 
@@ -487,6 +442,21 @@ int classify_cand_vars(bam_chunk_t *chunk, int n_var_sites, call_var_opt_t *opt)
     return (chunk->n_cand_vars = cand_var_i);
 }*/
 
+int collect_noisy_reg_reads1(bam_chunk_t *chunk, hts_pos_t noisy_reg_beg, hts_pos_t niosy_reg_end, int noisy_reg_i, int **noisy_reads) {
+    int64_t ovlp_i, ovlp_n, *ovlp_b = 0, max_b = 0;
+    int n_noisy_reads = 0;
+    (*noisy_reads) = (int*)malloc(chunk->n_reads * sizeof(int));
+
+    for (int i = 0; i < chunk->n_reads; ++i) {
+        if (chunk->is_skipped[i]) continue;
+        hts_pos_t beg = chunk->digars[i].beg, end = chunk->digars[i].end;
+        if (end <= noisy_reg_beg) continue;
+        if (beg > niosy_reg_end) break;
+        (*noisy_reads)[n_noisy_reads++] = i;
+    }
+    return n_noisy_reads;
+}
+
 void collect_noisy_reg_reads(bam_chunk_t *chunk) {
     cgranges_t *noisy_regs = chunk->chunk_noisy_regs;
     chunk->noisy_reg_to_n_reads = (int*)calloc(noisy_regs->n_r, sizeof(int));
@@ -509,7 +479,7 @@ void collect_noisy_reg_reads(bam_chunk_t *chunk) {
     }
     for (int i = 0; i < chunk->n_reads; ++i) {
         if (chunk->is_skipped[i]) continue;
-        bam1_t *read = chunk->reads[i];
+        // bam1_t *read = chunk->reads[i];
         beg = chunk->digars[i].beg; end = chunk->digars[i].end;
         ovlp_n = cr_overlap(noisy_regs, "cr", beg-1, end, &ovlp_b, &max_b);
         for (ovlp_i = 0; ovlp_i < ovlp_n; ++ovlp_i) {
@@ -529,7 +499,7 @@ void collect_noisy_reg_reads(bam_chunk_t *chunk) {
     free(ovlp_b);
 }
 
-void collect_digars_from_bam(bam_chunk_t *chunk, const call_var_pl_t *pl) {
+void collect_digars_from_bam(bam_chunk_t *chunk, const struct call_var_pl_t *pl) {
     chunk->chunk_noisy_regs = cr_init();
     call_var_opt_t *opt = pl->opt;
     // if (LONGCALLD_VERBOSE >= 2)
@@ -565,14 +535,17 @@ int update_digars_with_clip(bam_chunk_t *chunk, call_var_pl_t *pl) {
 
 // XXX should be digar->pos-1 for INS/DEL
 var_site_t make_var_site_from_digar(int tid, digar1_t *digar) {
-    var_site_t var_site = {tid, digar->pos, digar->type, 1};
-    if (digar->type == BAM_CINS) var_site.ref_len = 0;
-    else if (digar->type == BAM_CDEL) var_site.ref_len = digar->len;
+    var_site_t var_site = {tid, digar->pos, digar->type, 1, digar->len, digar->alt_seq};
+    if (digar->type == BAM_CINS) {
+        var_site.ref_len = 0;
+    } else if (digar->type == BAM_CDEL) {
+        var_site.ref_len = digar->len; var_site.alt_len = 0;
+    }
     return var_site;
 }
 
 var_site_t make_var_site_from_cand_var(cand_var_t *var) {
-    var_site_t var_site = {var->tid, var->pos, var->var_type, var->ref_len};
+    var_site_t var_site = {var->tid, var->pos, var->var_type, var->ref_len, var->alt_len, var->alt_seq};
     return var_site;
 }
 
@@ -595,22 +568,23 @@ int ovlp_var_site(var_site_t *var1, var_site_t *var2) {
     }
 }
 
-
-// order of variants with same pos: order by type, ref_len, alt_len
-int comp_var_site(var_site_t *var1, var_site_t *var2) {
-    if (var1->pos < var2->pos) return -1;
-    if (var1->pos > var2->pos) return 1;
-    if (var1->var_type < var2->var_type) return -1;
-    if (var1->var_type > var2->var_type) return 1;
-    if (var1->ref_len < var2->ref_len) return -1;
-    if (var1->ref_len > var2->ref_len) return 1;
-    // if (var1->alt_len < var2->alt_len) return -1;
-    // if (var1->alt_len > var2->alt_len) return 1;
-    // alt_len == alt_len
-    // return memcmp(var1->alt_seq, var2->alt_seq, var1->alt_len);
-    return 0;
+int ovlp_cand_vars(cand_var_t *var1, cand_var_t *var2) {
+    int beg1 = var1->pos; int end1 = var1->pos + var1->ref_len;
+    int beg2 = var2->pos; int end2 = var2->pos + var2->ref_len;
+    if (var1->ref_len == 0 && var2->ref_len == 0) { // both are INS
+        if (beg1 == beg2) return 1;
+        else return 0;
+    } else if (var1->ref_len == 0) { // var1 is INS, var2 is SNP/DEL
+        if (beg1 > beg2 && end1 < end2) return 1;
+        else return 0;
+    } else if (var2->ref_len == 0) { // var2 is INS, var1 is SNP/DEL
+        if (beg2 > beg1 && end2 < end1) return 1;
+        else return 0;
+    } else { // both are SNP/DEL
+        if (beg1 >= end2 || beg2 >= end1) return 0; // no overlap
+        return 1; // overlap
+    }
 }
-
 
 int comp_ovlp_var_site(var_site_t *var1, var_site_t *var2, int *is_ovlp) {
     *is_ovlp = ovlp_var_site(var1, var2);
@@ -679,6 +653,114 @@ int collect_all_cand_var_sites(bam_chunk_t *chunk, var_site_t **var_sites) {
     return n_total_var_sites;
 }
 
+int merge_cand_var_profile(cand_var_t *vars1, read_var_profile_t *p1, int n_vars1,
+                           cand_var_t *vars2, read_var_profile_t *p2, int n_vars2,
+                           cand_var_t **vars, read_var_profile_t **p) {
+
+    if (n_vars1 + n_vars2 <= 0) return 0;
+    int n_vars = 0;
+    return n_vars;
+}
+
+int comp_cand_var(cand_var_t *var1, cand_var_t *var2) {
+    var_site_t var_site1 = make_var_site_from_cand_var(var1);
+    var_site_t var_site2 = make_var_site_from_cand_var(var2);
+    return comp_var_site(&var_site1, &var_site2);
+}
+
+int merge_var_profile(bam_chunk_t *chunk, int n_reads_with_new_var, int n_new_vars, cand_var_t *new_vars, int *new_var_cate, read_var_profile_t *new_p) {
+    if (n_new_vars <= 0) return 0;
+    cand_var_t *old_vars = chunk->cand_vars;
+    read_var_profile_t *old_p = chunk->read_var_profile;
+    cand_var_t *merged_vars = (cand_var_t *)malloc((chunk->n_cand_vars + n_new_vars) * sizeof(cand_var_t)); 
+    read_var_profile_t *merged_p = init_read_var_profile(chunk->n_reads, chunk->n_cand_vars + n_new_vars);
+    
+    int *merged_var_i_to_cate = (int*)malloc((chunk->n_cand_vars + n_new_vars) * sizeof(int));
+    int old_var_i = 0, new_var_i = 0, merged_var_i = 0;
+    for (; old_var_i < chunk->n_cand_vars && new_var_i < n_new_vars; ) {
+        int ret = comp_cand_var(old_vars+old_var_i, new_vars+new_var_i);
+        if (ret < 0) { // add old_var to merged_vars, updated read_profile
+            for (int i = 0; i < chunk->n_reads; ++i) {
+                if (chunk->is_skipped[i]) continue;
+                read_var_profile_t *old_p1 = old_p + i;
+                read_var_profile_t *merged_p1 = merged_p + i;
+                if (old_p1->start_var_idx > old_var_i || old_p1->end_var_idx < old_var_i) continue;
+                update_read_var_profile_with_allele(merged_var_i, old_p1->alleles[old_var_i-old_p1->start_var_idx], merged_p1);
+            }
+            merged_var_i_to_cate[merged_var_i] = chunk->var_i_to_cate[old_var_i];
+            merged_vars[merged_var_i++] = old_vars[old_var_i++];
+        } else if (ret > 0) { // add new_var to merged vars, update read_profile
+            for (int i = 0; i < chunk->n_reads; ++i) {
+                if (chunk->is_skipped[i]) continue;
+                read_var_profile_t *new_p1 = new_p + i;
+                read_var_profile_t *merged_p1 = merged_p + i;
+                if (new_p1->start_var_idx > new_var_i || new_p1->end_var_idx < new_var_i) continue;
+                update_read_var_profile_with_allele(merged_var_i, new_p1->alleles[new_var_i-new_p1->start_var_idx], merged_p1);
+            }
+            merged_var_i_to_cate[merged_var_i] = new_var_cate[new_var_i]; //
+            merged_vars[merged_var_i++] = new_vars[new_var_i++];
+        } else { // ret == 0
+            // always use old_var
+            for (int i = 0; i < chunk->n_reads; ++i) {
+                if (chunk->is_skipped[i]) continue;
+                read_var_profile_t *old_p1 = old_p + i;
+                read_var_profile_t *merged_p1 = merged_p + i;
+                if (old_p1->start_var_idx > old_var_i || old_p1->end_var_idx < old_var_i) continue;
+                update_read_var_profile_with_allele(merged_var_i, old_p1->alleles[old_var_i-old_p1->start_var_idx], merged_p1);
+            }
+            merged_var_i_to_cate[merged_var_i] = chunk->var_i_to_cate[old_var_i];
+            merged_vars[merged_var_i++] = old_vars[old_var_i++];
+            // free new_vars
+            free_noisy_cand_vars1(new_vars+new_var_i); new_var_i++;
+        }
+    }
+    for (; old_var_i < chunk->n_cand_vars; ++old_var_i) {
+        for (int i = 0; i < chunk->n_reads; ++i) {
+            if (chunk->is_skipped[i]) continue;
+            read_var_profile_t *old_p1 = old_p + i;
+            read_var_profile_t *merged_p1 = merged_p + i;
+            if (old_p1->start_var_idx > old_var_i || old_p1->end_var_idx < old_var_i) continue;
+            update_read_var_profile_with_allele(merged_var_i, old_p1->alleles[old_var_i-old_p1->start_var_idx], merged_p1);
+        }
+        merged_var_i_to_cate[merged_var_i] = chunk->var_i_to_cate[old_var_i];
+        merged_vars[merged_var_i++] = old_vars[old_var_i];
+    }
+    for (; new_var_i < n_new_vars; ++new_var_i) {
+        for (int i = 0; i < chunk->n_reads; ++i) {
+            if (chunk->is_skipped[i]) continue;
+            read_var_profile_t *new_p1 = new_p + i;
+            read_var_profile_t *merged_p1 = merged_p + i;
+            if (new_p1->start_var_idx > new_var_i || new_p1->end_var_idx < new_var_i) continue;
+            update_read_var_profile_with_allele(merged_var_i, new_p1->alleles[new_var_i-new_p1->start_var_idx], merged_p1);
+        }
+        merged_var_i_to_cate[merged_var_i] = new_var_cate[new_var_i];
+        merged_vars[merged_var_i++] = new_vars[new_var_i];
+    }
+    cgranges_t *merged_read_var_cr = cr_init();
+    for (int i = 0; i < chunk->n_reads; ++i) {
+        if (chunk->is_skipped[i]) continue;
+        cr_add(merged_read_var_cr, "cr", merged_p[i].start_var_idx, merged_p[i].end_var_idx+1, i);
+    }
+    cr_index(merged_read_var_cr);
+
+    if (chunk->n_cand_vars > 0) free_read_var_profile(chunk->read_var_profile, chunk->n_reads); 
+    free_read_var_profile(new_p, chunk->n_reads); free(chunk->var_i_to_cate);
+    free(chunk->cand_vars); free(new_vars); cr_destroy(chunk->read_var_cr);
+    chunk->read_var_profile = merged_p; chunk->cand_vars = merged_vars; chunk->n_cand_vars = merged_var_i; chunk->var_i_to_cate = merged_var_i_to_cate; chunk->read_var_cr = merged_read_var_cr;
+
+    if (LONGCALLD_VERBOSE >= 2) {
+        for (int read_id = 0; read_id < chunk->n_reads; ++read_id) {
+            read_var_profile_t *p1 = merged_p + read_id;
+            fprintf(stderr, "MergedProfile: %s start_var_i: %d, end_var_i: %d\n", bam_get_qname(chunk->reads[read_id]), p1->start_var_idx, p1->end_var_idx);
+            for (int k = 0; k <= p1->end_var_idx-p1->start_var_idx; ++k) {
+                fprintf(stderr, "P\tVar: (%d) %" PRId64 "", k, merged_vars[k+p1->start_var_idx].pos);
+                fprintf(stderr, " %d-%c-%d, allele: %d\n", merged_vars[k+p1->start_var_idx].ref_len, BAM_CIGAR_STR[merged_vars[k+p1->start_var_idx].var_type], merged_vars[k+p1->start_var_idx].alt_len, p1->alleles[k]);
+            }
+        }
+    }
+    return new_var_i; // n_vars
+}
+
 read_var_profile_t *collect_read_var_profile(bam_chunk_t *chunk) {
     int n_cand_vars = chunk->n_cand_vars;
     cand_var_t *cand_vars = chunk->cand_vars;
@@ -698,9 +780,9 @@ read_var_profile_t *collect_read_var_profile(bam_chunk_t *chunk) {
             if (p[i].start_var_idx >= 0) {
                 fprintf(stderr, "Read: %s, start_var_i: %d, end_var_i: %d\n", bam_get_qname(read), p[i].start_var_idx, p[i].end_var_idx);
                 for (int j = 0; j <= p[i].end_var_idx-p[i].start_var_idx; ++j) {
-                    if (p[i].var_is_used[j] == 0) continue;
+                    // if (p[i].var_is_used[j] == 0) continue;
                     fprintf(stderr, "P\tVar: (%d) %" PRId64 "", j, cand_vars[j+p[i].start_var_idx].pos);
-                    fprintf(stderr, " %d-%c, allele: %d\n", cand_vars[j+p[i].start_var_idx].ref_len, BAM_CIGAR_STR[cand_vars[j+p[i].start_var_idx].var_type], p[i].alleles[j]);
+                    fprintf(stderr, " %d-%c-%d, allele: %d\n", cand_vars[j+p[i].start_var_idx].ref_len, BAM_CIGAR_STR[cand_vars[j+p[i].start_var_idx].var_type], cand_vars[j+p[i].start_var_idx].alt_len, p[i].alleles[j]);
                 }
             }
         }
@@ -709,6 +791,7 @@ read_var_profile_t *collect_read_var_profile(bam_chunk_t *chunk) {
     return p;
 }
 
+// XXX cand_vars: candidate variants, up to 1 alt_allele
 // collect variants based on hap_to_cons_alle
 // 1) filter out low-quality variants, e.g., P(var|hap,phasing)
 // 2) merge variants with the overlapping pos & ref_len (e.g., ACGT -> A, ACGTCGT) XXX
@@ -732,22 +815,16 @@ int make_variants(bam_chunk_t *chunk, var_t **_var) {
     var->vars = (var1_t*)malloc(n_cand_vars * sizeof(var1_t));
     int i = 0, is_hom, hom_alt_is_set, hom_alle, hap1_alle, hap2_alle;
     for (int cand_i = 0; cand_i < n_cand_vars; ++cand_i) {
-        if (chunk->var_i_to_cate[cand_i] != LONGCALLD_EASY_HET_SNP &&
-            chunk->var_i_to_cate[cand_i] != LONGCALLD_EASY_HET_INDEL &&
-            chunk->var_i_to_cate[cand_i] != LONGCALLD_CAND_HOM_VAR) continue;
+        if (chunk->var_i_to_cate[cand_i] != LONGCALLD_CLEAN_HET_SNP &&
+            chunk->var_i_to_cate[cand_i] != LONGCALLD_CLEAN_HET_INDEL &&
+            chunk->var_i_to_cate[cand_i] != LONGCALLD_CAND_HOM_VAR &&
+            chunk->var_i_to_cate[cand_i] != LONGCALLD_NOISY_CAND_HET_VAR &&
+            chunk->var_i_to_cate[cand_i] != LONGCALLD_NOISY_CAND_HOM_VAR) continue;
+        // XXX 
         hom_alle = cand_vars[cand_i].hap_to_cons_alle[hom_idx];
         hap1_alle = cand_vars[cand_i].hap_to_cons_alle[hap1_idx];
         hap2_alle = cand_vars[cand_i].hap_to_cons_alle[hap2_idx];
         is_hom = 0; hom_alt_is_set = 0;
-        // only keep het. vars
-        // if (hap_alles[0] == -1 && hap_alles[1] == -1) {
-            // if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "skipped pos(-1): %" PRId64 " %d-%c\n", cand_vars[cand_i].pos, cand_vars[cand_i].ref_len, BAM_CIGAR_STR[cand_vars[cand_i].var_type]);
-            // continue;
-        // }
-        // if (hap_alles[0] == hap_alles[1]) { // potential hom var XXX
-            // if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "skipped pos(==): %" PRId64 " %d-%c\n", cand_vars[cand_i].pos, cand_vars[cand_i].ref_len, BAM_CIGAR_STR[cand_vars[cand_i].var_type]);
-            // continue;
-        // }
         if (hap1_alle == -1 && hap2_alle == -1) { // homozygous
             is_hom = 1;
             hap1_alle = hap2_alle = hom_alle;
@@ -781,17 +858,17 @@ int make_variants(bam_chunk_t *chunk, var_t **_var) {
                     var->vars[i].GT[hap-1] = var->vars[i].n_alt_allele;
                     continue;
                 }
-                int alt_len = cand_vars[cand_i].alt_lens[hap_alle-1];
+                int alt_len = cand_vars[cand_i].alt_len; //s[hap_alle-1];
                 var->vars[i].alt_bases[var->vars[i].n_alt_allele] = (uint8_t*)malloc((alt_len+1) * sizeof(uint8_t));
                 if (var->vars[i].type == BAM_CDEL || var->vars[i].type == BAM_CINS) {
                     alt_len += 1;
                     var->vars[i].alt_bases[var->vars[i].n_alt_allele][0] = nst_nt4_table[(int)ref_seq[var->vars[i].pos-ref_beg]];
                     for (int j = 1; j < alt_len; ++j) {
-                        var->vars[i].alt_bases[var->vars[i].n_alt_allele][j] = cand_vars[cand_i].alt_seqs[hap_alle-1][j-1];
+                        var->vars[i].alt_bases[var->vars[i].n_alt_allele][j] = cand_vars[cand_i].alt_seq[j-1];
                     }
                 } else {
                     for (int j = 0; j < alt_len; ++j) {
-                        var->vars[i].alt_bases[var->vars[i].n_alt_allele][j] = cand_vars[cand_i].alt_seqs[hap_alle-1][j];
+                        var->vars[i].alt_bases[var->vars[i].n_alt_allele][j] = cand_vars[cand_i].alt_seq[j];
                     }
                 }
                 var->vars[i].alt_len[var->vars[i].n_alt_allele] = alt_len;
@@ -877,9 +954,8 @@ int flip_variant_hap(bam_chunk_t *prev_chunk, bam_chunk_t *cur_chunk) {
         // }
         int cur_var_start_i0 = cur_chunk->read_var_profile[i].start_var_idx;
         int cur_var_end_i0 = cur_chunk->read_var_profile[i].end_var_idx;
-        for (int j = cur_var_start_i; j <= cur_var_end_i; ++j)
-        {
-            if (j < cur_var_start_i0 || j > cur_var_end_i0 || cur_chunk->read_var_profile[i].var_is_used[j - cur_var_start_i0] == 0)
+        for (int j = cur_var_start_i; j <= cur_var_end_i; ++j) {
+            if (j < cur_var_start_i0 || j > cur_var_end_i0) // || cur_chunk->read_var_profile[i].var_is_used[j - cur_var_start_i0] == 0)
                 continue;
             int allele_i = cur_chunk->read_var_profile[i].alleles[j - cur_var_start_i0];
             // fprintf(stderr, "\tCur-Var: %lld, %c, allele: %d\n", (long long) cur_chunk->cand_vars[j].pos, BAM_CIGAR_STR[cur_chunk->cand_vars[j].var_type], allele_i);
@@ -1048,13 +1124,174 @@ int make_vars_from_baln0(hts_pos_t ref_beg, uint8_t *_ref_seq, uint8_t *_query_s
     return n_vars;
 }
 
+// position with both gaps are filtered in advance
+int make_cand_vars_from_baln0(int tid, hts_pos_t noisy_reg_beg, hts_pos_t active_reg_beg, hts_pos_t active_reg_end,
+                             uint8_t *ref_msa_seq, uint8_t *cons_msa_seq, int msa_len, cand_var_t **cand_vars, int **var_cate) {
+    *cand_vars = (cand_var_t *)malloc((msa_len + 1) * sizeof(cand_var_t));
+    *var_cate = (int *)malloc((msa_len + 1) * sizeof(int));
+    int n_vars = 0;
+    hts_pos_t ref_pos = noisy_reg_beg; // int query_pos = 0
+    int i = 0;
+    while (i < msa_len) {
+        if (ref_msa_seq[i] == 5 && cons_msa_seq[i] == 5) {
+            i++; continue;
+        }
+        if (ref_msa_seq[i] == cons_msa_seq[i]) { // EQUAL
+            i++; ref_pos++;
+            continue;
+        }
+        if (ref_msa_seq[i] != 5 && cons_msa_seq[i] != 5) { // DIFF
+            if (ref_pos < active_reg_beg || ref_pos > active_reg_end) {
+                i ++; ref_pos++; continue;
+            }
+            memset((*cand_vars) + n_vars, 0, sizeof(cand_var_t));
+            (*cand_vars)[n_vars].tid = tid; (*cand_vars)[n_vars].pos = ref_pos;
+            (*cand_vars)[n_vars].var_type = BAM_CDIFF;
+            (*cand_vars)[n_vars].n_uniq_alles = 2; // ref allele
+            (*cand_vars)[n_vars].alle_covs = (int *)calloc(2, sizeof(int));
+            (*cand_vars)[n_vars].ref_len = 1;
+            (*cand_vars)[n_vars].ref_base = ref_msa_seq[i];
+            (*cand_vars)[n_vars].alt_len = 1;
+            (*cand_vars)[n_vars].alt_seq = (uint8_t*)malloc(sizeof(uint8_t)); // XXX needs to be freed
+            (*cand_vars)[n_vars].alt_seq[0] = cons_msa_seq[i];
+            n_vars++;
+            i += 1; ref_pos += 1;
+        } else if (ref_msa_seq[i] == 5) { // INS: 0->I
+            int gap_len = 1;
+            while (i+gap_len < msa_len && ref_msa_seq[i+gap_len] == 5 && cons_msa_seq[i+gap_len] != 5) gap_len++;
+            if (ref_pos - 1 < active_reg_beg || ref_pos - 1 > active_reg_end) {
+                i += gap_len; continue;
+            }
+            memset((*cand_vars) + n_vars, 0, sizeof(cand_var_t));
+            (*cand_vars)[n_vars].tid = tid; (*cand_vars)[n_vars].pos = ref_pos;
+            (*cand_vars)[n_vars].var_type = BAM_CINS;
+            (*cand_vars)[n_vars].n_uniq_alles = 2; // ref allele
+            (*cand_vars)[n_vars].alle_covs = (int *)calloc(2, sizeof(int));
+            (*cand_vars)[n_vars].ref_len = 0;
+            (*cand_vars)[n_vars].alt_len = gap_len;
+            (*cand_vars)[n_vars].alt_seq = (uint8_t*)malloc(gap_len * sizeof(uint8_t)); // XXX needs to be freed
+            for (int j = 0; j < gap_len; ++j) (*cand_vars)[n_vars].alt_seq[j] = cons_msa_seq[i + j];
+            n_vars++;
+            i += gap_len;
+        } else if (cons_msa_seq[i] == 5) { // DEL: D->0
+            int gap_len = 1;
+            while (i+gap_len < msa_len && ref_msa_seq[i+gap_len] != 5 && cons_msa_seq[i+gap_len] == 5) gap_len++;
+            if (ref_pos - 1 < active_reg_beg || ref_pos - 1 > active_reg_end) {
+                i += gap_len; ref_pos += gap_len; continue;
+            }
+            memset((*cand_vars) + n_vars, 0, sizeof(cand_var_t));
+            (*cand_vars)[n_vars].tid = tid; (*cand_vars)[n_vars].pos = ref_pos;
+            (*cand_vars)[n_vars].var_type = BAM_CDEL;
+            (*cand_vars)[n_vars].n_uniq_alles = 2; // ref allele
+            (*cand_vars)[n_vars].alle_covs = (int *)calloc(2, sizeof(int));
+            (*cand_vars)[n_vars].ref_len = gap_len;
+            (*cand_vars)[n_vars].alt_len = 0;
+            (*cand_vars)[n_vars].alt_seq = NULL;
+            n_vars++;
+            i += gap_len; ref_pos += gap_len;
+        } else {
+            _err_error_exit("Error: %d, %d\n", ref_msa_seq[i], cons_msa_seq[i]);
+        }
+    }
+    for (int i = 0; i < n_vars; ++i) {
+        (*cand_vars)[i].alle_to_hap = NULL; (*cand_vars)[i].hap_to_alle_profile = NULL; (*cand_vars)[i].hap_to_cons_alle = NULL;
+        (*cand_vars)[i].is_low_qual = 0; (*cand_vars)[i].is_skipped = 0;
+        (*var_cate)[i] = LONGCALLD_NOISY_CAND_HOM_VAR;
+    }
+    return n_vars;
+}
+
+int make_cand_vars_from_msa(int tid, hts_pos_t noisy_reg_beg, hts_pos_t active_reg_beg, hts_pos_t active_reg_end,
+                            uint8_t *ref_msa_seq, uint8_t *cons_msa_seq, int msa_len, cand_var_t **cand_vars, int **var_cate) {
+    uint8_t *_ref_msa_seq = (uint8_t *)malloc(msa_len * sizeof(uint8_t));
+    uint8_t *_cons_msa_seq = (uint8_t *)malloc(msa_len * sizeof(uint8_t));
+    int _msa_len = 0;
+    for (int i = 0; i < msa_len; ++i) {
+        if (ref_msa_seq[i] != 5 || cons_msa_seq[i] != 5) {
+            _ref_msa_seq[_msa_len] = ref_msa_seq[i];
+            _cons_msa_seq[_msa_len++] = cons_msa_seq[i];
+        }
+    }
+    int n_vars = make_cand_vars_from_baln0(tid, noisy_reg_beg, active_reg_beg, active_reg_end, _ref_msa_seq, _cons_msa_seq, _msa_len, cand_vars, var_cate);
+    free(_ref_msa_seq); free(_cons_msa_seq);
+    return n_vars;
+}
+
+// make cand_vars: type, ref_pos, ref_len, alt_len, alt_seq
+// leave n_depth & alle_covs empty, update later
+int make_cand_vars_from_aln0(int tid, hts_pos_t noisy_reg_beg, hts_pos_t active_reg_beg, hts_pos_t active_reg_end,
+                             uint8_t *query_seq, int qlen, uint32_t *cigar_buf, int cigar_len,
+                             cand_var_t **cand_vars) {
+    *cand_vars = (cand_var_t *)malloc((qlen + 1) * sizeof(cand_var_t));
+    int n_vars = 0;
+    hts_pos_t ref_pos = noisy_reg_beg;
+    int query_pos = 0;
+    for (int i = 0; i < cigar_len; ++i) {
+        int len = cigar_buf[i] >> 4;
+        int op = cigar_buf[i] & 0xf;
+        if (op == BAM_CEQUAL) {
+            ref_pos += len;
+            query_pos += len;
+        } else if (op == BAM_CDIFF) { // X: 1->1
+            for (int j = 0; j < len; ++j) {
+                if (ref_pos + j < active_reg_beg || ref_pos + j > active_reg_end)
+                    continue;
+                memset((*cand_vars) + n_vars, 0, sizeof(cand_var_t));
+                (*cand_vars)[n_vars].tid = tid; (*cand_vars)[n_vars].pos = ref_pos + j;
+                (*cand_vars)[n_vars].var_type = BAM_CDIFF;
+                (*cand_vars)[n_vars].n_uniq_alles = 2; // ref allele
+                (*cand_vars)[n_vars].alle_covs = (int *)calloc(2, sizeof(int));
+                (*cand_vars)[n_vars].ref_len = 1;
+                (*cand_vars)[n_vars].alt_len = 1;
+                (*cand_vars)[n_vars].alt_seq = (uint8_t*)malloc(sizeof(uint8_t)); // XXX needs to be freed
+                (*cand_vars)[n_vars].alt_seq[0] = query_seq[query_pos + j];
+                n_vars++;
+            }
+            ref_pos += len;
+            query_pos += len;
+        } else if (op == BAM_CINS) { // I: 0->n
+            if (ref_pos - 1 < active_reg_beg || ref_pos - 1 > active_reg_end) {
+                query_pos += len; continue;
+            }
+            memset((*cand_vars) + n_vars, 0, sizeof(cand_var_t));
+            (*cand_vars)[n_vars].tid = tid; (*cand_vars)[n_vars].pos = ref_pos;
+            (*cand_vars)[n_vars].var_type = BAM_CINS;
+            (*cand_vars)[n_vars].n_uniq_alles = 2; // ref allele
+            (*cand_vars)[n_vars].alle_covs = (int *)calloc(2, sizeof(int));
+            (*cand_vars)[n_vars].ref_len = 0;
+            (*cand_vars)[n_vars].alt_len = len;
+            (*cand_vars)[n_vars].alt_seq = (uint8_t*)malloc(len * sizeof(uint8_t)); // XXX needs to be freed
+            for (int j = 0; j < len; ++j) (*cand_vars)[n_vars].alt_seq[j] = query_seq[query_pos + j];
+            n_vars++;
+            query_pos += len;
+        } else if (op == BAM_CDEL) { // D: n->0
+            if (ref_pos - 1 < active_reg_beg || ref_pos - 1 > active_reg_end) {
+                ref_pos += len; continue;
+            }
+            memset((*cand_vars) + n_vars, 0, sizeof(cand_var_t));
+            (*cand_vars)[n_vars].tid = tid; (*cand_vars)[n_vars].pos = ref_pos;
+            (*cand_vars)[n_vars].var_type = BAM_CDEL;
+            (*cand_vars)[n_vars].n_uniq_alles = 2; // ref allele
+            (*cand_vars)[n_vars].alle_covs = (int *)calloc(2, sizeof(int));
+            (*cand_vars)[n_vars].ref_len = len;
+            (*cand_vars)[n_vars].alt_len = 0;
+            (*cand_vars)[n_vars].alt_seq = NULL;
+            n_vars++;
+            ref_pos += len;
+        } else {
+            _err_error_exit("Error: %d\n", op);
+        }
+    }
+    return n_vars;
+}
+
 int make_vars_from_aln0(char *chunk_ref_seq, hts_pos_t chunk_ref_seq_beg, hts_pos_t chunk_ref_seq_end, hts_pos_t noisy_reg_beg,
-                         hts_pos_t active_reg_beg, hts_pos_t active_reg_end,
-                         uint8_t *query_seq, int qlen, uint32_t *cigar_buf, int cigar_len,
-                         var_t **vars, int is_hom) {
-    *vars = (var_t*)malloc(sizeof(var_t));
-    (*vars)->vars = (var1_t*)malloc((qlen+1) * sizeof(var1_t));
-    (*vars)->m = (qlen+1);
+                        hts_pos_t active_reg_beg, hts_pos_t active_reg_end,
+                        uint8_t *query_seq, int qlen, uint32_t *cigar_buf, int cigar_len,
+                        var_t **vars, int is_hom) {
+    *vars = (var_t *)malloc(sizeof(var_t));
+    (*vars)->vars = (var1_t *)malloc((qlen + 1) * sizeof(var1_t));
+    (*vars)->m = (qlen + 1);
     hts_pos_t ref_pos = noisy_reg_beg; int query_pos = 0;
     int n_vars = 0, i = 0;
     for (int i = 0; i < cigar_len; ++i) {
@@ -1064,73 +1301,76 @@ int make_vars_from_aln0(char *chunk_ref_seq, hts_pos_t chunk_ref_seq_beg, hts_po
             ref_pos += len; query_pos += len;
         } else if (op == BAM_CDIFF) { // DIFF
             for (int j = 0; j < len; ++j) {
-                if (ref_pos+j < active_reg_beg || ref_pos+j > active_reg_end) {
-                    continue;
-                }
+                if (ref_pos + j < active_reg_beg || ref_pos + j > active_reg_end) continue;
                 (*vars)->vars[n_vars].type = BAM_CDIFF;
-                (*vars)->vars[n_vars].pos = ref_pos+j;
+                (*vars)->vars[n_vars].pos = ref_pos + j;
                 (*vars)->vars[n_vars].ref_len = 1;
-                (*vars)->vars[n_vars].ref_bases = (uint8_t*)malloc(1 * sizeof(uint8_t));
-                (*vars)->vars[n_vars].ref_bases[0] = nst_nt4_table[(int)chunk_ref_seq[ref_pos-chunk_ref_seq_beg+j]];
+                (*vars)->vars[n_vars].ref_bases = (uint8_t *)malloc(1 * sizeof(uint8_t));
+                (*vars)->vars[n_vars].ref_bases[0] = nst_nt4_table[(int)chunk_ref_seq[ref_pos - chunk_ref_seq_beg + j]];
                 (*vars)->vars[n_vars].n_alt_allele = 1;
-                (*vars)->vars[n_vars].alt_len = (int*)malloc(1 * sizeof(int));
+                (*vars)->vars[n_vars].alt_len = (int *)malloc(1 * sizeof(int));
                 (*vars)->vars[n_vars].alt_len[0] = 1;
-                (*vars)->vars[n_vars].alt_bases = (uint8_t**)malloc(1 * sizeof(uint8_t*));
-                (*vars)->vars[n_vars].alt_bases[0] = (uint8_t*)malloc(1 * sizeof(uint8_t));
-                (*vars)->vars[n_vars].alt_bases[0][0] = query_seq[query_pos+j];
-                (*vars)->vars[n_vars].QUAL = 0; (*vars)->vars[n_vars].PS = 0;
+                (*vars)->vars[n_vars].alt_bases = (uint8_t **)malloc(1 * sizeof(uint8_t *));
+                (*vars)->vars[n_vars].alt_bases[0] = (uint8_t *)malloc(1 * sizeof(uint8_t));
+                (*vars)->vars[n_vars].alt_bases[0][0] = query_seq[query_pos + j];
+                (*vars)->vars[n_vars].QUAL = 0;
+                (*vars)->vars[n_vars].PS = 0;
                 if (is_hom) {
                     (*vars)->vars[n_vars].GT[0] = 1;
                     (*vars)->vars[n_vars].GT[1] = 1;
                 }
                 n_vars++;
             }
-            ref_pos += len; query_pos += len;
+            ref_pos += len;
+            query_pos += len;
         } else if (op == BAM_CINS) { // INS
-            if (ref_pos-1 < active_reg_beg || ref_pos-1 > active_reg_end) {
+            if (ref_pos - 1 < active_reg_beg || ref_pos - 1 > active_reg_end) {
                 query_pos += len; continue;
             }
             (*vars)->vars[n_vars].type = BAM_CINS;
-            (*vars)->vars[n_vars].pos = ref_pos-1;
+            (*vars)->vars[n_vars].pos = ref_pos - 1;
             (*vars)->vars[n_vars].ref_len = 1;
-            (*vars)->vars[n_vars].ref_bases = (uint8_t*)malloc(1 * sizeof(uint8_t));
-            (*vars)->vars[n_vars].ref_bases[0] = nst_nt4_table[(int)chunk_ref_seq[ref_pos-1-chunk_ref_seq_beg]];
+            (*vars)->vars[n_vars].ref_bases = (uint8_t *)malloc(1 * sizeof(uint8_t));
+            (*vars)->vars[n_vars].ref_bases[0] = nst_nt4_table[(int)chunk_ref_seq[ref_pos - 1 - chunk_ref_seq_beg]];
             (*vars)->vars[n_vars].n_alt_allele = 1;
-            (*vars)->vars[n_vars].alt_len = (int*)malloc(1 * sizeof(int));
+            (*vars)->vars[n_vars].alt_len = (int *)malloc(1 * sizeof(int));
             (*vars)->vars[n_vars].alt_len[0] = len + 1;
-            (*vars)->vars[n_vars].alt_bases = (uint8_t**)malloc(1 * sizeof(uint8_t*));
-            (*vars)->vars[n_vars].alt_bases[0] = (uint8_t*)malloc((len+1) * sizeof(uint8_t));
+            (*vars)->vars[n_vars].alt_bases = (uint8_t **)malloc(1 * sizeof(uint8_t *));
+            (*vars)->vars[n_vars].alt_bases[0] = (uint8_t *)malloc((len + 1) * sizeof(uint8_t));
             (*vars)->vars[n_vars].alt_bases[0][0] = (*vars)->vars[n_vars].ref_bases[0];
             for (int j = 1; j <= len; ++j)
-                (*vars)->vars[n_vars].alt_bases[0][j] = query_seq[query_pos+j-1];
+                (*vars)->vars[n_vars].alt_bases[0][j] = query_seq[query_pos + j - 1];
             (*vars)->vars[n_vars].QUAL = 0;
             (*vars)->vars[n_vars].PS = 0;
             if (is_hom) {
-                (*vars)->vars[n_vars].GT[0] = 1; (*vars)->vars[n_vars].GT[1] = 1;
+                (*vars)->vars[n_vars].GT[0] = 1;
+                (*vars)->vars[n_vars].GT[1] = 1;
             }
             n_vars++; query_pos += len;
         } else if (op == BAM_CDEL) { // DEL
-            if (ref_pos-1 < active_reg_beg || ref_pos-1 > active_reg_end) {
+            if (ref_pos - 1 < active_reg_beg || ref_pos - 1 > active_reg_end) {
                 ref_pos += len; continue;
             }
             (*vars)->vars[n_vars].type = BAM_CDEL;
-            (*vars)->vars[n_vars].pos = ref_pos-1;
-            (*vars)->vars[n_vars].ref_len = len+1;
-            (*vars)->vars[n_vars].ref_bases = (uint8_t*)malloc((len+1) * sizeof(uint8_t));
+            (*vars)->vars[n_vars].pos = ref_pos - 1;
+            (*vars)->vars[n_vars].ref_len = len + 1;
+            (*vars)->vars[n_vars].ref_bases = (uint8_t *)malloc((len + 1) * sizeof(uint8_t));
             for (int j = 0; j <= len; ++j) // collect non-'-' bases
-                (*vars)->vars[n_vars].ref_bases[j] = nst_nt4_table[(int)chunk_ref_seq[ref_pos-1-chunk_ref_seq_beg+j]];
+                (*vars)->vars[n_vars].ref_bases[j] = nst_nt4_table[(int)chunk_ref_seq[ref_pos - 1 - chunk_ref_seq_beg + j]];
             (*vars)->vars[n_vars].n_alt_allele = 1;
-            (*vars)->vars[n_vars].alt_len = (int*)malloc(1 * sizeof(int));
+            (*vars)->vars[n_vars].alt_len = (int *)malloc(1 * sizeof(int));
             (*vars)->vars[n_vars].alt_len[0] = 1;
-            (*vars)->vars[n_vars].alt_bases = (uint8_t**)malloc(1 * sizeof(uint8_t*));
-            (*vars)->vars[n_vars].alt_bases[0] = (uint8_t*)malloc(1 * sizeof(uint8_t));
+            (*vars)->vars[n_vars].alt_bases = (uint8_t **)malloc(1 * sizeof(uint8_t *));
+            (*vars)->vars[n_vars].alt_bases[0] = (uint8_t *)malloc(1 * sizeof(uint8_t));
             (*vars)->vars[n_vars].alt_bases[0][0] = (*vars)->vars[n_vars].ref_bases[0]; // ref base
             (*vars)->vars[n_vars].QUAL = 0;
             (*vars)->vars[n_vars].PS = 0;
             if (is_hom) {
-                (*vars)->vars[n_vars].GT[0] = 1; (*vars)->vars[n_vars].GT[1] = 1;
-            } 
-            n_vars++; ref_pos += len;
+                (*vars)->vars[n_vars].GT[0] = 1;
+                (*vars)->vars[n_vars].GT[1] = 1;
+            }
+            n_vars++;
+            ref_pos += len;
         } else {
             _err_error_exit("Error: %d\n", op);
         }
@@ -1166,13 +1406,81 @@ int identical_alt_base(uint8_t *alt1, uint8_t *alt2, int len) {
     return 1;
 }
 
+// order of variants with same pos: order by type, ref_len, alt_len
+int comp_var_site(var_site_t *var1, var_site_t *var2) {
+    if (var1->pos < var2->pos) return -1;
+    if (var1->pos > var2->pos) return 1;
+    if (var1->var_type < var2->var_type) return -1;
+    if (var1->var_type > var2->var_type) return 1;
+    if (var1->ref_len < var2->ref_len) return -1;
+    if (var1->ref_len > var2->ref_len) return 1;
+    if (var1->alt_len < var2->alt_len) return -1;
+    if (var1->alt_len > var2->alt_len) return 1;
+    // fprintf(stderr, "Error: %ld, %d, %d, %d, %d\n", var1->pos, var1->var_type, var1->ref_len, var1->alt_len, 
+                                                        // var2->alt_len);
+    // fprintf(stderr, "1alt_seq: %d\n", var1->alt_seq[0]);
+    // fprintf(stderr, "2alt_seq: %d\n", var2->alt_seq[0]);
+
+    if (var1->var_type == BAM_CINS || var1->var_type == BAM_CDIFF) 
+        return memcmp(var1->alt_seq, var2->alt_seq, var1->alt_len);
+    else return 0;
+}
+
+
+int merge_cand_vars(cand_var_t *vars1, int n_vars1, cand_var_t *vars2, int n_vars2, cand_var_t **vars) {
+    if (n_vars1 + n_vars2 <= 0) return 0;
+    int n_vars = 0;
+    *vars = (cand_var_t *)malloc((n_vars1 + n_vars2) * sizeof(cand_var_t));
+    int i1 = 0, i2 = 0;
+    for (; i1 < n_vars1 && i2 < n_vars2; ) {
+        var_site_t var_site1 = make_var_site_from_cand_var(vars1 + i1);
+        var_site_t var_site2 = make_var_site_from_cand_var(vars2 + i2);
+        int ret = comp_var_site(&var_site1, &var_site2);
+        if (ret < 0) {
+            (*vars)[n_vars++] = vars1[i1++];
+        } else if (ret > 0) {
+            (*vars)[n_vars++] = vars2[i2++];
+        } else { // same
+            (*vars)[n_vars++] = vars1[i1++];
+            free_cand_vars1(vars2 + i2); i2++;
+        }
+    }
+    for (; i1 < n_vars1; ++i1) (*vars)[n_vars++] = vars1[i1];
+    for (; i2 < n_vars2; ++i2) (*vars)[n_vars++] = vars2[i2];
+    return n_vars;
+}
+
+int merge_noisy_cand_vars(cand_var_t *vars1, int n_vars1, cand_var_t *vars2, int n_vars2, cand_var_t **vars) {
+    if (n_vars1 + n_vars2 <= 0) return 0;
+    int n_vars = 0;
+    *vars = (cand_var_t *)malloc((n_vars1 + n_vars2) * sizeof(cand_var_t));
+    int i1 = 0, i2 = 0;
+    for (; i1 < n_vars1 && i2 < n_vars2; ) {
+        var_site_t var_site1 = make_var_site_from_cand_var(vars1 + i1);
+        var_site_t var_site2 = make_var_site_from_cand_var(vars2 + i2);
+        int ret = comp_var_site(&var_site1, &var_site2);
+        if (ret < 0) {
+            (*vars)[n_vars++] = vars1[i1++];
+        } else if (ret > 0) {
+            (*vars)[n_vars++] = vars2[i2++];
+        } else { // same
+            (*vars)[n_vars++] = vars1[i1++];
+            free_noisy_cand_vars1(vars2 + i2); i2++;
+        }
+    }
+    for (; i1 < n_vars1; ++i1) (*vars)[n_vars++] = vars1[i1];
+    for (; i2 < n_vars2; ++i2) (*vars)[n_vars++] = vars2[i2];
+    return n_vars;
+}
+
 // copy vars from hap1_vars and hap2_vars, merge them based on pos
 // free unused hap1_vars and hap2_vars
 int merge_hap_vars(var_t *hap1_vars, int n_hap1_vars, var_t *hap2_vars, int n_hap2_vars, var_t **vars) {
-    if (n_hap1_vars + n_hap2_vars == 0) return 0;
+    if (n_hap1_vars + n_hap2_vars == 0)
+        return 0;
     int n_vars = 0;
-    *vars = (var_t*)malloc(sizeof(var_t));
-    (*vars)->vars = (var1_t*)malloc((n_hap1_vars+n_hap2_vars) * sizeof(var1_t));
+    *vars = (var_t *)malloc(sizeof(var_t));
+    (*vars)->vars = (var1_t *)malloc((n_hap1_vars + n_hap2_vars) * sizeof(var1_t));
     (*vars)->m = n_hap1_vars + n_hap2_vars;
     // merge sort
     int i1, i2;
@@ -1196,7 +1504,7 @@ int merge_hap_vars(var_t *hap1_vars, int n_hap1_vars, var_t *hap2_vars, int n_ha
                 (*vars)->vars[n_vars] = hap1_vars->vars[i1++];
                 (*vars)->vars[n_vars].GT[0] = 1;
                 (*vars)->vars[n_vars].GT[1] = 1;
-                var1_free(hap2_vars->vars+i2);
+                var1_free(hap2_vars->vars + i2);
                 n_vars++;
                 i2++;
             } else {
@@ -1230,10 +1538,12 @@ int merge_hap_vars(var_t *hap1_vars, int n_hap1_vars, var_t *hap2_vars, int n_ha
 
 int make_vars_from_cons_aln(const call_var_opt_t *opt, bam_chunk_t *chunk, hts_pos_t noisy_reg_beg, hts_pos_t noisy_reg_end, hts_pos_t active_reg_beg, hts_pos_t active_reg_end,
                             uint8_t **cons_seqs, int *cons_lens, int n_cons, var_t **vars) {
-    if (n_cons == 0) return 0;
+    if (n_cons == 0)
+        return 0;
     char *ref_seq = NULL;
     int ref_seq_len = collect_reg_ref_cseq(chunk, noisy_reg_beg, noisy_reg_end, &ref_seq);
-    char *chunk_ref_seq = chunk->ref_seq; hts_pos_t chunk_ref_seq_beg = chunk->ref_beg, chunk_ref_seq_end = chunk->ref_end;
+    char *chunk_ref_seq = chunk->ref_seq;
+    hts_pos_t chunk_ref_seq_beg = chunk->ref_beg, chunk_ref_seq_end = chunk->ref_end;
 
     // WFA for ref vs cons1/2
     int n_vars = 0, n_hap1_vars = 0, n_hap2_vars = 0;
@@ -1250,7 +1560,8 @@ int make_vars_from_cons_aln(const call_var_opt_t *opt, bam_chunk_t *chunk, hts_p
                 n_hap2_vars = make_vars_from_aln0(chunk_ref_seq, chunk_ref_seq_beg, chunk_ref_seq_end, noisy_reg_beg, active_reg_beg, active_reg_end, cons_seqs[i], cons_lens[i], cigar_buf, cigar_len, &hap2_vars, 0);
             }
         }
-        if (cigar_buf != NULL) free(cigar_buf);
+        if (cigar_buf != NULL)
+            free(cigar_buf);
     }
     if (LONGCALLD_VERBOSE >= 2) {
         for (int i = 0; i < n_hap1_vars; ++i) {
@@ -1277,13 +1588,467 @@ int make_vars_from_cons_aln(const call_var_opt_t *opt, bam_chunk_t *chunk, hts_p
     return n_vars;
 }
 
-int make_vars_from_msa(bam_chunk_t *chunk, hts_pos_t reg_beg, hts_pos_t reg_end, uint8_t **cons_seqs, int *cons_lens, int n_cons, var_t **vars) {
+// XXX 
+int is_match_base(uint8_t *read_seq, uint8_t *target_seq, int msa_len, int target_pos, int target_len, uint8_t *base, float sim_thres) {
+    int cur_pos = -1, n_eq = 0, n_xid = 0, base_i = 0;
+    for (int i = 0; i < msa_len; ++i) {
+        if (target_seq[i] != 5) cur_pos++;
+        if (cur_pos >= target_pos+target_len) break;
+        else if (cur_pos >= target_pos) {
+            if (base_i < target_len) {
+                if (read_seq[i] == base[base_i]) n_eq++;
+                else n_xid++;
+                base_i++;
+            }
+            if (base_i == target_len) break;
+        }
+    }
+    if (target_len >= 10) return (n_eq >= (target_len * sim_thres));
+    else return (n_eq == target_len && n_xid == 0);
+}
+
+// XXX reads with part of the inserted sequence ???
+// for large insertion, check if similairty are >= 0.9, i.e., #(#) / #(total) >= 0.9
+// read: |-------|
+// cons: |  INS  |
+int is_match(uint8_t *read_seq, uint8_t *target_seq, int msa_len, int target_pos, int len, float sim_thres) {
+    int cur_pos = -1, n_eq = 0, n_xid = 0;
+    int checked_base = 0;
+    for (int i = 0; i < msa_len; ++i) {
+        if (target_seq[i] != 5) cur_pos++;
+        if (cur_pos == target_pos + len) break;
+        else if (cur_pos >= target_pos) {
+            if (read_seq[i] == target_seq[i]) n_eq++;
+            else n_xid++;
+        }
+    }
+    // if (len >= 100) return (n_eq >= (len * sim_thres));
+    if (len >= 10) return (n_eq >= (len * sim_thres));
+    else return (n_eq == len && n_xid == 0);
+}
+
+// check if the read_seq has a len-long D from target_pos
+int is_match_del(uint8_t *read_seq, uint8_t *target_seq, int msa_len, int target_pos, int len, float sim_thres) {
+    int n_del = 0, cur_pos = -1;
+    int read_first_del_i = -1, read_last_del_i = -1;
+    for (int i = 0; i < msa_len; ++i) {
+        if (target_seq[i] != 5) cur_pos++;
+        if (cur_pos >= target_pos + len) break;
+        else if (cur_pos >= target_pos) {
+            if (read_seq[i] == 5) n_del++;
+            if (read_first_del_i == -1) read_first_del_i = i;
+            read_last_del_i = i;
+        }
+    }
+    if (read_first_del_i >= 1 && read_seq[read_first_del_i-1] == 5) return 0;
+    if (read_last_del_i < msa_len-1 && read_seq[read_last_del_i+1] == 5) return 0;
+    if (len >= 10) return (n_del >= (len * sim_thres));
+    else return (n_del == len);
+}
+
+// check if the read seq has a len-long I from target_pos
+int is_match_ins_base(uint8_t *read_seq, uint8_t *target_seq, int msa_len, int target_pos, uint8_t *ins_seq, int ins_len, float sim_thres) {
+    int n_ins = 0, cur_pos = 0;
+    uint8_t *_ins_seq = (uint8_t*)malloc(msa_len * sizeof(uint8_t));
+    for (int i = 0; i < msa_len; ++i) {
+        if (cur_pos >= target_pos + 1) break;
+        else if (cur_pos >= target_pos) {
+            if (target_seq[i] == 5 && read_seq[i] != 5) {
+                _ins_seq[n_ins] = read_seq[i];
+                n_ins++;
+            }
+        }
+        if (target_seq[i] != 5) cur_pos++;
+    }
+    // check the similarity between _ins_seq and ins_seq
+    int n_eq = 0, n_xid = 0;
+    wfa_heuristic_aln(_ins_seq, n_ins, ins_seq, ins_len, &n_eq, &n_xid);
+    free(_ins_seq);
+    if (ins_len >= 10) return (n_eq >= (ins_len * sim_thres));
+    else return (n_eq == ins_len && n_xid == 0);
+}
+
+// return 1: var, 0: ref
+int get_var_allele_i_from_ref_msa(uint8_t *read_seq, uint8_t *ref_seq, int msa_len, int var_type, int target_pos, int target_len, uint8_t *alt_seq, int alt_len, float ref_sim_thres, float alt_sim_thres) {
+    int allele_i = -1;
+    if (var_type == BAM_CDIFF) {
+        if (is_match(read_seq, ref_seq, msa_len, target_pos, target_len, ref_sim_thres)) return 0;
+        else if (is_match_base(read_seq, ref_seq, msa_len, target_pos, target_len, alt_seq, alt_sim_thres)) return 1;
+        else return -1;
+    } else if (var_type == BAM_CINS) {
+        if (is_match(read_seq, ref_seq, msa_len, target_pos-1, 2, ref_sim_thres)) return 0;
+        else if (is_match_ins_base(read_seq, ref_seq, msa_len, target_pos, alt_seq, alt_len, alt_sim_thres)) return 1;
+        else return -1; 
+    } else if (var_type == BAM_CDEL) {
+        if (is_match(read_seq, ref_seq, msa_len, target_pos, target_len, ref_sim_thres)) return 0;
+        else if (is_match_del(read_seq, ref_seq, msa_len, target_pos, target_len, alt_sim_thres)) return 1;
+        else return -1;
+    }
+    return allele_i;
+}
+
+// return 0: ref, -1: not ref
+int get_var_ref_from_ref_msa(uint8_t *read_seq, uint8_t *ref_seq, int msa_len, int var_type, int ref_pos, int ref_len, float ref_sim_thres) {
+    int allele_i = -1;
+    if (var_type == BAM_CDIFF) {
+        if (is_match(read_seq, ref_seq, msa_len, ref_pos, ref_len, ref_sim_thres)) return 0;
+        else return -1;
+    } else if (var_type == BAM_CINS) {
+        if (is_match(read_seq, ref_seq, msa_len, ref_pos-1, 2, ref_sim_thres)) return 0;
+        else return -1;
+    } else if (var_type == BAM_CDEL) {
+        if (is_match(read_seq, ref_seq, msa_len, ref_pos, ref_len, ref_sim_thres)) return 0;
+        else return -1;
+    }
+    return allele_i;
+}
+// return 1: alt_allele, -1: not ref or alt
+int get_var_allele_i_from_cons_msa(uint8_t *read_seq, uint8_t *cons_seq, int msa_len, int var_type, int alt_pos, int alt_len, float cons_sim_thres) {
+    int allele_i = -1;
+    if (var_type == BAM_CDIFF) {
+        assert(alt_len == 1);
+        if (is_match(read_seq, cons_seq, msa_len, alt_pos, 1, cons_sim_thres)) return 1;
+        else return -1;
+    } else if (var_type == BAM_CINS) {
+        if (is_match(read_seq, cons_seq, msa_len, alt_pos-1, alt_len+1, cons_sim_thres)) return 1;
+        else return -1;
+    } else if (var_type == BAM_CDEL) { // XXX large DEL ???
+        if (is_match(read_seq, cons_seq, msa_len, alt_pos-1, 2, cons_sim_thres)) return 1;
+        else return -1;
+    }
+    return allele_i;
+}
+
+// cand_var: update n_depth & alle_covs (only count alt_allele, no ref_allele)
+// p: update read_id,
+void update_cand_var_profile_from_msa_cons_ref_aln(uint8_t *cons_seq, uint8_t *ref_seq, uint8_t *read_seq, int msa_len, hts_pos_t ref_pos_beg,
+                                                   cand_var_t *vars, int n_vars, read_var_profile_t *p) {
+    uint8_t *_cons_seq = (uint8_t*)malloc(msa_len * sizeof(uint8_t));
+    uint8_t *_cons_read_seq = (uint8_t*)malloc(msa_len * sizeof(uint8_t));
+    uint8_t *_ref_seq = (uint8_t*)malloc(msa_len * sizeof(uint8_t));
+    uint8_t *_ref_read_seq = (uint8_t*)malloc(msa_len * sizeof(uint8_t));
+    int _cons_msa_len = 0, _ref_msa_len = 0; float cons_sim_thres = 0.9, ref_sim_thres = 0.9, alt_sim_thres = 1.0;
+    for (int i = 0; i < msa_len; ++i) {
+        if (cons_seq[i] != 5 || read_seq[i] != 5) {
+            _cons_seq[_cons_msa_len] = cons_seq[i];
+            _cons_read_seq[_cons_msa_len++] = read_seq[i];
+        }
+        if (ref_seq[i] != 5 || read_seq[i] != 5) {
+            _ref_seq[_ref_msa_len] = ref_seq[i];
+            _ref_read_seq[_ref_msa_len++] = read_seq[i];
+        }
+    }
+    if (LONGCALLD_VERBOSE >= 2) {
+        fprintf(stderr, "cons:\n");
+        for (int i = 0; i < _cons_msa_len; ++i) fprintf(stderr, "%c", "ACGTN-"[_cons_seq[i]]); fprintf(stderr, "\n");
+        for (int i = 0; i < _cons_msa_len; ++i) fprintf(stderr, "%c", "ACGTN-"[_cons_read_seq[i]]); fprintf(stderr, "\n");
+        fprintf(stderr, "ref:\n");
+        for (int i = 0; i < _ref_msa_len; ++i) fprintf(stderr, "%c", "ACGTN-"[_ref_seq[i]]); fprintf(stderr, "\n");
+        for (int i = 0; i < _ref_msa_len; ++i) fprintf(stderr, "%c", "ACGTN-"[_ref_read_seq[i]]); fprintf(stderr, "\n");
+    }
+    // X: base is identical
+    // I: inserted bases are identical
+    // D: two flanking bases are =/X, no I/D
+    // if var matches the pattern, set var_profile as 1, otherwise -1 (unused)
+    int allele_i = -1;
+    int delta_ref_alt = 0;
+    for (int i = 0; i < n_vars; ++i) {
+        int var_ref_pos = vars[i].pos - ref_pos_beg;
+        int var_ref_len = vars[i].ref_len, var_alt_len = vars[i].alt_len;
+        uint8_t *alt_seq = vars[i].alt_seq;
+        allele_i = get_var_allele_i_from_cons_msa(_cons_read_seq, _cons_seq, _cons_msa_len, vars[i].var_type, var_ref_pos-delta_ref_alt, var_alt_len, cons_sim_thres);
+        if (allele_i == -1)
+            allele_i = get_var_ref_from_ref_msa(_ref_read_seq, _ref_seq, _ref_msa_len, vars[i].var_type, var_ref_pos, var_ref_len, ref_sim_thres);
+        vars[i].n_depth++; // XXX support partial aligned reads
+        if (allele_i != -1) {
+            vars[i].alle_covs[allele_i]++;
+        }
+        update_read_var_profile_with_allele(i, allele_i, p);
+        if (vars[i].var_type == BAM_CINS) delta_ref_alt -= var_alt_len;
+        else if (vars[i].var_type == BAM_CDEL) delta_ref_alt += var_ref_len;
+    }
+    // update allele_i for overlapping vars
+    for (int i = 0; i < n_vars; ++i) {
+        int n_ovlp_vars = 0; int *ovlp_vars = (int *)malloc(n_vars * sizeof(int));
+        for (int j = 0; j < n_vars; ++j) {
+            if (j == i) continue;
+            if (vars[j].pos > vars[i].pos + vars[i].ref_len) break;
+            if (ovlp_cand_vars(vars+i, vars+j)) {
+                ovlp_vars[n_ovlp_vars++] = j;
+            }
+        }
+        if (p->alleles[i - p->start_var_idx] == 1) {
+            for (int j = 0; j < n_ovlp_vars; ++j) {
+                int var_i = ovlp_vars[j];
+                p->alleles[var_i - p->start_var_idx] = 0;
+            }
+        }
+        free(ovlp_vars);
+    }
+    free(_cons_seq); free(_cons_read_seq); free(_ref_seq); free(_ref_read_seq);
+}
+
+void update_cand_var_profile_from_msa_aln1(int clu_n_seqs, int *clu_read_ids, int msa_len, uint8_t **msa_seqs, hts_pos_t ref_pos_beg,
+                                           cand_var_t *noisy_vars, int n_vars, read_var_profile_t *p) {
+    uint8_t *ref_seq = msa_seqs[1], *cons_seq = msa_seqs[0];
+    // uint8_t *ref_seq = msa_seqs[clu_n_seqs+1];
+    for (int i = 0; i < clu_n_seqs; ++i) {
+        uint8_t *read_seq = msa_seqs[2+i];
+        int read_id = clu_read_ids[i];
+        update_cand_var_profile_from_msa_cons_ref_aln(cons_seq, ref_seq, read_seq, msa_len, ref_pos_beg, noisy_vars, n_vars, p+read_id);
+    }
+}
+
+// use cons and ref to update var profile
+void update_cand_var_profile_from_msa_cons_ref_aln21(int clu_idx, int msa_len, uint8_t *cons_seq, uint8_t *ref_seq, uint8_t *read_seq,
+                                                    hts_pos_t ref_pos_beg, cand_var_t *vars, int n_vars, int *var_from_cons_idx, read_var_profile_t *p) {
+    uint8_t *_ref_seq = (uint8_t *)malloc(msa_len * sizeof(uint8_t));
+    uint8_t *_ref_read_seq = (uint8_t *)malloc(msa_len * sizeof(uint8_t));
+    uint8_t *_cons_seq = (uint8_t *)malloc(msa_len * sizeof(uint8_t));
+    uint8_t *_cons_read_seq = (uint8_t *)malloc(msa_len * sizeof(uint8_t));
+    int _cons_msa_len = 0, _ref_msa_len = 0; float cons_sim_thres = 0.9, ref_sim_thres = 0.9, alt_sim_thres = 1.0;
+    for (int i = 0; i < msa_len; ++i) {
+        if (cons_seq[i] != 5 || read_seq[i] != 5) {
+            _cons_seq[_cons_msa_len] = cons_seq[i];
+            _cons_read_seq[_cons_msa_len++] = read_seq[i];
+        }
+        if (ref_seq[i] != 5 || read_seq[i] != 5) {
+            _ref_seq[_ref_msa_len] = ref_seq[i];
+            _ref_read_seq[_ref_msa_len++] = read_seq[i];
+        }
+    }
+    if (LONGCALLD_VERBOSE >= 2) {
+        fprintf(stderr, "cons:\ncons:\t");
+        for (int i = 0; i < _cons_msa_len; ++i) fprintf(stderr, "%c", "ACGTN-"[_cons_seq[i]]); fprintf(stderr, "\nread:\t");
+        for (int i = 0; i < _cons_msa_len; ++i) fprintf(stderr, "%c", "ACGTN-"[_cons_read_seq[i]]); fprintf(stderr, "\n");
+        fprintf(stderr, "ref:\nref:\t");
+        for (int i = 0; i < _ref_msa_len; ++i) fprintf(stderr, "%c", "ACGTN-"[_ref_seq[i]]); fprintf(stderr, "\nread:\t");
+        for (int i = 0; i < _ref_msa_len; ++i) fprintf(stderr, "%c", "ACGTN-"[_ref_read_seq[i]]); fprintf(stderr, "\n");
+    }
+    int allele_i = -1;
+    int delta_ref_alt = 0;
+    for (int i = 0; i < n_vars; ++i) {
+        int var_ref_pos = vars[i].pos - ref_pos_beg, var_ref_len = vars[i].ref_len, var_alt_len = vars[i].alt_len;
+        uint8_t *var_alt_seq = vars[i].alt_seq;
+        if (var_from_cons_idx[i] & clu_idx) { // check if read contain the var (1)
+            allele_i = get_var_allele_i_from_cons_msa(_cons_read_seq, _cons_seq, _cons_msa_len, vars[i].var_type, var_ref_pos-delta_ref_alt, var_alt_len, cons_sim_thres);
+            if (allele_i == -1) // check if read is ref (0)
+                allele_i = get_var_ref_from_ref_msa(_ref_read_seq, _ref_seq, _ref_msa_len, vars[i].var_type, var_ref_pos, var_ref_len, ref_sim_thres);
+        } else { // check if read contain the var (1) or ref
+            allele_i = get_var_allele_i_from_ref_msa(_ref_read_seq, _ref_seq, _ref_msa_len, vars[i].var_type, var_ref_pos, var_ref_len, var_alt_seq, var_alt_len, ref_sim_thres, alt_sim_thres);
+        }
+        if (allele_i != -1) {
+            vars[i].alle_covs[allele_i]++;
+        }
+        vars[i].n_depth++;
+        update_read_var_profile_with_allele(i, allele_i, p);
+        // update delta_ref_alt for both cons/var
+        if (vars[i].var_type == BAM_CINS) {
+            if (var_from_cons_idx[i] == 3) { // both
+                delta_ref_alt -= var_alt_len;
+            } else {
+                if (var_from_cons_idx[i] == clu_idx) delta_ref_alt -= var_alt_len;
+            }
+        } else if (vars[i].var_type == BAM_CDEL) {
+            if (var_from_cons_idx[i] == 3) { // both
+                delta_ref_alt += var_ref_len;
+            } else {
+                if (var_from_cons_idx[i] == clu_idx) delta_ref_alt += var_ref_len;
+            }
+        }
+    }
+    // update allele_i for overlapping vars
+    for (int i = 0; i < n_vars; ++i) {
+        int n_ovlp_vars = 0; int *ovlp_vars = (int *)malloc(n_vars * sizeof(int));
+        for (int j = 0; j < n_vars; ++j) {
+            if (j == i) continue;
+            if (vars[j].pos > vars[i].pos + vars[i].ref_len) break;
+            if (ovlp_cand_vars(vars+i, vars+j)) {
+                ovlp_vars[n_ovlp_vars++] = j;
+            }
+        }
+        if (p->alleles[i - p->start_var_idx] == 1) {
+            for (int j = 0; j < n_ovlp_vars; ++j) {
+                int var_i = ovlp_vars[j];
+                p->alleles[var_i - p->start_var_idx] = 0;
+            }
+        }
+        free(ovlp_vars);
+    }
+    free(_cons_seq); free(_ref_seq); free(_cons_read_seq); free(_ref_read_seq);
+}
+
+// msa_seqs: clu_n_seqs + cons + cons from the other haplotype
+int update_cand_var_profile_from_msa_aln2(bam_chunk_t *chunk, int *clu_n_seqs, int **clu_read_ids, int *msa_lens, uint8_t ***msa_seqs, 
+                                          hts_pos_t noisy_reg_beg, cand_var_t *hap1_vars, int *hap1_var_cate, int n_hap1_vars, cand_var_t *hap2_vars, int *hap2_var_cate, int n_hap2_vars, 
+                                          cand_var_t **noisy_vars, int **noisy_var_cate, read_var_profile_t **p) {
+    if (n_hap1_vars + n_hap2_vars == 0) return 0;
+    int n_vars = 0;
+    (*noisy_vars) = (cand_var_t *)malloc((n_hap1_vars + n_hap2_vars) * sizeof(cand_var_t));
+    (*noisy_var_cate) = (int *)malloc((n_hap1_vars + n_hap2_vars) * sizeof(int));
+    int i1 = 0, i2 = 0;
+    int *var_from_cons_idx = (int *)malloc((n_hap1_vars + n_hap2_vars) * sizeof(int));
+    for (; i1 < n_hap1_vars && i2 < n_hap2_vars; ) {
+        int ret = comp_cand_var(hap1_vars + i1, hap2_vars + i2);
+        if (ret < 0) {
+            (*noisy_var_cate)[n_vars] = LONGCALLD_NOISY_CAND_HET_VAR;
+            var_from_cons_idx[n_vars] = 1;
+            (*noisy_vars)[n_vars++] = hap1_vars[i1++];
+        } else if (ret > 0) {
+            (*noisy_var_cate)[n_vars] = LONGCALLD_NOISY_CAND_HET_VAR;
+            var_from_cons_idx[n_vars] = 2;
+            (*noisy_vars)[n_vars++] = hap2_vars[i2++];
+        } else {
+            (*noisy_var_cate)[n_vars] = LONGCALLD_NOISY_CAND_HOM_VAR;
+            var_from_cons_idx[n_vars] = 3; // both
+            (*noisy_vars)[n_vars++] = hap1_vars[i1++];
+            free_noisy_cand_vars1(hap2_vars + i2); i2++;
+        }
+    } 
+    for (; i1 < n_hap1_vars; ++i1) {
+        (*noisy_var_cate)[n_vars] = LONGCALLD_NOISY_CAND_HET_VAR;
+        var_from_cons_idx[n_vars] = 1;
+        (*noisy_vars)[n_vars++] = hap1_vars[i1];
+    }
+    for (; i2 < n_hap2_vars; ++i2) {
+        (*noisy_var_cate)[n_vars] = LONGCALLD_NOISY_CAND_HET_VAR;
+        var_from_cons_idx[n_vars] = 2;
+        (*noisy_vars)[n_vars++] = hap2_vars[i2];
+    }
+    // collect read_var_profile for each read and each var
+    *p = init_read_var_profile(chunk->n_reads, n_vars);
+    int p_i = 0;
+    for (int i = 0; i < 2; ++i) {
+        uint8_t *same_cons_seq = msa_seqs[i][0];
+        uint8_t *ref_seq = msa_seqs[i][1];
+        // uint8_t *diff_cons_seq = msa_seqs[i][clu_n_seqs[i]+1];
+        for (int j = 0; j < clu_n_seqs[i]; ++j) {
+            int read_id = clu_read_ids[i][j];
+            read_var_profile_t *p1 = *p + read_id;
+            if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "read: %s\n", bam_get_qname(chunk->reads[read_id]));
+            uint8_t *read_seq = msa_seqs[i][2+j];
+            update_cand_var_profile_from_msa_cons_ref_aln21(i+1, msa_lens[i], same_cons_seq, ref_seq, read_seq, noisy_reg_beg, *noisy_vars, n_vars, var_from_cons_idx, p1);
+            p_i++;
+        }
+    }
+    free(var_from_cons_idx);
+    return n_vars;
+}
+// XXX allow partial-aligned reads
+// msa_seqs: ref + cons + clu_n_seqs
+int make_vars_from_msa_cons_aln(const call_var_opt_t *opt, bam_chunk_t *chunk, int n_reads, int *read_ids, hts_pos_t noisy_reg_beg, hts_pos_t noisy_reg_end, hts_pos_t active_reg_beg, hts_pos_t active_reg_end,
+                                int n_cons, uint8_t **cons_seqs, int *cons_lens, int *clu_n_seqs, int **clu_read_ids, int *msa_lens, uint8_t ***msa_seqs,
+                                cand_var_t **noisy_vars, int **noisy_var_cate, read_var_profile_t **p) {
+    if (n_cons == 0) return 0;
+    // char *ref_cseq = NULL, *chunk_ref_seq = chunk->ref_seq; 
+    // int ref_seq_len = collect_reg_ref_cseq(chunk, noisy_reg_beg, noisy_reg_end, &ref_cseq);
+    // hts_pos_t chunk_ref_seq_beg = chunk->ref_beg, chunk_ref_seq_end = chunk->ref_end;
+    // uint8_t *ref_seq = NULL; int ref_seq_len = collect_reg_ref_bseq(chunk, noisy_reg_beg, noisy_reg_end, &ref_seq);
+
+
+    // WFA for ref vs cons1/2
+    int n_vars = 0, n_hap1_vars = 0, n_hap2_vars = 0;
+    cand_var_t *hap1_vars = NULL, *hap2_vars = NULL; int *hap1_var_cate=NULL, *hap2_var_cate=NULL; read_var_profile_t *p1 = NULL, *p2 = NULL;
+    // uint8_t **ref_cons_msa_seq = NULL; // size: (1+n_cons) * ref_cons_msa_len, ref/cons1/cons2
+    // int ref_cons_msa_len = collect_ref_cons_msa_seqs(ref_seq, ref_seq_len, cons_seqs, cons_lens, n_cons, &ref_cons_msa_seq);
+    for (int i = 0; i < n_cons; ++i) {
+        uint32_t *cigar_buf = NULL;
+        // int cigar_len = end2end_aln(opt, ref_cseq, ref_seq_len, cons_seqs[i], cons_lens[i], &cigar_buf);
+        if (n_cons == 1) {
+            // n_vars = make_cand_vars_from_aln0(chunk->tid, noisy_reg_beg, active_reg_beg, active_reg_end,
+                                            //   cons_seqs[i], cons_lens[i], cigar_buf, cigar_len, noisy_vars);
+            // n_vars = make_cand_vars_from_msa(chunk->tid, noisy_reg_beg, active_reg_beg, active_reg_end, 
+                                            //  ref_cons_msa_seq[0], ref_cons_msa_seq[1], ref_cons_msa_len, noisy_vars);
+            uint8_t *ref_seq = msa_seqs[0][1], *cons_seq = msa_seqs[0][0]; int msa_len = msa_lens[0];
+            n_vars = make_cand_vars_from_msa(chunk->tid, noisy_reg_beg, active_reg_beg, active_reg_end, 
+                                             ref_seq, cons_seq, msa_len, noisy_vars, noisy_var_cate);
+            if (n_vars > 0) {
+                *p = init_read_var_profile(chunk->n_reads, n_vars);
+                update_cand_var_profile_from_msa_aln1(clu_n_seqs[0], clu_read_ids[0], msa_lens[0], msa_seqs[0], noisy_reg_beg, *noisy_vars, n_vars, *p);
+            } else free(*noisy_vars);
+        } else {
+            if (i == 0) {
+                // n_hap1_vars = make_cand_vars_from_aln0(chunk->tid, noisy_reg_beg, active_reg_beg, active_reg_end,
+                                                    //    cons_seqs[i], cons_lens[i], cigar_buf, cigar_len, &hap1_vars);
+                // n_hap1_vars = make_cand_vars_from_msa(chunk->tid, noisy_reg_beg, active_reg_beg, active_reg_end,
+                                                    //   ref_cons_msa_seq[0], ref_cons_msa_seq[1], ref_cons_msa_len, &hap1_vars);
+                uint8_t *ref_seq = msa_seqs[0][1], *cons_seq = msa_seqs[0][0]; int msa_len = msa_lens[0];
+                n_hap1_vars = make_cand_vars_from_msa(chunk->tid, noisy_reg_beg, active_reg_beg, active_reg_end,
+                                                      ref_seq, cons_seq, msa_len, &hap1_vars, &hap1_var_cate);
+                // p1 = init_read_var_profile2(clu_n_seqs[0], clu_read_ids[0], n_hap1_vars);
+                // update_cand_var_profile_from_msa_aln1(clu_n_seqs[i], msa_len[i], msa_seqs[i], noisy_reg_beg, hap1_vars, n_hap1_vars, p1);
+                // if (LONGCALLD_VERBOSE >= 2) {
+                //     for (int j = 0; j < clu_n_seqs[0]; ++j) {
+                //         int read_id = clu_read_ids[0][j];
+                //         fprintf(stderr, "Hap1-Read: %s start_var_i: %d, end_var_i: %d\n", bam_get_qname(chunk->reads[read_id]), p1[j].start_var_idx, p1[j].end_var_idx);
+                //         for (int k = 0; k <= p1[j].end_var_idx-p1[j].start_var_idx; ++k) {
+                //             fprintf(stderr, "P\tVar: (%d) %" PRId64 "", k, hap1_vars[k+p1[j].start_var_idx].pos);
+                //             fprintf(stderr, " %d-%c-%d, allele: %d\n", hap1_vars[k+p1[j].start_var_idx].ref_len, BAM_CIGAR_STR[hap1_vars[k+p1[j].start_var_idx].var_type], hap1_vars[k+p1[j].start_var_idx].alt_len, p1[j].alleles[k]);
+                //         }
+                //     }
+                // }
+            } else if (i == 1) {
+                // n_hap2_vars = make_cand_vars_from_aln0(chunk->tid, noisy_reg_beg, active_reg_beg, active_reg_end,
+                                                    //    cons_seqs[i], cons_lens[i], cigar_buf, cigar_len, &hap2_vars);
+                // n_hap2_vars = make_cand_vars_from_msa(chunk->tid, noisy_reg_beg, active_reg_beg, active_reg_end,
+                                                    //   ref_cons_msa_seq[0], ref_cons_msa_seq[2], ref_cons_msa_len, &hap2_vars);
+                uint8_t *ref_seq = msa_seqs[1][1], *cons_seq = msa_seqs[1][0]; int msa_len = msa_lens[1];
+                n_hap2_vars = make_cand_vars_from_msa(chunk->tid, noisy_reg_beg, active_reg_beg, active_reg_end,
+                                                      ref_seq, cons_seq, msa_len, &hap2_vars, &hap2_var_cate);
+                // p2 = init_read_var_profile2(clu_n_seqs[1], clu_read_ids[1], n_hap2_vars);
+                // update_cand_var_profile_from_msa_aln1(clu_n_seqs[i], msa_len[i], msa_seqs[i], noisy_reg_beg, hap2_vars, n_hap2_vars, p2);
+                // if (LONGCALLD_VERBOSE >= 2) {
+                //     for (int j = 0; j < clu_n_seqs[1]; ++j) {
+                //         int read_id = clu_read_ids[1][j];
+                //         fprintf(stderr, "Hap2-Read: %s start_var_i: %d, end_var_i: %d\n", bam_get_qname(chunk->reads[read_id]), p2[j].start_var_idx, p2[j].end_var_idx);
+                //         for (int k = 0; k <= p2[i].end_var_idx-p2[j].start_var_idx; ++k) {
+                //             fprintf(stderr, "P\tVar: (%d) %" PRId64 "", k, hap2_vars[k+p2[j].start_var_idx].pos);
+                //             fprintf(stderr, " %d-%c-%d, allele: %d\n", hap2_vars[k+p2[j].start_var_idx].ref_len, BAM_CIGAR_STR[hap2_vars[k+p2[j].start_var_idx].var_type], hap2_vars[k+p2[j].start_var_idx].alt_len, p2[j].alleles[k]);
+                //         }
+                //     }
+                // }
+            }
+        }
+        if (cigar_buf != NULL) free(cigar_buf);
+    }
+    if (LONGCALLD_VERBOSE >= 2) {
+        for (int i = 0; i < n_vars; ++i)
+            fprintf(stderr, "HOM: %" PRId64 ", %d-%c-%d\n", (*noisy_vars)[i].pos, (*noisy_vars)[i].ref_len, BAM_CIGAR_STR[(*noisy_vars)[i].var_type], (*noisy_vars)[i].alt_len);
+    }
+    if (n_cons == 2) {
+        n_vars = update_cand_var_profile_from_msa_aln2(chunk, clu_n_seqs, clu_read_ids, msa_lens, msa_seqs, noisy_reg_beg,
+                                                       hap1_vars, hap1_var_cate, n_hap1_vars, hap2_vars, hap2_var_cate, n_hap2_vars, noisy_vars, noisy_var_cate, p);
+        if (LONGCALLD_VERBOSE >= 2 && n_vars > 0) {
+            for (int i = 0; i < n_vars; ++i) {
+                fprintf(stderr, "Var: %" PRId64 ", %d-%c-%d %d(%d,%d)\t", (*noisy_vars)[i].pos, (*noisy_vars)[i].ref_len, BAM_CIGAR_STR[(*noisy_vars)[i].var_type], (*noisy_vars)[i].alt_len, (*noisy_vars)[i].n_depth, (*noisy_vars)[i].alle_covs[0], (*noisy_vars)[i].alle_covs[1]);
+                for (int l = 0; l < (*noisy_vars)[i].alt_len; ++l) {
+                    fprintf(stderr, "%c", "ACGTN-"[(*noisy_vars)[i].alt_seq[l]]);
+                } fprintf(stderr, "\n");
+            }
+            for (int i = 0; i < n_cons; ++i) {
+                for (int j = 0; j < clu_n_seqs[i]; ++j) {
+                    int read_id = clu_read_ids[i][j];
+                    read_var_profile_t *p1 = *p + read_id;
+                    fprintf(stderr, "Hap%d-Read: %s start_var_i: %d, end_var_i: %d\n", i+1, bam_get_qname(chunk->reads[read_id]), p1->start_var_idx, p1->end_var_idx);
+                    for (int k = 0; k <= p1->end_var_idx-p1->start_var_idx; ++k) {
+                        fprintf(stderr, "P\tVar: (%d) %" PRId64 "", k, (*noisy_vars)[k+p1->start_var_idx].pos);
+                        fprintf(stderr, " %d-%c-%d, allele: %d\n", (*noisy_vars)[k+p1->start_var_idx].ref_len, BAM_CIGAR_STR[(*noisy_vars)[k+p1->start_var_idx].var_type], (*noisy_vars)[k+p1->start_var_idx].alt_len, p1->alleles[k]);
+                    }
+                }
+            }
+        }
+        free(hap1_vars); free(hap1_var_cate); free(hap2_vars); free(hap2_var_cate);
+    }
+    return n_vars;
+}
+
+int make_vars_from_msa(const call_var_opt_t *opt, bam_chunk_t *chunk, hts_pos_t reg_beg, hts_pos_t reg_end, uint8_t **cons_seqs, int *cons_lens, int n_cons, var_t **vars) {
     if (n_cons == 0) return 0;
     uint8_t *ref_seq = NULL;
     int ref_seq_len = collect_reg_ref_bseq(chunk, reg_beg, reg_end, &ref_seq);
     // MSA for ref + cons1 + cons2 -> collect variant based on MSA result
     uint8_t **msa_seqs = NULL;
-    int msa_len = collect_msa_seqs(ref_seq, ref_seq_len, cons_seqs, cons_lens, n_cons, &msa_seqs);
+    int msa_len = collect_ref_cons_msa_seqs(opt, ref_seq, ref_seq_len, cons_seqs, cons_lens, n_cons, &msa_seqs);
 
     var_t *hap1_vars = NULL, *hap2_vars = NULL;
     int n_hap1_vars = 0, n_hap2_vars = 0, n_vars = 0;
@@ -1397,89 +2162,169 @@ int collect_homo_vars(bam_chunk_t *chunk, var_t *var, int var_cate, call_var_opt
 // 4. (*optional*) re-generate consensus sequence using all reads
 // 5. collect candidate variants based on MSA of ref + cons1 + cons2
 // 6. update cand_var & read_var_profile
-int collect_noisy_vars(bam_chunk_t *chunk, var_t *var, const call_var_opt_t *opt) {
-    collect_noisy_reg_reads(chunk);
-    // 1) update read_var_profile for target_var_cate using re-alignment
-    // merge_replace
+// call variant for noisy_reg_i, return 0 if no variant is called
+int collect_noisy_vars1(bam_chunk_t *chunk, const call_var_opt_t *opt, int noisy_reg_i) {
+    cgranges_t *noisy_regs = chunk->chunk_noisy_regs;
+    hts_pos_t noisy_reg_beg = cr_start(noisy_regs, noisy_reg_i), noisy_reg_end = cr_end(noisy_regs, noisy_reg_i);
+    hts_pos_t active_reg_beg = chunk->reg_beg, active_reg_end = chunk->reg_end;
 
-    // 2) collect candidate variants in noisy region, insert into cand_vars, then collect read_var_profile
-    // merge_insert
-    int n_vars = 0; hts_pos_t active_reg_beg = chunk->reg_beg, active_reg_end = chunk->reg_end;
+    double realtime0 = realtime();
+    int *noisy_reads; int n_noisy_reads = collect_noisy_reg_reads1(chunk, noisy_reg_beg, noisy_reg_end, noisy_reg_i, &noisy_reads);
+    int n_cons = 0; int *cons_lens = (int*)calloc(2, sizeof(int)); uint8_t **cons_seqs = (uint8_t**)malloc(2 * sizeof(uint8_t*));
+    int *clu_n_seqs = (int*)calloc(2, sizeof(int)); int **clu_read_ids = (int**)malloc(2 * sizeof(int*)); int *msa_len = (int*)calloc(2, sizeof(int));
+    uint8_t ***msa_seqs = (uint8_t***)malloc(2 * sizeof(uint8_t**));
+    for (int i = 0; i < 2; ++i) {
+        cons_seqs[i] = NULL;
+        clu_read_ids[i] = NULL;
+        msa_seqs[i] = (uint8_t**)malloc((n_noisy_reads+2) * sizeof(uint8_t*)); // n_reads+n_cons
+        for (int j = 0; j < n_noisy_reads+2; ++j) msa_seqs[i][j] = NULL;
+    }
+
+    fprintf(stderr, "NoisyReg: chunk_reg: %s:%ld-%ld, reg: %s:%ld-%ld %ld (%d)\n", chunk->tname, chunk->reg_beg, chunk->reg_end, 
+                    chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end-noisy_reg_beg, n_noisy_reads);
+    uint8_t *ref_seq = NULL; int ref_seq_len = collect_reg_ref_bseq(chunk, noisy_reg_beg, noisy_reg_end, &ref_seq);
+    int n_noisy_vars = 0;
+    // MSA and consensus calling
+    n_cons = collect_noisy_reg_msa_cons(opt, chunk, noisy_reg_beg, noisy_reg_end, noisy_reg_i, n_noisy_reads, noisy_reads, ref_seq, ref_seq_len, // both cons_seqs and msa_seqs are separated for n_cons==2
+                                        cons_lens, cons_seqs, clu_n_seqs, clu_read_ids, msa_len, msa_seqs);
+    fprintf(stderr, "n_cons: %d\n", n_cons);
+    free(ref_seq);
+    if (n_cons == 0) {
+        if (LONGCALLD_VERBOSE >= 0)
+            fprintf(stderr, "Skipped region: %s:%ld-%ld %ld %d reads\n", chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end-noisy_reg_beg+1, n_noisy_reads);
+        n_noisy_vars = -1;
+        goto collect_noisy_vars1_end;
+    }
+
+    cand_var_t *noisy_vars = NULL; int *noisy_var_cate=NULL; read_var_profile_t *noisy_rvp = NULL;
+    // make variants and update cand_vars & read_var_profile
+    n_noisy_vars = make_vars_from_msa_cons_aln(opt, chunk, n_noisy_reads, noisy_reads, noisy_reg_beg, noisy_reg_end, active_reg_beg, active_reg_end, 
+                                               n_cons, cons_seqs, cons_lens, clu_n_seqs, clu_read_ids, msa_len, msa_seqs,
+                                               &noisy_vars, &noisy_var_cate, &noisy_rvp);
+    int n_total_reads = 0;
+    for (int i = 0; i < n_cons; ++i) n_total_reads += clu_n_seqs[i];
+    merge_var_profile(chunk, n_total_reads, n_noisy_vars, noisy_vars, noisy_var_cate, noisy_rvp);
+    if (LONGCALLD_VERBOSE >= 0) {
+        fprintf(stderr, "NoisyReg: chunk_reg: %s:%ld-%ld, reg: %s:%ld-%ld %ld (%d)\t", chunk->tname, chunk->reg_beg, chunk->reg_end, 
+                        chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end-noisy_reg_beg, n_noisy_reads);
+        fprintf(stderr, "Real time: %.3f sec.\n", realtime() - realtime0);
+    }
+    free(noisy_var_cate);
+collect_noisy_vars1_end:
+    for (int i = 0; i < 2; ++i) {
+        if (cons_seqs[i] != NULL) free(cons_seqs[i]);
+        if (clu_read_ids[i] != NULL) free(clu_read_ids[i]);
+        for (int j = 0; j < n_noisy_reads+2; ++j) {
+            if (msa_seqs[i][j] != NULL) free(msa_seqs[i][j]);
+        }
+        free(msa_seqs[i]);
+    } free(cons_lens); free(cons_seqs); free(clu_n_seqs); free(clu_read_ids); free(msa_len); free(msa_seqs); free(noisy_reads);
+    return n_noisy_vars;
+}
+
+// XXX
+// sort noisy regions by length, full-cover & phased read counts, from short to long
+int *sort_noisy_regs(bam_chunk_t *chunk) {
     cgranges_t *noisy_regs = chunk->chunk_noisy_regs;
     int n_noisy_regs = noisy_regs->n_r;
-
-    // iteratively call consensus sequences for noisy regions
-    // sort noisy regions based on region length, from short to long
-    int *sorted_noisy_regs = (int*)malloc(n_noisy_regs * sizeof(int)), *noisy_reg_lens = (int*)malloc(n_noisy_regs * sizeof(int));
+    int *sorted_noisy_regs = (int*)malloc(n_noisy_regs * sizeof(int));
+    int *noisy_reg_lens = (int*)malloc(n_noisy_regs * sizeof(int));
+    int *noisy_reg_labels = (int*)malloc(n_noisy_regs * sizeof(int));
     for (int i = 0; i < n_noisy_regs; ++i) {
         noisy_reg_lens[i] = cr_end(noisy_regs, i) - cr_start(noisy_regs, i);
+        noisy_reg_labels[i] = cr_label(noisy_regs, i);
         sorted_noisy_regs[i] = i;
     }
     for (int i = 0; i < n_noisy_regs; ++i) {
         for (int j = i+1; j < n_noisy_regs; ++j) {
             if (noisy_reg_lens[sorted_noisy_regs[i]] > noisy_reg_lens[sorted_noisy_regs[j]]) {
                 int tmp = sorted_noisy_regs[i]; sorted_noisy_regs[i] = sorted_noisy_regs[j]; sorted_noisy_regs[j] = tmp;
+            } else if (noisy_reg_lens[sorted_noisy_regs[i]] == noisy_reg_lens[sorted_noisy_regs[j]]) {
+                if (noisy_reg_labels[sorted_noisy_regs[i]] > noisy_reg_labels[sorted_noisy_regs[j]]) {
+                    int tmp = sorted_noisy_regs[i]; sorted_noisy_regs[i] = sorted_noisy_regs[j]; sorted_noisy_regs[j] = tmp;
+                }
             }
         }
     }
-    // some regions may be skipped first and then called later after other regions are processed
-    int *noisy_reg_is_done = (int*)calloc(n_noisy_regs, sizeof(int));
-    while (1) {
-        int newly_done = 0;
-        for (int _i = 0; _i < n_noisy_regs; ++_i) {
-            int reg_i = sorted_noisy_regs[_i];
-            // if (noisy_reg_is_done[reg_i]) continue;
-            // collect candicate variants in noisy region based on XID-profile
-            hts_pos_t noisy_reg_beg = cr_start(noisy_regs, reg_i), noisy_reg_end = cr_end(noisy_regs, reg_i);
-            if (noisy_reg_end - noisy_reg_beg > opt->max_noisy_reg_len) {
-                fprintf(stderr, "Skipped (>%d) noisy region: %s:%ld-%ld %ld\n", opt->max_noisy_reg_len, chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end - noisy_reg_beg);
-                continue; // XXX
-            }
-            if (LONGCALLD_VERBOSE >= 2)
-                fprintf(stderr, "NoisyReg: chunk_reg: %s:%ld-%ld, reg: %s:%ld-%ld %d (all)\n", chunk->tname, chunk->reg_beg, chunk->reg_end, chunk->tname, noisy_reg_beg, noisy_reg_end, cr_label(chunk->chunk_noisy_regs, reg_i));
-            // collect medoid reads and candidate genotype sequences for each noisy region
-            int n_cons = 0; int *cons_lens = (int*)calloc(2, sizeof(int)); uint8_t **cons_seqs = (uint8_t**)malloc(2 * sizeof(uint8_t*));
-            for (int j = 0; j < 2; ++j) cons_seqs[j] = NULL;
-            n_cons = collect_noisy_reg_cons_seqs0(opt, chunk, reg_i, cons_lens, cons_seqs);
-            if (n_cons == 0) continue;
-            var_t *noisy_vars = NULL;
-            // int n_noisy_vars = make_vars_from_msa(chunk, noisy_reg_beg, noisy_reg_end, cons_seqs, cons_lens, n_cons, &noisy_vars);
-            int n_noisy_vars = make_vars_from_cons_aln(opt, chunk, noisy_reg_beg, noisy_reg_end, active_reg_beg, active_reg_end, cons_seqs, cons_lens, n_cons, &noisy_vars);
-            if (n_noisy_vars > 0) merge_vars(var, noisy_vars);
-            if (noisy_vars != NULL) {
-                free(noisy_vars->vars); free(noisy_vars);
-            }
-            free(cons_lens);
-            for (int j = 0; j < 2; ++j) {
-                if (cons_seqs[j] != NULL) free(cons_seqs[j]);
-            } free(cons_seqs);
-            // noisy_reg_is_done[reg_i] = 1;
-            newly_done = 1;
-            // read_var_profile_t *p = collect_noisy_read_var_profile(chunk, i, n_cand_vars, cand_vars);
-            // insert cand_vars into chunk->cand_vars
-            // insert p into chunk->read_var_profile
-        }
-        break; //XXX
-        if (newly_done == 0) break;
-    }
-    free(noisy_reg_lens); free(sorted_noisy_regs); free(noisy_reg_is_done);
-    return 0;
+    free(noisy_reg_lens); free(noisy_reg_labels);
+    return sorted_noisy_regs;
 }
 
+// int collect_noisy_vars(bam_chunk_t *chunk, const call_var_opt_t *opt) {
+//     int n_vars = 0; hts_pos_t active_reg_beg = chunk->reg_beg, active_reg_end = chunk->reg_end;
+//     cgranges_t *noisy_regs = chunk->chunk_noisy_regs;
+//     int n_noisy_regs = noisy_regs->n_r;
+
+//     // iteratively call consensus sequences for noisy regions
+//     // sort noisy regions based on region length, from short to long
+//     int *sorted_noisy_regs = (int*)malloc(n_noisy_regs * sizeof(int)), *noisy_reg_lens = (int*)malloc(n_noisy_regs * sizeof(int));
+//     for (int i = 0; i < n_noisy_regs; ++i) {
+//         noisy_reg_lens[i] = cr_end(noisy_regs, i) - cr_start(noisy_regs, i);
+//         sorted_noisy_regs[i] = i;
+//     }
+//     for (int i = 0; i < n_noisy_regs; ++i) {
+//         for (int j = i+1; j < n_noisy_regs; ++j) {
+//             if (noisy_reg_lens[sorted_noisy_regs[i]] > noisy_reg_lens[sorted_noisy_regs[j]]) {
+//                 int tmp = sorted_noisy_regs[i]; sorted_noisy_regs[i] = sorted_noisy_regs[j]; sorted_noisy_regs[j] = tmp;
+//             }
+//         }
+//     }
+//     // some regions may be skipped first and then called later after other regions are processed
+//     int *noisy_reg_is_done = (int*)calloc(n_noisy_regs, sizeof(int));
+//     for (int _i = 0; _i < n_noisy_regs; ++_i) {
+//         int reg_i = sorted_noisy_regs[_i];
+//         // if (noisy_reg_is_done[reg_i]) continue;
+//         // collect candicate variants in noisy region based on XID-profile
+//         hts_pos_t noisy_reg_beg = cr_start(noisy_regs, reg_i), noisy_reg_end = cr_end(noisy_regs, reg_i);
+//         if (noisy_reg_end - noisy_reg_beg > opt->max_noisy_reg_len) {
+//             fprintf(stderr, "Skipped (>%d) noisy region: %s:%ld-%ld %ld\n", opt->max_noisy_reg_len, chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end - noisy_reg_beg);
+//             continue; // XXX
+//         }
+//         if (LONGCALLD_VERBOSE >= 2)
+//             fprintf(stderr, "NoisyReg: chunk_reg: %s:%ld-%ld, reg: %s:%ld-%ld %d (all)\n", chunk->tname, chunk->reg_beg, chunk->reg_end, chunk->tname, noisy_reg_beg, noisy_reg_end, cr_label(chunk->chunk_noisy_regs, reg_i));
+        
+//         // MSA and consensus calling
+//         int n_cons = 0; int *cons_lens = (int*)calloc(2, sizeof(int)); uint8_t **cons_seqs = (uint8_t**)malloc(2 * sizeof(uint8_t*));
+//         int *msa_len = (int*)calloc(2, sizeof(int)); int *msa_n_seqs = (int*)calloc(2, sizeof(int));
+//         uint8_t ***msa_seqs = (uint8_t***)malloc(2 * sizeof(uint8_t**));
+//         for (int j = 0; j < 2; ++j) {
+//             cons_seqs[j] = NULL; msa_seqs[j] = NULL;
+//         }
+//         n_cons = collect_noisy_reg_msa_cons(opt, chunk, reg_i, cons_lens, cons_seqs, msa_n_seqs, msa_len, msa_seqs);
+//         if (n_cons == 0) continue;
+
+//         // make variants and update cand_var & read_var_profile
+//         cand_var_t *noisy_vars = NULL; read_var_profile_t *noisy_rvp = NULL;
+//         int n_noisy_vars = make_vars_from_msa_cons_aln(opt, chunk, noisy_reg_beg, noisy_reg_end, active_reg_beg, active_reg_end, 
+//                                                        n_cons, cons_seqs, cons_lens, msa_n_seqs, msa_len, msa_seqs,
+//                                                        &noisy_vars, &noisy_rvp);
+//         free(cons_lens);
+//         for (int j = 0; j < 2; ++j) {
+//             if (cons_seqs[j] != NULL) free(cons_seqs[j]);
+//             if (msa_seqs[j] != NULL) {
+//                 for (int k = 0; k < msa_n_seqs[j]; ++k) free(msa_seqs[j][k]);
+//                 free(msa_seqs[j]);
+//             }
+//         } free(cons_seqs); free(msa_n_seqs); free(msa_len); free(msa_seqs);
+//         // noisy_reg_is_done[reg_i] = 1;
+//         merge_var_profile(chunk, n_noisy_vars, noisy_vars, noisy_rvp);
+//     }
+//     free(noisy_reg_lens); free(sorted_noisy_regs); free(noisy_reg_is_done);
+//     return 0;
+// }
+
+// remove noisy_regions that have low coverage, i.e., either low ratio or low absolute read count
 void pre_process_noisy_regs(bam_chunk_t *chunk, call_var_opt_t *opt) {
     if (chunk->chunk_noisy_regs == NULL || chunk->chunk_noisy_regs->n_r == 0) return;
     cr_index(chunk->chunk_noisy_regs);
     chunk->chunk_noisy_regs = cr_merge(chunk->chunk_noisy_regs);
 
-    // for (int i = 0; i < chunk->chunk_noisy_regs->n_r; ++i) {
-        // fprintf(stderr, "ChunkNoisyRegs: %s:%d-%d %d\n", chunk->tname, cr_start(chunk->chunk_noisy_regs, i), cr_end(chunk->chunk_noisy_regs, i), cr_label(chunk->chunk_noisy_regs, i));
-    // }
-    // remove noisy_regions that have low coverage, i.e., either low ratio or low absolute read count
     cgranges_t *noisy_regs = chunk->chunk_noisy_regs;
     int64_t ovlp_i, ovlp_n, *ovlp_b = 0, max_b = 0;
     hts_pos_t beg, end;
     uint8_t *skip_noisy_reg = (uint8_t*)calloc(noisy_regs->n_r, sizeof(uint8_t));
     int *noisy_reg_to_total_n_reads = (int*)calloc(noisy_regs->n_r, sizeof(int));
+    int *noisy_reg_to_noisy_reads = (int*)calloc(noisy_regs->n_r, sizeof(int));
     
     for (int i = 0; i < chunk->n_reads; ++i) {
         if (chunk->is_skipped[i]) continue;
@@ -1489,14 +2334,25 @@ void pre_process_noisy_regs(bam_chunk_t *chunk, call_var_opt_t *opt) {
         for (ovlp_i = 0; ovlp_i < ovlp_n; ++ovlp_i) {
             int r_i = ovlp_b[ovlp_i];
             noisy_reg_to_total_n_reads[r_i]++;
+            // check if the read is noisy in the region XXX
+            int noisy_reg_start = cr_start(noisy_regs, r_i), noisy_reg_end = cr_end(noisy_regs, r_i);
+            int64_t noisy_digar_ovlp_n, *noisy_digar_ovlp_b = 0, noisy_digar_max_b = 0;
+            noisy_digar_ovlp_n = cr_overlap(chunk->digars[i].noisy_regs, "cr", noisy_reg_start, noisy_reg_end, &noisy_digar_ovlp_b, &noisy_digar_max_b);
+            if (noisy_digar_ovlp_n > 0) {
+                noisy_reg_to_noisy_reads[r_i]++;
+            }
+            free(noisy_digar_ovlp_b);
         }
     }
-    int min_noisy_reg_reads = opt->min_noisy_reg_reads; float min_noisy_reg_ratio = opt->min_noisy_reg_ratio;
+    int min_noisy_reg_reads = opt->min_noisy_reg_reads; //, max_noisy_reg_reads = opt->max_noisy_reg_reads;
+    float min_noisy_reg_ratio = opt->min_noisy_reg_ratio;
     int n_skipped = 0;
     for (int i = 0; i < noisy_regs->n_r; ++i) {
-        int n_noisy_reg_reads = cr_label(noisy_regs, i);
-        if (n_noisy_reg_reads < min_noisy_reg_reads || (float)n_noisy_reg_reads/noisy_reg_to_total_n_reads[i] < min_noisy_reg_ratio) {
+        int n_noisy_reg_reads = noisy_reg_to_noisy_reads[i];
+        if (n_noisy_reg_reads < min_noisy_reg_reads // || noisy_reg_to_total_n_reads[i] > max_noisy_reg_reads
+            || (float)n_noisy_reg_reads/noisy_reg_to_total_n_reads[i] < min_noisy_reg_ratio) {
             skip_noisy_reg[i] = 1;
+            fprintf(stderr, "Skipped region: %s:%d-%d noisy: %d, total: %d\n", chunk->tname, cr_start(noisy_regs, i), cr_end(noisy_regs, i), n_noisy_reg_reads, noisy_reg_to_total_n_reads[i]);
             n_skipped++;
         }
     }
@@ -1509,77 +2365,141 @@ void pre_process_noisy_regs(bam_chunk_t *chunk, call_var_opt_t *opt) {
         cr_index(new_noisy_regs); cr_destroy(noisy_regs);
         chunk->chunk_noisy_regs = new_noisy_regs;
     }
-    free(ovlp_b); free(skip_noisy_reg); free(noisy_reg_to_total_n_reads);
+    free(ovlp_b); free(skip_noisy_reg); free(noisy_reg_to_total_n_reads); free(noisy_reg_to_noisy_reads);
 }
 
-void collect_var_main(const call_var_pl_t *pl, bam_chunk_t *chunk, var_t *var) {
+// extend noisy regions by flanking length without any vars, up to noisy_reg_flank_len
+void post_process_noisy_regs(bam_chunk_t *chunk, call_var_opt_t *opt) {
+    cgranges_t *chunk_noisy_regs = chunk->chunk_noisy_regs;
+    int n_noisy_regs = chunk_noisy_regs->n_r;
+    int max_noisy_reg_reads = opt->max_noisy_reg_reads;
+    int *noisy_reg_to_total_n_reads = (int*)calloc(chunk_noisy_regs->n_r, sizeof(int));
+    
+    int64_t ovlp_i, ovlp_n, *ovlp_b = 0, max_b = 0;
+    for (int i = 0; i < chunk->n_reads; ++i) {
+        if (chunk->is_skipped[i]) continue;
+        bam1_t *read = chunk->reads[i];
+        hts_pos_t beg = chunk->digars[i].beg, end = chunk->digars[i].end;
+        ovlp_n = cr_overlap(chunk_noisy_regs, "cr", beg-1, end, &ovlp_b, &max_b);
+        for (ovlp_i = 0; ovlp_i < ovlp_n; ++ovlp_i) {
+            int r_i = ovlp_b[ovlp_i];
+            noisy_reg_to_total_n_reads[r_i]++;
+        }
+    }
+
+    int *first_left_vars = (int*)malloc(n_noisy_regs * sizeof(hts_pos_t)), *first_right_vars = (int*)malloc(n_noisy_regs * sizeof(hts_pos_t));
+    for (int i = 0; i < n_noisy_regs; ++i) {
+        first_left_vars[i] = first_right_vars[i] = -1;
+    }
+    int var_i = 0, reg_i = 0;
+    for (; var_i < chunk->n_cand_vars && reg_i < n_noisy_regs; ) {
+        cand_var_t *cand_var = chunk->cand_vars + var_i;
+        hts_pos_t var_start = cand_var->pos;
+        // if (cand_var->var_type != BAM_CDIFF) var_start--;
+        hts_pos_t var_end = var_start + chunk->cand_vars[var_i].ref_len-1;
+        hts_pos_t reg_start = cr_start(chunk->chunk_noisy_regs, reg_i), reg_end = cr_end(chunk->chunk_noisy_regs, reg_i);
+        // reg_start
+        if (var_start > reg_end) {
+            if (first_right_vars[reg_i] == -1) {
+                first_right_vars[reg_i] = var_i;
+            }
+            reg_i++;
+        } else if (var_end < reg_start) {
+            first_left_vars[reg_i] = var_i;
+            var_i++;
+        } else {
+            _err_error_exit("Error: unexpected var/reg overlap: %s:%ld-%ld %s:%ld-%ld\n", chunk->tname, var_start, var_end, chunk->tname, reg_start, reg_end);
+        }
+    }
+    int noisy_reg_flank_len = opt->noisy_reg_flank_len, max_noisy_reg_len = opt->max_noisy_reg_len;
+    cgranges_t *noisy_regs = cr_init();
+    for (reg_i = 0; reg_i < n_noisy_regs; ++reg_i) {
+        if (noisy_reg_to_total_n_reads[reg_i] > max_noisy_reg_reads) continue;
+        int first_left_var_i = first_left_vars[reg_i], first_right_var_i = first_right_vars[reg_i];
+        int left_pos = first_left_var_i == -1 ? -1 : chunk->cand_vars[first_left_var_i].pos + chunk->cand_vars[first_left_var_i].ref_len;
+        int right_pos = first_right_var_i == -1 ? INT32_MAX : chunk->cand_vars[first_right_var_i].pos - 1;
+        int noisy_reg_start = MAX_OF_TWO(cr_start(chunk->chunk_noisy_regs, reg_i) - noisy_reg_flank_len, left_pos);
+        int noisy_reg_end = MIN_OF_TWO(cr_end(chunk->chunk_noisy_regs, reg_i) + noisy_reg_flank_len, right_pos);
+        if (noisy_reg_end - noisy_reg_start + 1 > max_noisy_reg_len) {
+            if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "Skipped region: %s:%d-%d %d\n", chunk->tname, noisy_reg_start, noisy_reg_end, noisy_reg_end - noisy_reg_start + 1);
+        }
+        cr_add(noisy_regs, "cr", noisy_reg_start, noisy_reg_end, cr_label(chunk->chunk_noisy_regs, reg_i));
+    }
+    cr_index(noisy_regs); cr_destroy(chunk->chunk_noisy_regs);
+    chunk->chunk_noisy_regs = noisy_regs;
+
+    free(first_left_vars); free(first_right_vars);
+    free(noisy_reg_to_total_n_reads); free(ovlp_b);
+}
+
+void collect_var_main(const call_var_pl_t *pl, bam_chunk_t *chunk) {
     // first round: easy-to-call SNPs (+indels)
     // 1. collect X/I/D sites from BAM
     collect_digars_from_bam(chunk, pl);
 
     // 2. merge all var sites from all reads, including low-depth ones, but not including nosiy-region ones
     var_site_t *var_sites = NULL; int n_var_sites;
-    if ((n_var_sites = collect_all_cand_var_sites(chunk, &var_sites)) <= 0) return;
+    n_var_sites = collect_all_cand_var_sites(chunk, &var_sites);
+    if (n_var_sites > 0) {
+        // 3. collect all candidate variants, not including noisy-region ones
+        // collect reference and alternative alleles for all var sites
+        // all cand vars, including true/false germline/somatic variants
+        // XXX for noisy/repeat regions, we need to carefully pick the candidate variants, based on supporting counts & re-alignments
+        collect_cand_vars(chunk, n_var_sites, var_sites); free(var_sites);
+    }
 
-    // 3. collect all candidate variants, not including noisy-region ones
-    // collect reference and alternative alleles for all var sites
-    // all cand vars, including true/false germline/somatic variants
-    // XXX for noisy/repeat regions, we need to carefully pick the candidate variants, based on supporting counts & re-alignments
-    // so collect_cand_vars and classify_cand_vars should be run simultaneously
-    collect_cand_vars(chunk, n_var_sites, var_sites); free(var_sites);
-
-    // pre-process noisy regions
+    // pre-process noisy regions (>5 XIDs in 100 win), not including low-complexity regions
     pre_process_noisy_regs(chunk, pl->opt);
 
-    // 4. filter out low-depth ones;
-    //    idenitfy repeat region;
+    // 4. identify categories for cand vars, and update chunk_noisy_regs
+    //    n_cand_vars & cand_vars: only include clean region vars
     classify_cand_vars(chunk, n_var_sites, pl->opt);
 
     if (chunk->n_cand_vars == 0 && (chunk->chunk_noisy_regs == NULL || chunk->chunk_noisy_regs->n_r == 0))
         return; // no variant to be called
     if (chunk->n_cand_vars > 0) { // XXX what if only have homozygous vars
-        // 5. collect read-wise var profiles
+        // 5. collect clean region read-wise var profiles
         chunk->read_var_profile = collect_read_var_profile(chunk);
 
-    // process candidate variants in the following order
-    // within each round, use previously obtained phasing/haplotype information as intialization
-    //   1. LONGCALLD_EASY_HET_SNP | LONGCALLD_EASY_HET_INDEL
-    //   2. LONGCALLD_REP_HET_VAR + LONGCALLD_DENSE_REG_VAR + ALL VARS IN NOISY_REG
-    //   3. LONGCALLD_CAND_HOM_VAR
-    //   4. LONGCALLD_CAND_SOMATIC_VAR
-    // 1st round: easy-to-call het.
-    //   0) easy-to-call germline het. variants here to determine the haplotype
-    // Both SNP & INDEL are considered, we can use only SNP, need to test the performance difference
-        // 6. co-phasing and variant calling using easy-to-call SNPs (+ indels)
-        assign_hap_based_on_het_vars(chunk, LONGCALLD_EASY_HET_SNP | LONGCALLD_EASY_HET_INDEL | LONGCALLD_CAND_HOM_VAR, pl->opt);
+        // process candidate variants in the following order
+        // within each round, use previously obtained phasing/haplotype information as intialization
+        //   1. LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL
+        //   2. LONGCALLD_REP_HET_VAR + LONGCALLD_DENSE_REG_VAR + ALL VARS IN NOISY_REG
+        //   3. LONGCALLD_CAND_HOM_VAR
+        //   4. LONGCALLD_CAND_SOMATIC_VAR
+        // 6. co-phasing and variant calling using clean region SNPs + indels
+        assign_hap_based_on_het_vars(chunk, LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CAND_HOM_VAR, pl->opt);
     }
     // 7. iteratively call variants in noisy regions and variant/read phasing
     if (chunk->chunk_noisy_regs != NULL && chunk->chunk_noisy_regs->n_r > 0) {
+        // sort noisy regions by type, length, full-cover & phased read counts, from short to long
+        post_process_noisy_regs(chunk, pl->opt);
+        int *sorted_noisy_regs = sort_noisy_regs(chunk);
+        // for each noisy region, call variants and update read_var_profile, then update phasing/haplotype information
+        int *noisy_reg_is_done = (int*)calloc(chunk->chunk_noisy_regs->n_r, sizeof(int));
         while (1) {
-            int new_het_var = collect_noisy_vars(chunk, var, pl->opt);
-            if (new_het_var == 0) break;
-        //     else {
-        //         collect_read_noisy_var_profile(chunk);
-        //         assign_hap_based_on_het_vars(chunk, XXX, pl->opt);
-        //     }
+            int new_region_is_done = 0, new_var = 0;
+            for (int i = 0; i < chunk->chunk_noisy_regs->n_r; ++i) {
+                int noisy_reg_i = sorted_noisy_regs[i];
+                if (noisy_reg_is_done[noisy_reg_i]) continue;
+                int ret = collect_noisy_vars1(chunk, pl->opt, noisy_reg_i);
+                if (ret >= 0) {
+                    noisy_reg_is_done[noisy_reg_i] = 1; new_region_is_done = 1;
+                    if (ret > 0) {
+                        new_var = 1;
+                        // update phasing/haplotype information every time a noisy region is processed
+                        // assign_hap_based_on_het_vars(chunk, LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CAND_HOM_VAR | LONGCALLD_NOISY_CAND_HET_VAR | LONGCALLD_NOISY_CAND_HOM_VAR, pl->opt);
+                    } else {
+                        fprintf(stderr, "No var: %s:%d-%d\n", chunk->tname, cr_start(chunk->chunk_noisy_regs, noisy_reg_i), cr_end(chunk->chunk_noisy_regs, noisy_reg_i));
+                    }
+                } // unable to resolve the region
+            }
+            if (new_var) 
+                assign_hap_based_on_het_vars(chunk, LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CAND_HOM_VAR | LONGCALLD_NOISY_CAND_HET_VAR | LONGCALLD_NOISY_CAND_HOM_VAR, pl->opt);
+            if (new_region_is_done == 0) break;
         }
+        free(sorted_noisy_regs); free(noisy_reg_is_done);
     }
-    // co-update cand_vars & read_var_profile based on the assigned haplotype for hard-to-call regions
-    // for LONGCALLD_REP_HET_VAR, update support read count (read_var_profile) based on re-alignment
-    // for noisy regions, collect candidate variants and insert into cand_vars, then collect read_var_profile
-    // second-round: update variant & profile based on re-alignment
-    // 1. clipping around large indels & noisy region
-    // 2. repeat-region
-    // 3. noisy-region
-    // use updated phasing/haplotype information to call homozygous variants
-    // collect_homo_vars(chunk, var, LONGCALLD_CAND_HOM_VAR, pl->opt);
-
-
-    // update_noisy_read_var_profile(chunk, LONGCALLD_REP_HET_VAR | LONGCALLD_DENSE_REG_VAR, 1);
-    // 2nd round of co-phasing & haplotype assignment using all variants
-    // assign_hap_based_on_all_vars()
-    // variant calling using haplotype & supporting read counts
-    // 5th round: extend phase block within bam_chunk
 }
 
 // stitch ii and ii+1

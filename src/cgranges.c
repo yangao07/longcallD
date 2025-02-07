@@ -191,10 +191,11 @@ cgranges_t *cr_merge(cgranges_t *cr) {
             uint64_t next_start = cr_st(next);
             uint64_t next_end = cr_en(next);
 			int32_t next_label = next->label;
-
-            if (next_start <= merged_end) {
+			int merge_win = merged_label < next_label ? merged_label : next_label;
+            if (next_start - merge_win <= merged_end) {
                 // Overlap or contiguous, extend the merged interval
-				merged_label += next_label;
+				merged_label = merged_label > next_label ? merged_label : next_label;
+				// fprintf(stderr, "Merging %s %d %d %d with %s %d %d %d\n", ctg->name, merged_start, merged_end, merged_label, ctg->name, next_start, next_end, next_label);
                 if (next_end > merged_end) {
                     merged_end = next_end;
 				}
@@ -216,6 +217,7 @@ cgranges_t *cr_merge(cgranges_t *cr) {
 	return tmp_cr;
 }
 
+// merge two intervals with a distance <= cr_label
 cgranges_t *cr_merge2(cgranges_t *cr1, cgranges_t *cr2) {
     cgranges_t *merged_cr = cr_init();
     

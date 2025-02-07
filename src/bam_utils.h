@@ -19,6 +19,8 @@
 extern "C" {
 #endif
 
+// XXX each cand_var only have one alt_allele/var/seq, previously we keep multiple insertions in one var
+// XXX for insertion/deletion, not include the first reference base, will add it when output to VCF
 // alignment-based simple variant: SNP, small indel in non-repetitive region
 // assume alignment is correct, no complex variants
 // will be used for variant calling, haplotype assignment, phasing of variants and reads
@@ -32,7 +34,8 @@ typedef struct cand_var_t {
                       // snp/ins: could be >2, del: ≤2
                       // minor_alt: not ref and not main alt alleles (mostly sequencing errors)
     int *alle_covs; // size: n_uniq_alles
-    int ref_len, *alt_lens; uint8_t **alt_seqs; // all candidate alt alleles, ''/0 for minor_alt
+    int ref_len; uint8_t ref_base; // 1-base ref_base, only used for X
+    int alt_len; uint8_t *alt_seq; // only used for mismatch/insertion, deletion:NULL
     // XXX keep up to 2 alleles for each variant site
 
     // dynamic information, update during haplotype assignment
@@ -43,32 +46,18 @@ typedef struct cand_var_t {
     uint8_t is_low_qual, is_skipped;
 } cand_var_t;
 
-// complex variant: large SV, SNP/indel in complex/repetitive region
-// need re-alignment to call variant
-typedef struct cand_complex_var_t {
-    // static information
-    int tid; hts_pos_t var_beg, var_end, phase_set; // all variants in the same complex region share the same phase_set
-    hts_pos_t flank_reg_beg, flank_reg_end; // re-alignment is performed in this region
-    int n_vars; cand_var_t *vars;
-    // additional re-alignment derived information
-    int n_haps, *hap_seq_lens; uint8_t **hap_seqs;
-} cand_complex_var_t;
-
 // read X var
 typedef struct read_var_profile_t {
-    int read_id; // 0 .. bam_chunk->n_read-1
+    int read_id; // 0 .. bam_chunk->n_read-1 XXX for noisy region
     int start_var_idx, end_var_idx; // 0 .. n_total_cand_vars-1
-    uint8_t *var_is_used; // size: n_total_cand_vars
-    int *alleles; // 0:ref, 1/2:alt
-    // for complex variants
-    int start_complex_var_idx, end_complex_var_idx; // 0 .. n_total_cand_complex_vars-1
-    uint8_t *complex_var_is_used; // size: n_total_cand_complex_vars
-    int *complex_var_haps;
+    // uint8_t *var_is_used; // size: n_total_cand_vars
+    int *alleles; // 0:ref, 1:alt
 } read_var_profile_t;
 
 // read/base wise X/I/D operations from CIGAR
 typedef struct digar1_t {
     hts_pos_t pos; int type, len, qi; // pos: 1-based ref position, qi: 0-based query position
+    uint8_t *alt_seq; // only used for mismatch/insertion, deletion:NULL
     // two rounds:
     // 1st: left_low_len, right_low_len 
     // 2nd: if len > left+right, then left+mid+right (split)
@@ -109,7 +98,7 @@ typedef struct bam_chunk_t {
     //   only variants within regions will be considered, variants outside will be skipped
     //   for variants across boundaries/spaning multiple regions, they will be processed during stitching
     //   ref_beg <= reg_beg < reg_end <= ref_end, ref_seq may include additional flanking regions (1kb)
-    cgranges_t *reg_cr; hts_pos_t reg_beg, reg_end; // [reg_beg, reg_end]
+    cgranges_t *reg_cr, *low_comp_cr; hts_pos_t reg_beg, reg_end; // [reg_beg, reg_end]
     // hts_pos_t active_reg_beg, active_reg_end; // [active_reg_beg, active_reg_end]: only variants within this region will be considered
                                               // variants spaning this region will be re-processed during stitching
     uint8_t bam_has_eqx_cigar, bam_has_md_tag;
@@ -123,7 +112,6 @@ typedef struct bam_chunk_t {
     uint8_t *is_skipped; // size: m_reads, is_skipped: wrong mapping, low qual, etc.
     digar_t *digars;
 
-
     // variant-related
     int n_cand_vars; cand_var_t *cand_vars; 
     int *var_i_to_cate; // size: n_cand_vars; HET/HOM/SOMATIC
@@ -133,9 +121,6 @@ typedef struct bam_chunk_t {
     //  3) normal reads with similar depth exist
     cgranges_t *chunk_noisy_regs; // merged noisy regions for all reads
     int **noisy_reg_to_reads, *noisy_reg_to_n_reads; // size: chunk->chunk_noisy_regs->n_r
-    int n_cand_complex_vars; cand_complex_var_t *cand_complex_vars;
-    // will potentially be used for identify wrong initial haplotype assignment due to wrong mapping, etc.
-    // int **noisy_reg_read_to_hap_aln_scores; // read_i -> hap_i -> aln_score (penalty)
 
     read_var_profile_t *read_var_profile; cgranges_t *read_var_cr;
     // output
@@ -150,7 +135,7 @@ struct cand_var_t;
 struct var_site_t;
 struct read_var_profile_t;
 
-static inline int is_low_qual(hts_pos_t pos, cgranges_t *noisy_regs) {
+static inline int is_in_noisy_reg(hts_pos_t pos, cgranges_t *noisy_regs) {
     int64_t ovlp_n, *ovlp_b = 0, max_b = 0;
     ovlp_n = cr_overlap(noisy_regs, "cr", pos, pos+1, &ovlp_b, &max_b);
     free(ovlp_b);
@@ -179,12 +164,14 @@ int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct 
 int collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct call_var_pl_t *pl, const struct call_var_opt_t *opt, digar_t *digar);
 int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct call_var_pl_t *pl, const struct call_var_opt_t *opt, digar_t *digar);
 int update_cand_vars_from_digar(digar_t *digar, bam1_t *read, int n_var_sites, struct var_site_t *var_sites, int start_i, struct cand_var_t *cand_vars);
+void update_read_var_profile_with_allele(int var_i, int allele_i, read_var_profile_t *read_var_profile);
 int update_read_var_profile_from_digar(digar_t *digar, bam1_t *read, int n_cand_vars, struct cand_var_t *cand_vars, int start_var_i, struct read_var_profile_t *read_var_profile);
 
 int collect_bam_chunk(struct call_var_pl_t *pl, int **last_chunk_read_i, int *n_last_chunk_reads, hts_pos_t *cur_active_reg_beg, bam_chunk_t *chunk);
 void bam_chunk_free(bam_chunk_t *chunk);
 void bam_chunks_free(bam_chunk_t *chunks, int n_chunks);
 struct read_var_profile_t *init_read_var_profile(int n_reads, int n_total_vars);
+struct read_var_profile_t *init_read_var_profile_with_ids(int n_reads, int *read_ids, int n_total_vars);
 void free_read_var_profile(struct read_var_profile_t *p, int n_reads);
 char *extract_sample_name_from_bam_header(bam_hdr_t *header);
 

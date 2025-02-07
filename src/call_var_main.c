@@ -24,7 +24,10 @@
 extern int LONGCALLD_VERBOSE;
 
 const struct option call_var_opt [] = {
+    // long options
     { "amb-base", 0, NULL, 0},
+
+    // short options
     { "ref-fa", 1, NULL, 'r' },
     { "out-vcf", 1, NULL, 'o'},
     { "out-bam", 1, NULL, 'b' },
@@ -39,7 +42,7 @@ const struct option call_var_opt [] = {
     { "noisy-flank", 1, NULL, 'f' },
     { "end-clip", 1, NULL, 'c' },
     { "clip-flank", 1, NULL, 'F' },
-    { "gap-aln", 1, NULL, 'a'},
+    { "gap-aln", 1, NULL, 'g'},
     { "no-re-aln", 1, NULL, 'N'},
     { "threads", 1, NULL, 't' },
     { "help", 0, NULL, 'h' },
@@ -81,18 +84,18 @@ call_var_opt_t *call_var_init_para(void) {
     opt->min_dp = LONGCALLD_MIN_CAND_DP;
     opt->min_alt_dp = LONGCALLD_MIN_ALT_DP;
 
+    // opt->noisy_reg_merge_win = LONGCALLD_NOISY_REG_MERGE_WIN;
     opt->noisy_reg_flank_len = LONGCALLD_NOISY_REG_FLANK_LEN;
 
-    opt->min_gap_len_for_clip = LONGCALLD_MIN_GAP_LEN_FOR_CLIP;
-    opt->gap_flank_win_for_clip = LONGCALLD_GAP_FLANK_WIN_FOR_CLIP;
-    opt->dens_reg_max_xgaps = LONGCALLD_DENSE_REG_MAX_XGAPS;
-    opt->dens_reg_slide_win = LONGCALLD_DENSE_REG_SLIDE_WIN;
-    opt->dens_reg_flank_win = LONGCALLD_DENSE_FLANK_WIN;
+    opt->dens_reg_max_xgaps = LONGCALLD_NOISY_REG_MAX_XGAPS;
+    opt->dens_reg_slide_win = LONGCALLD_NOISY_REG_SLIDE_WIN;
+    opt->dens_reg_flank_win = LONGCALLD_NOISY_FLANK_WIN;
     opt->indel_flank_win = LONGCALLD_INDEL_FLANK_WIN;
 
     opt->end_clip_reg = LONGCALLD_NOISY_END_CLIP;
     opt->end_clip_reg_flank_win = LONGCALLD_NOISY_END_CLIP_WIN;
 
+    opt->max_noisy_reg_reads = LONGCALLD_MAX_NOISY_REG_READS;
     opt->max_noisy_reg_len  = LONGCALLD_MAX_NOISY_REG_LEN;
     opt->min_noisy_reg_reads = LONGCALLD_NOISY_REG_READS;
     opt->min_noisy_reg_ratio = LONGCALLD_NOISY_REG_RATIO;
@@ -109,7 +112,7 @@ call_var_opt_t *call_var_init_para(void) {
     opt->gap_open2 = LONGCALLD_GAP_OPEN2_SCORE;
     opt->gap_ext2 = LONGCALLD_GAP_EXT2_SCORE;
     opt->gap_aln = LONGCALLD_GAP_LEFT_ALN;
-    opt->disable_read_realign = 0;
+    opt->disable_read_realign = 1; // XXX right now, always disable read realignment
 
     opt->pl_threads = MIN_OF_TWO(CALL_VAR_PL_THREAD_N, get_num_processors());
     opt->n_threads = MIN_OF_TWO(CALL_VAR_THREAD_N, get_num_processors());
@@ -192,9 +195,9 @@ ref_reg_seq_t *call_var_pl_open_ref_reg_fa(const char *ref_fa_fn, faidx_t *fai, 
 // call variants for each chunk
 static void call_var_worker_for(void *_data, long ii, int tid) {
     call_var_step_t *step = (call_var_step_t*)_data;
-    bam_chunk_t *c = step->chunks + ii; var_t *v = step->vars + ii;
+    bam_chunk_t *c = step->chunks + ii; // var_t *v = step->vars + ii;
     if (LONGCALLD_VERBOSE >= 1) fprintf(stderr, "[%s] tid: %d, chunk: %ld n_reads: %d\n", __func__, tid, ii, c->n_reads);
-    collect_var_main(step->pl, c, v);
+    collect_var_main(step->pl, c);
 }
 
 // merge variants from two chunks
@@ -204,17 +207,6 @@ static void stitch_var_worker_for(void *_data, long ii, int tid) {
     if (LONGCALLD_VERBOSE >= 1) fprintf(stderr, "[%s] tid: %d, chunk: %ld (%d), n_reads: %d\n", __func__, tid, ii, step->n_chunks, c->n_reads);
     stitch_var_main(step, c, var, ii);
 }
-
-// static void call_var_pl_open_ref_fa(const char *ref_fa_fn, call_var_pl_t *pl) {
-//     if (ref_fa_fn) {
-//         _err_info("Loading reference genome: %s\n", ref_fa_fn);
-//         pl->ref_seq = read_ref_seq(ref_fa_fn);
-//         if (pl->ref_seq == NULL) _err_error_exit("Failed to read reference genome: %s\n", ref_fa_fn);
-//         _err_info("Done: %s\n", ref_fa_fn);
-//     } else {
-//         _err_error_exit("No reference genome provided\n");
-//     }
-// }
 
 static void call_var_pl_open_fa_bam(call_var_opt_t *opt, call_var_pl_t *pl, char **regions, int n_regions) {
     // input BAM file
@@ -393,25 +385,29 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "    -H --no-vcf-header    do NOT output VCF header\n");
     fprintf(stderr, "       --amb-base         output variant with ambiguous base [False]\n");
     fprintf(stderr, "    -b --out-bam     STR  output phased BAM file [NULL]\n");
-    fprintf(stderr, "\n");
+    // fprintf(stderr, "\n");
     fprintf(stderr, "  Variant:\n");
     fprintf(stderr, "    -d --min-depth   INT  min. depth to call a variant [%d]\n", LONGCALLD_MIN_CAND_DP);
-    fprintf(stderr, "    -D --alt-depth   INT  min. alt. depth to call a variant[%d]\n", LONGCALLD_MIN_ALT_DP);
+    fprintf(stderr, "    -D --alt-depth   INT  min. alt. depth to call a variant [%d]\n", LONGCALLD_MIN_ALT_DP);
     // fprintf(stderr, "    -p --max-ploidy  INT  max. ploidy [%d]\n", LONGCALLD_DEF_PLOID);
-    fprintf(stderr, "    -x --max-xgap   INT  max. number of substitutions/gaps in a window(-w/--win-size) [%d]\n", LONGCALLD_DENSE_REG_MAX_XGAPS);
-    fprintf(stderr, "    -w --win-size    INT  window size for noisy region [%d]\n", LONGCALLD_DENSE_REG_SLIDE_WIN);
-    fprintf(stderr, "                          noisy region with more than -s subs/gaps in a window of -w bases will be skipped for initial haplotype assignment\n");
+    fprintf(stderr, "    -x --max-xgap    INT  max. number of allowed substitutions/gap-bases in a searching window(-w/--win-size) [%d]\n", LONGCALLD_NOISY_REG_MAX_XGAPS);
+    fprintf(stderr, "                          window with more than -x subs/gap-bases will be considered as noisy region\n");
+    fprintf(stderr, "    -w --win-size    INT  window size for searching noisy region [%d]\n", LONGCALLD_NOISY_REG_SLIDE_WIN);
     // fprintf(stderr, "    -f --noisy-flank INT  flanking mask window size for noisy region [%d]\n", LONGCALLD_DENSE_FLANK_WIN);
     fprintf(stderr, "    -c --end-clip    INT  max. number of clipping bases on both ends [%d]\n", LONGCALLD_NOISY_END_CLIP);
     fprintf(stderr, "                          end-clipping region with more than -c bases will be considered as noisy clipping region\n");
     fprintf(stderr, "    -F --clip-flank  INT  flanking mask window size for noisy clipping region [%d]\n", LONGCALLD_NOISY_END_CLIP_WIN);
-    fprintf(stderr, "\n");
+    // fprintf(stderr, "\n");
     fprintf(stderr, "  Alignment\n");
-    fprintf(stderr, "    -a --gap-aln     STR  put gap on the \'left\' or \'right\' side in alignment [left/l]\n");
-    fprintf(stderr, "                          \'left\': minimap2/abPOA\n");
-    fprintf(stderr, "                          \'right\': WFA/WFA2\n");
-    fprintf(stderr, "    -N --no-re-aln        disable read realignment\n");
-    fprintf(stderr, "\n");
+    fprintf(stderr, "    -g --gap-aln     STR  put gap on the \'left\' or \'right\' side in alignment [left/l]\n");
+    fprintf(stderr, "                          \'left\':  ATTTG\n");
+    fprintf(stderr, "                                   | |||\n");
+    fprintf(stderr, "                                   A-TTG\n");
+    fprintf(stderr, "                          \'right\': ATTTG\n");
+    fprintf(stderr, "                                   ||| |\n");
+    fprintf(stderr, "                                   ATT-G\n");
+    fprintf(stderr, "    -N --no-re-aln        disable read re-alignment\n");
+    // fprintf(stderr, "\n");
     fprintf(stderr, "  General:\n");
     fprintf(stderr, "    -t --threads     INT  number of threads to use [%d]\n", MIN_OF_TWO(CALL_VAR_THREAD_N, get_num_processors()));
     fprintf(stderr, "    -h --help             print this help usage\n");
@@ -479,19 +475,16 @@ int call_var_main(int argc, char *argv[]) {
         opt->n_threads = 1; opt->pl_threads = 1;
     } else {
         opt->n_threads = MIN_OF_TWO(opt->n_threads, get_num_processors());
-        opt->pl_threads = MIN_OF_TWO(4, opt->n_threads); // MIN_OF_TWO(opt->n_threads, CALL_VAR_PL_THREAD_N);
+        opt->pl_threads = MIN_OF_TWO(2, opt->n_threads); // MIN_OF_TWO(opt->n_threads, CALL_VAR_PL_THREAD_N);
     }
-    // if (opt->out_bam == NULL) // output to stdout
-        // opt->out_bam = hts_open("-", "wb");
     if (opt->out_vcf == NULL) opt->out_vcf = stdout;
-    // set up m-threading
+    // set up pipeline for multi-threading
     call_var_pl_t pl;
     memset(&pl, 0, sizeof(call_var_pl_t));
     pl.max_reg_len_per_chunk = LONGCALLD_BAM_CHUNK_REG_SIZE; // pl.max_reads_per_chunk = LONGCALLD_BAM_CHUNK_READ_COUNT; 
     pl.n_threads = opt->n_threads;
     // open BAM file & reference genome
     call_var_pl_open_fa_bam(opt, &pl, argv+optind, argc-optind);
-    // call_var_pl_open_ref_fa(opt->ref_fa_fn, &pl);
 
     // write VCF/BAM header
     if (opt->out_bam != NULL) call_var_pl_write_bam_header(opt->out_bam, pl.header);
@@ -504,8 +497,6 @@ int call_var_main(int argc, char *argv[]) {
     call_var_free_pl(pl); call_var_free_para(opt); 
     // finish
     _err_info("Real time: %.3f sec; CPU: %.3f sec; Peak RSS: %.3f GB.\n", realtime() - realtime0, cputime(), peakrss() / 1024.0 / 1024.0 / 1024.0);
-    // _err_cmd("%s\n", CMD);
-    // _err_success("Done.\n");
     _err_success("%s\n", CMD);
     return 0;
 }

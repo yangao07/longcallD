@@ -18,16 +18,26 @@ int collect_max_cov_allele(cand_var_t *var) {
     return max_cov_alle_i;
 }
 
+hts_pos_t assign_var_init_hom_hap(cand_var_t *var) {
+    if (LONGCALLD_VERBOSE >= 2)
+        fprintf(stderr, "Init Hom-Var hap: %" PRId64 ", %d-%c\n", var->pos, var->ref_len, BAM_CIGAR_STR[var->var_type]);
+    if (var->var_type == BAM_CDIFF) var->phase_set = var->pos; // potential start of a PhaseSet
+    else var->phase_set = var->pos - 1;
+    for (int i = 0; i < var->n_uniq_alles; ++i) {
+        var->alle_to_hap[i] = 1;
+    }
+    return var->phase_set;
+}
+
 // 1st round operations: update base_to_hap -> {1/2/0}
 // assign haplotype to a SNP, when no other information avaliable
 // most common base -> 1, second common base -> 2, others -> 0
 // potential start of a PhaseSet, could be merged with others (intra- or inter-blocks)
 hts_pos_t assign_var_init_hap(cand_var_t *var) {
     if (LONGCALLD_VERBOSE >= 2)
-        fprintf(stderr, "Init Var hap: %" PRId64 ", %d-%c\n", var->pos, var->ref_len, BAM_CIGAR_STR[var->var_type]);
-    var->phase_set = var->pos; // potential start of a PhaseSet
-    // if (snp->pos == 10737188)
-        // printf("ok");
+        fprintf(stderr, "Init Het-Var hap: %" PRId64 ", %d-%c\n", var->pos, var->ref_len, BAM_CIGAR_STR[var->var_type]);
+    if (var->var_type == BAM_CDIFF) var->phase_set = var->pos; // potential start of a PhaseSet
+    else var->phase_set = var->pos - 1;
     int hap1_alle_i = -1, hap2_alle_i = -1, hap1_cov = 0, hap2_cov = 0;
     for (int i = 0; i < var->n_uniq_alles; ++i) {
         var->alle_to_hap[i] = 0;
@@ -38,7 +48,10 @@ hts_pos_t assign_var_init_hap(cand_var_t *var) {
             hap2_alle_i = i; hap2_cov = var->alle_covs[i];
         }
     }
-    if (hap1_alle_i == -1) _err_error_exit("No candidate allele in Var: %d-%" PRId64 ", %d-%c\n", var->tid, var->pos, var->ref_len, BAM_CIGAR_STR[var->var_type]);
+    if (hap1_alle_i == -1) {
+        fprintf(stderr, "No candidate allele in Var: %d-%" PRId64 ", %d-%c\n", var->tid, var->pos, var->ref_len, BAM_CIGAR_STR[var->var_type]);
+        return 0;
+    }
     if (hap2_alle_i == -1) { // only one allele: low coverage or homozygous
         var->alle_to_hap[hap1_alle_i] = 1; // var->alle_to_hap[hap1_alle_i] = 2;
     } else {
@@ -50,6 +63,7 @@ hts_pos_t assign_var_init_hap(cand_var_t *var) {
     }
     return var->phase_set;
 }
+
 
 // assign haplotype to a SNP based on read SNP profiles
 // 1. pick the most common haplotype and corresponding most common base 
@@ -79,10 +93,11 @@ hts_pos_t assign_var_hap_based_on_pre_reads1(cand_var_t *var) {
             }
         }
     }
-    if (first_hap == sec_hap || first_hap_alle_i == sec_hap_alle_i) {
+    if (first_hap == sec_hap) {
         if (LONGCALLD_VERBOSE >= 2)
             _err_func_printf("Var: %" PRId64 ", %d-%c, first_hap: %d (%d: %d), sec_hap: %d (%d: %d)\n", var->pos, var->ref_len, BAM_CIGAR_STR[var->var_type], first_hap, first_hap_alle_i, first_hap_cnt, sec_hap, sec_hap_alle_i, sec_hap_cnt);
         assign_var_init_hap(var);
+    // } else if (first_hap_alle_i == sec_hap_alle_i) { // homozygous
     } else {
         for (int i = 0; i < var->n_uniq_alles; ++i) {
             if (i == first_hap_alle_i) var->alle_to_hap[i] = first_hap;
@@ -92,6 +107,12 @@ hts_pos_t assign_var_hap_based_on_pre_reads1(cand_var_t *var) {
     }
     return var->phase_set;
 } 
+
+void read_init_hap_ps(bam_chunk_t *chunk) {
+    for (int i = 0; i < chunk->n_reads; ++i) {
+        chunk->haps[i] = 0; chunk->PS[i] = 0;
+    }
+}
 
 // all candidate vars, including heterozygous and homozygous SNPs:
 // init haplotype profile: HAP: 0 -> max_cons_allele_i, 1/2: -1
@@ -107,6 +128,15 @@ void var_init_hap_profile(cand_var_t *vars, int n_cand_vars, int *var_i_to_cate,
             var->hap_to_alle_profile = (int**)malloc((LONGCALLD_DEF_PLOID+1) * sizeof(int*));
             for (int i = 0; i <= LONGCALLD_DEF_PLOID; ++i) var->hap_to_alle_profile[i] = (int*)calloc(var->n_uniq_alles, sizeof(int));
             var->hap_to_cons_alle = (int*)malloc((LONGCALLD_DEF_PLOID+1) * sizeof(int));
+            var->hap_to_cons_alle[0] = collect_max_cov_allele(var);
+            for (int j = 1; j <= LONGCALLD_DEF_PLOID; ++j) {
+                var->hap_to_cons_alle[j] = -1;
+            }
+        } else {
+            memset(var->hap_to_alle_profile[0], 0, var->n_uniq_alles * sizeof(int));
+            for (int j = 1; j <= LONGCALLD_DEF_PLOID; ++j) {
+                memset(var->hap_to_alle_profile[j], 0, var->n_uniq_alles * sizeof(int));
+            }
             var->hap_to_cons_alle[0] = collect_max_cov_allele(var);
             for (int j = 1; j <= LONGCALLD_DEF_PLOID; ++j) {
                 var->hap_to_cons_alle[j] = -1;
@@ -161,10 +191,11 @@ void update_var_hap_profile_based_on_aln_hap(int hap, hts_pos_t phase_set, cand_
     for (int var_i = start_var_idx; var_i <= end_var_idx; ++var_i) {
         if ((var_i_to_cate[var_i] & target_var_cate) == 0) continue;
         int read_var_idx = var_i - start_var_idx;
-        if (p[read_i].var_is_used[read_var_idx] == 0) continue;
+        // if (p[read_i].var_is_used[read_var_idx] == 0) continue;
         int allele_i = p[read_i].alleles[read_var_idx];
         if (allele_i == -1) continue;
         var[var_i].hap_to_alle_profile[hap][allele_i] += 1;
+        // update HOM var's phase_set as well ??
         if (var[var_i].phase_set == 0 || phase_set <= var[var_i].pos)
             var[var_i].phase_set = phase_set;
     }
@@ -218,16 +249,24 @@ int update_var_aln_hap1(int target_read_i, int cur_hap,  bam_chunk_t *chunk, rea
     for (int var_i = start_var_idx; var_i <= end_var_idx; ++var_i) {
         if ((var_i_to_cate[var_i] & target_var_cate) == 0) continue;
         int read_var_idx = var_i - start_var_idx;
-        if (p[target_read_i].var_is_used[read_var_idx] == 0) continue;
-
         cand_var_t *var = cand_vars+var_i;
+        int var_weight = 1; // XXX
+        if (var_i_to_cate[var_i] == LONGCALLD_NOISY_CAND_HET_VAR) {
+            if (var->var_type == BAM_CDIFF) var_weight = 2;
+            else var_weight = 1;
+        } else if (var_i_to_cate[var_i] == LONGCALLD_CLEAN_HET_VAR) {
+            if (var->var_type == BAM_CDIFF) var_weight = 100;
+            else var_weight = 3;
+        }
+
+        // if (p[target_read_i].var_is_used[read_var_idx] == 0) continue;
         if (var->is_skipped) continue;
         int allele_i = p[target_read_i].alleles[read_var_idx];
         if (allele_i == -1) continue;
         collect_tmp_hap_cons_allele_by_deduct_read(var, cur_hap, allele_i, tmp_hap_to_cons_alle);
         for (int i = 1; i <= LONGCALLD_DEF_PLOID; ++i) {
             if (tmp_hap_to_cons_alle[i] == allele_i) {
-                hap_match_cnt[i] += 1;
+                hap_match_cnt[i] += var_weight;
             }
         }
     }
@@ -257,11 +296,13 @@ int update_var_hap_profile_based_on_changed_hap(int new_hap, int old_hap, cand_v
     int start_var_idx = p[read_i].start_var_idx, end_var_idx = p[read_i].end_var_idx;
     for (int var_i = start_var_idx; var_i <= end_var_idx; ++var_i) {
         if ((var_i_to_cate[var_i] & target_var_cate) == 0) continue;
+        if (var_i_to_cate[var_i] == LONGCALLD_CAND_HOM_VAR || var_i_to_cate[var_i] == LONGCALLD_NOISY_CAND_HOM_VAR) continue;
         int read_var_idx = var_i - start_var_idx;
-        if (p[read_i].var_is_used[read_var_idx] == 0) continue;
+        // if (p[read_i].var_is_used[read_var_idx] == 0) continue;
         int allele_i = p[read_i].alleles[read_var_idx];
         if (allele_i == -1) continue;
         cand_var_t *var = cand_vars+var_i;
+        // only update Het-Var
         if (LONGCALLD_VERBOSE >= 2)
             fprintf(stderr, "pos: %" PRId64 ", old_hap: %d, new_hap: %d, var: %d\n", var->pos, old_hap, new_hap, allele_i);
         var->hap_to_alle_profile[old_hap][allele_i] -= 1;
@@ -269,6 +310,36 @@ int update_var_hap_profile_based_on_changed_hap(int new_hap, int old_hap, cand_v
         var_init_hap_cons_alle0(var, min_alt_dp);
     }
     return 0;
+}
+
+int *sort_cand_vars(cand_var_t *cand_vars, int n_cand_vars, int *var_i_to_cate, int target_var_cate) {
+    int *sorted_cand_var_i = (int*)malloc(n_cand_vars * sizeof(int));
+    for (int i = 0; i < n_cand_vars; ++i) {
+        sorted_cand_var_i[i] = i;
+    }
+    // sort var by type: clean SNP -> clean indel -> noisy SNP -> noisy INDEL
+    for (int i = 0; i < n_cand_vars-1; ++i) {
+        for (int j = i+1; j < n_cand_vars; ++j) {
+            if (var_i_to_cate[sorted_cand_var_i[i]] > var_i_to_cate[sorted_cand_var_i[j]]) {
+                int tmp = sorted_cand_var_i[i]; sorted_cand_var_i[i] = sorted_cand_var_i[j]; sorted_cand_var_i[j] = tmp;
+            } else if (var_i_to_cate[sorted_cand_var_i[i]] == var_i_to_cate[sorted_cand_var_i[j]]) {
+                if (cand_vars[sorted_cand_var_i[i]].var_type != cand_vars[sorted_cand_var_i[j]].var_type) {
+                    if (cand_vars[sorted_cand_var_i[j]].var_type == BAM_CDIFF && cand_vars[sorted_cand_var_i[i]].var_type != BAM_CDIFF) {
+                        int tmp = sorted_cand_var_i[i]; sorted_cand_var_i[i] = sorted_cand_var_i[j]; sorted_cand_var_i[j] = tmp;
+                    }
+                } else {
+                    if (cand_vars[sorted_cand_var_i[i]].pos > cand_vars[sorted_cand_var_i[j]].pos) {
+                        int tmp = sorted_cand_var_i[i]; sorted_cand_var_i[i] = sorted_cand_var_i[j]; sorted_cand_var_i[j] = tmp;
+                    } else if (cand_vars[sorted_cand_var_i[i]].pos == cand_vars[sorted_cand_var_i[j]].pos) {
+                        if (cand_vars[sorted_cand_var_i[i]].ref_len > cand_vars[sorted_cand_var_i[j]].ref_len) {
+                            int tmp = sorted_cand_var_i[i]; sorted_cand_var_i[i] = sorted_cand_var_i[j]; sorted_cand_var_i[j] = tmp;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return sorted_cand_var_i;
 }
 
 // XXX hap_cons_base not upated yet
@@ -289,19 +360,26 @@ int assign_hap_based_on_het_vars(bam_chunk_t *chunk, int target_var_cate, call_v
     int64_t ovlp_i, ovlp_n, *ovlp_b = 0, max_b = 0;
 
     // 1st loop: var-wise loop
+    read_init_hap_ps(chunk);
     var_init_hap_profile(cand_vars, n_cand_vars, var_i_to_cate, target_var_cate); // var_cate_idx);
-    // for (int i = 0; i < n_cand_vars; ++i) {
-        // int var_i = var_cate_idx[i];
-    for (int var_i = 0; var_i < n_cand_vars; ++var_i) {
-        if ((var_i_to_cate[var_i] & target_var_cate) == 0 || var_i_to_cate[var_i] == LONGCALLD_CAND_HOM_VAR) // skip cand homozygous SNPs
+    // sort var by type: clean SNP -> clean indel -> noisy SNP -> noisy INDEL
+    int *sorted_cand_var_i = sort_cand_vars(cand_vars, n_cand_vars, var_i_to_cate, target_var_cate);
+    for (int _var_i = 0; _var_i < n_cand_vars; ++_var_i) {
+        int var_i = sorted_cand_var_i[_var_i];
+        if ((var_i_to_cate[var_i] & target_var_cate) == 0) continue;
+        if (var_i_to_cate[var_i] == LONGCALLD_CAND_HOM_VAR || var_i_to_cate[var_i] == LONGCALLD_NOISY_CAND_HOM_VAR) {
+            assign_var_init_hom_hap(cand_vars+var_i);
             continue;
+        }
         cand_var_t *var = cand_vars+var_i;
         ovlp_n = cr_overlap(read_var_cr, "cr", var_i, var_i+1, &ovlp_b, &max_b);
-        hts_pos_t phase_set = assign_var_hap_based_on_pre_reads(var, opt->min_dp); // update alle_to_hap
+        // here we highly rely on reads that were assigned with HAPs previously, >= 2 reads is enough
+        hts_pos_t phase_set = assign_var_hap_based_on_pre_reads(var, 2); //opt->min_dp); // update alle_to_hap
+        if (phase_set == 0) continue;
         for (ovlp_i = 0; ovlp_i < ovlp_n; ++ovlp_i) {
             int read_i = cr_label(read_var_cr, ovlp_b[ovlp_i]);
             int read_var_idx = var_i - p[read_i].start_var_idx;
-            if (chunk->haps[read_i] == 0 && chunk->is_skipped[read_i] != 1 && p[read_i].var_is_used[read_var_idx] == 1) {
+            if (chunk->haps[read_i] == 0 && chunk->is_skipped[read_i] != 1) { // && p[read_i].var_is_used[read_var_idx] == 1) {
                 int var_alle_i = p[read_i].alleles[read_var_idx];
                 if (var_alle_i == -1) continue;
                 int hap = var->alle_to_hap[var_alle_i];
@@ -351,7 +429,7 @@ int assign_hap_based_on_het_vars(bam_chunk_t *chunk, int target_var_cate, call_v
         } if (changed_hap == 0) break;
     }
     if (LONGCALLD_VERBOSE >= 2) _err_info("Iteration: %d\n", i_iter);
-    free(ovlp_b); 
+    free(ovlp_b); free(sorted_cand_var_i);
     // cr_destroy(read_var_cr);
     return 0;
 }

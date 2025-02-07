@@ -32,6 +32,8 @@ TODO:
 - [ ] BAM and Ref.FA not match
 - [ ] Learn sequencing error profile from BAM
 - [ ] Methylation
+- [ ] Merge overlapping variants, i.e., I followed by D, caused by make_var_from_MSA_two_cons
+- [ ] Split whole genome into chunks, use BAM index to load each chunk within each thread, instead of pre-loading N (i.e.,64) chunks
 ---
 
 * Tumour purity $\alpha$: est. -> max. -> est. ... -> converge

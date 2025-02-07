@@ -12,6 +12,7 @@ KSEQ_INIT(gzFile, gzread)
 
 extern unsigned char nst_nt4_table[256];
 extern unsigned char com_nst_nt4_table[256];
+extern const char nt256_table[256];
 extern const uint8_t hash_nt4_table[6];
 extern const uint8_t rc_nt4_table[6];
 extern char n_char[6];
