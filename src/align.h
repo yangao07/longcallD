@@ -21,6 +21,7 @@ extern "C" {
 #endif
 
 struct bam_chunk_t;
+struct aln_str_t;
 
 int test_wfa(char *pattern, char *text);
 int test_abpoa(uint8_t **bseqs, int n_seqs, int *seq_lens);
@@ -38,7 +39,7 @@ int collect_noisy_cons_seqs(bam_chunk_t *chunk, int noisy_reg_i, int **cons_lens
 int collect_noisy_reg_cons_seqs0(const call_var_opt_t *opt, bam_chunk_t *chunk, int noisy_reg_i, int *cons_lens, uint8_t **cons_seqs);
 int collect_noisy_reg_msa_cons(const call_var_opt_t *opt, bam_chunk_t *chunk, hts_pos_t noisy_reg_beg, hts_pos_t noisy_reg_end, 
                                int noisy_reg_i, int n_noisy_reg_reads, int *noisy_reads, uint8_t *ref_seq, int ref_seq_len,
-                               int *cons_lens, uint8_t **cons_seqs, int *clu_n_seqs, int **clu_read_ids, int *msa_len, uint8_t ***msa_seqs);
+                               int *clu_n_seqs, int **clu_read_ids, aln_str_t **aln_strs);
 
 #ifdef __cplusplus
 }

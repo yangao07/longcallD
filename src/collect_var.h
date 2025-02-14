@@ -9,7 +9,7 @@
 #define LONGCALLD_VAR_CATE_STR "LENIRXSHehl"
 
 #define LONGCALLD_LOW_COV_VAR        0x001 // "L"
-#define LONGCALLD_CLEAN_HET_VAR      0x002 // "E" // not used for now
+// #define LONGCALLD_CLEAN_HET_VAR      0x002 // "E" // not used for now
 #define LONGCALLD_CLEAN_HET_SNP      0x004 // "N"
 #define LONGCALLD_CLEAN_HET_INDEL    0x008 // "I"
 #define LONGCALLD_REP_HET_VAR        0x010 // "R"
@@ -22,6 +22,9 @@
 
 #define LONGCALLD_VAR_CATE_TYPE(var_cate) LONGCALLD_VAR_CATE_STR[(int)(log2(var_cate))]
 
+#define LONGCALLD_REF_CONS_ALN_STR(clu_aln_strs) clu_aln_strs
+#define LONGCALLD_CONS_READ_ALN_STR(clu_aln_strs, read_i) clu_aln_strs+(read_i+1)*2-1
+#define LONGCALLD_REF_READ_ALN_STR(clu_aln_strs, read_i) clu_aln_strs+(read_i+1)*2
 
 #ifdef __cplusplus
 extern "C" {
@@ -32,6 +35,46 @@ typedef struct var_site_t {
     int var_type, ref_len, alt_len; // SNP: 1:1, INS: 0:I, DEL: D:1
     uint8_t *alt_seq; // only used for mismatch/insertion, deletion:NULL
 } var_site_t;
+
+// XXX each cand_var only have one alt_allele/var/seq, previously we keep multiple insertions in one var
+// XXX for insertion/deletion, not include the first reference base, will add it when output to VCF
+// alignment-based simple variant: SNP, small indel in non-repetitive region
+// assume alignment is correct, no complex variants
+// will be used for variant calling, haplotype assignment, phasing of variants and reads
+typedef struct cand_var_t {
+    // static information
+    int tid; hts_pos_t pos, phase_set;
+    int var_type; // BAM_CINS/BAM_CDEL/BAM_CDIFF
+    int total_cov; // ref+alt, used in variant calling & haplotype assignment, excluding low-qual bases
+    int low_qual_cov; // including bases/regions with low quality, only count depth, not seq
+    int n_uniq_alles; // up ot 4: ref, alt1, alt2, minor_alt
+                      // snp/ins: could be >2, del: ≤2
+                      // minor_alt: not ref and not main alt alleles (mostly sequencing errors)
+    int *alle_covs; // size: n_uniq_alles
+    int ref_len; uint8_t ref_base; // 1-base ref_base, only used for X
+    int alt_len; uint8_t *alt_seq; // only used for mismatch/insertion, deletion:NULL
+
+    // dynamic information, update during haplotype assignment
+    uint8_t *alle_to_hap; // var-wise (alle_to_hap): alle_i -> 1:H1/2:H2/0:not set yet
+    int **hap_to_alle_profile; // read-wise: 1:H1/2:H2 -> alle_i -> read count
+    int *hap_to_cons_alle; // HAP-wise (hap_to_cons_alle_i): 1:H1/2:H2 -> alle_i
+
+    uint8_t is_low_qual, is_skipped;
+} cand_var_t;
+
+// read X var
+typedef struct read_var_profile_t {
+    int read_id; // 0 .. bam_chunk->n_read-1 XXX for noisy region
+    int start_var_idx, end_var_idx; // 0 .. n_total_cand_vars-1
+    // uint8_t *var_is_used; // size: n_total_cand_vars
+    int *alleles; // 0:ref, 1:alt
+} read_var_profile_t;
+
+typedef struct aln_str_t {
+    uint8_t *target_aln;
+    uint8_t *query_aln;
+    int aln_len;
+} aln_str_t;
 
 struct bam_chunk_t;
 struct var_t;

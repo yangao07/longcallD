@@ -4,6 +4,7 @@
 #include "htslib/sam.h"
 #include "htslib/kstring.h"
 #include "cgranges.h"
+#include "collect_var.h"
 
 #define LONGCALLD_BAM_CHUNK_READ_COUNT 4000
 #define LONGCALLD_BAM_CHUNK_REG_SIZE 500000 // 0.5M/1M
@@ -18,41 +19,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-// XXX each cand_var only have one alt_allele/var/seq, previously we keep multiple insertions in one var
-// XXX for insertion/deletion, not include the first reference base, will add it when output to VCF
-// alignment-based simple variant: SNP, small indel in non-repetitive region
-// assume alignment is correct, no complex variants
-// will be used for variant calling, haplotype assignment, phasing of variants and reads
-typedef struct cand_var_t {
-    // static information
-    int tid; hts_pos_t pos, phase_set;
-    int var_type; // BAM_CINS/BAM_CDEL/BAM_CDIFF
-    int n_depth; // ref+alt, used in variant calling & haplotype assignment, excluding low-qual bases
-    int n_low_depth; // including bases/regions with low quality, only count depth, not seq
-    int n_uniq_alles; // up ot 4: ref, alt1, alt2, minor_alt
-                      // snp/ins: could be >2, del: ≤2
-                      // minor_alt: not ref and not main alt alleles (mostly sequencing errors)
-    int *alle_covs; // size: n_uniq_alles
-    int ref_len; uint8_t ref_base; // 1-base ref_base, only used for X
-    int alt_len; uint8_t *alt_seq; // only used for mismatch/insertion, deletion:NULL
-    // XXX keep up to 2 alleles for each variant site
-
-    // dynamic information, update during haplotype assignment
-    uint8_t *alle_to_hap; // var-wise (alle_to_hap): alle_i -> 1:H1/2:H2/0:not set yet
-    int **hap_to_alle_profile; // read-wise: 1:H1/2:H2 -> alle_i -> read count
-    int *hap_to_cons_alle; // HAP-wise (hap_to_cons_alle_i): 1:H1/2:H2 -> alle_i
-
-    uint8_t is_low_qual, is_skipped;
-} cand_var_t;
-
-// read X var
-typedef struct read_var_profile_t {
-    int read_id; // 0 .. bam_chunk->n_read-1 XXX for noisy region
-    int start_var_idx, end_var_idx; // 0 .. n_total_cand_vars-1
-    // uint8_t *var_is_used; // size: n_total_cand_vars
-    int *alleles; // 0:ref, 1:alt
-} read_var_profile_t;
 
 // read/base wise X/I/D operations from CIGAR
 typedef struct digar1_t {

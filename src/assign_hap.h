@@ -8,7 +8,8 @@ extern "C" {
 struct bam_chunk_t;
 struct call_var_opt_t;
 
-int assign_hap_based_on_het_vars(struct bam_chunk_t *bam_chunk, int var_cate_i, struct call_var_opt_t *opt);
+int assign_hap_based_on_het_vars(struct bam_chunk_t *bam_chunk, int target_var_cate, struct call_var_opt_t *opt);
+int assign_hap_based_on_het_vars_kmeans(struct bam_chunk_t *chunk, int target_var_cate, struct call_var_opt_t *opt);
 
 #ifdef __cplusplus
 }

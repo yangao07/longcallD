@@ -36,9 +36,9 @@ const struct option call_var_opt [] = {
     // { "out-bam", 1, NULL, 'b' },
     { "sample-name", 1, NULL, 'n'},
 
-    { "min-depth", 1, NULL, 'd' },
-    { "min-allele-freq", 1, NULL, 'a' },
-    { "min-alt-depth", 1, NULL, 'D' },
+    { "min-depth", 1, NULL, 'c' },
+    { "alt-depth", 1, NULL, 'd' },
+    { "alt-ratio", 1, NULL, 'a' },
     // { "max-ploidy", 1, NULL, 'p' },
 
     { "max-xgap", 1, NULL, 'x' },
@@ -47,8 +47,8 @@ const struct option call_var_opt [] = {
     { "noisy-flank", 1, NULL, 'f' },
     { "end-clip", 1, NULL, 'c' },
     { "clip-flank", 1, NULL, 'F' },
-    { "hap-reads", 1, NULL, 'p' },
-    { "full-reads", 1, NULL, 'f' },
+    { "hap-read", 1, NULL, 'p' },
+    { "full-read", 1, NULL, 'f' },
     { "no-re-aln", 1, NULL, 'N'},
 
     { "threads", 1, NULL, 't' },
@@ -96,8 +96,6 @@ call_var_opt_t *call_var_init_para(void) {
 
     opt->noisy_reg_max_xgaps = LONGCALLD_NOISY_REG_MAX_XGAPS;
     opt->noisy_reg_slide_win = LONGCALLD_NOISY_REG_SLIDE_WIN;
-    opt->noisy_reg_flank_win = LONGCALLD_NOISY_FLANK_WIN;
-    opt->indel_flank_win = LONGCALLD_INDEL_FLANK_WIN;
 
     opt->end_clip_reg = LONGCALLD_NOISY_END_CLIP;
     opt->end_clip_reg_flank_win = LONGCALLD_NOISY_END_CLIP_WIN;
@@ -358,6 +356,12 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
                         if (c->flip_hap) hap ^= 3;
                         bam_aux_append(b, "XP", 'i', 4, (uint8_t*)&(hap));
                     }
+                    hts_pos_t ps = c->PS[j];
+                    if (ps != -1) {
+                        char value_str[21]; // Enough for int64 max value + null terminator
+                        snprintf(value_str, sizeof(value_str), "%ld", ps);
+                        bam_aux_append(b, "PS", 'Z', strlen(value_str) + 1, (uint8_t *)value_str);
+                    }
                     if (sam_write1(p->opt->out_bam, p->header, b) < 0)
                         _err_error_exit("Failed to write BAM record.");
                 }
@@ -386,28 +390,25 @@ static void call_var_usage(void) {//main usage
 
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "  Intput and output:\n");
-    // fprintf(stderr, "    -r --ref-fa      STR    reference genome, FASTA(.gz) file\n");
-    // fprintf(stderr, "                            Note: \'ref.fa\' must to contain the same contig/chromosome names as \'input.bam\'\n");
-    // fprintf(stderr, "                                  \'ref.fa\' is not needed if input BAM contains 1) =/X CIGARS, or 2) MD tags\n");
     fprintf(stderr, "    -n --sample-name STR  sample name. if not provided, input BAM file name will be used as sample name in output VCF [NULL]\n");
     fprintf(stderr, "    -o --out-vcf     STR  output phased VCF file [stdout]\n");
     fprintf(stderr, "    -H --no-vcf-header    do NOT output VCF header\n");
     fprintf(stderr, "       --amb-base         output variant with ambiguous base [False]\n");
-    fprintf(stderr, "    -b --out-bam     STR  output phased BAM file [NULL]\n");
-    fprintf(stderr, "    -g --gap-aln     STR  put gap on the \'left\' or \'right\' side in alignment [left/l]\n");
-    fprintf(stderr, "                          \'left\':  ATTTG\n");
-    fprintf(stderr, "                                   | |||\n");
-    fprintf(stderr, "                                   A-TTG\n");
-    fprintf(stderr, "                          \'right\': ATTTG\n");
-    fprintf(stderr, "                                   ||| |\n");
-    fprintf(stderr, "                                   ATT-G\n");
+    // fprintf(stderr, "    -b --out-bam     STR  output phased BAM file [NULL]\n");
+    // fprintf(stderr, "    -g --gap-aln     STR  put gap on the \'left\' or \'right\' side in alignment [left/l]\n");
+    // fprintf(stderr, "                          \'left\':  ATTTG\n");
+    // fprintf(stderr, "                                   | |||\n");
+    // fprintf(stderr, "                                   A-TTG\n");
+    // fprintf(stderr, "                          \'right\': ATTTG\n");
+    // fprintf(stderr, "                                   ||| |\n");
+    // fprintf(stderr, "                                   ATT-G\n");
     // fprintf(stderr, "\n");
     fprintf(stderr, "  Variant calling:\n");
-    fprintf(stderr, "    -d --min-depth   INT  min. depth to call a variant [%d]\n", LONGCALLD_MIN_CAND_DP);
-    fprintf(stderr, "    -D --alt-depth   INT  min. alt. depth to call a variant [%d]\n", LONGCALLD_MIN_ALT_DP);
-    fprintf(stderr, "    -a --min-af    FLOAT  min. allele frequency to call a variant [%.2f]\n", LONGCALLD_MIN_CAND_AF);
+    fprintf(stderr, "    -c --min-cov     INT  min. total read coverage for candidate variant [%d]\n", LONGCALLD_MIN_CAND_DP);
+    fprintf(stderr, "    -d --alt-cov     INT  min. alt. read coverage for candidate variant [%d]\n", LONGCALLD_MIN_ALT_DP);
+    fprintf(stderr, "    -a --alt-ratio FLOAT  min. alt. read ratio for candidate variant [%.2f]\n", LONGCALLD_MIN_CAND_AF);
     // fprintf(stderr, "    -p --max-ploidy  INT  max. ploidy [%d]\n", LONGCALLD_DEF_PLOID);
-    fprintf(stderr, "  Noisy regions:\n");
+    fprintf(stderr, "  Variant calling in noisy regions:\n");
     fprintf(stderr, "    -x --max-xgap    INT  max. number of allowed substitutions/gap-bases in a sliding window(-w/--win-size) [%d]\n", LONGCALLD_NOISY_REG_MAX_XGAPS);
     fprintf(stderr, "                          window with more than -x subs/gap-bases will be considered as noisy region\n");
     fprintf(stderr, "    -w --win-size    INT  window size for searching noisy region [%d]\n", LONGCALLD_NOISY_REG_SLIDE_WIN);
@@ -417,8 +418,8 @@ static void call_var_usage(void) {//main usage
     // fprintf(stderr, "                          end-clipping region with more than -c bases will be considered as noisy clipping region\n");
     // fprintf(stderr, "    -F --clip-flank  INT  flanking mask window size for noisy clipping region [%d]\n", LONGCALLD_NOISY_END_CLIP_WIN);
     // fprintf(stderr, "\n");
-    fprintf(stderr, "    -p --hap-reads   INT  when haplotype is available, min. number of full-spanning reads for each haplotype in noisy region to call a variant [%d]\n", LONGCALLD_MIN_HAP_FULL_READS);
-    fprintf(stderr, "    -f --full-reads  INT  when haplotype is not available, min. number of full-spanning reads in noisy region to call a variant [%d]\n", LONGCALLD_MIN_NO_HAP_FULL_READS);
+    fprintf(stderr, "    -p --hap-read    INT  when haplotype is available, min. number of full-spanning reads for each haplotype in noisy region to call a variant [%d]\n", LONGCALLD_MIN_HAP_FULL_READS);
+    fprintf(stderr, "    -f --full-read   INT  when haplotype is not available, min. number of full-spanning reads in noisy region to call a variant [%d]\n", LONGCALLD_MIN_NO_HAP_FULL_READS);
 
     // fprintf(stderr, "    -N --no-re-aln        disable read re-alignment\n");
     // fprintf(stderr, "\n");
@@ -437,7 +438,7 @@ int call_var_main(int argc, char *argv[]) {
     // _err_cmd("%s\n", CMD);
     int c, op_idx; call_var_opt_t *opt = call_var_init_para();
     double realtime0 = realtime();
-    while ((c = getopt_long(argc, argv, "r:o:Hb:d:D:a:n:x:w:j:f:p:g:Nt:hvV:", call_var_opt, &op_idx)) >= 0) {
+    while ((c = getopt_long(argc, argv, "r:o:Hb:c:d:a:n:x:w:j:f:p:g:Nt:hvV:", call_var_opt, &op_idx)) >= 0) {
         switch(c) {
             case 'r': opt->ref_fa_fn = strdup(optarg); break;
             // case 'b': cgp->var_block_size = atoi(optarg); break;
@@ -445,8 +446,8 @@ int call_var_main(int argc, char *argv[]) {
             case 'H': opt->no_vcf_header = 1; break;
             case 0: if (op_idx == 0) { opt->out_amb_base = 1; } break;
             case 'b': opt->out_bam = hts_open(optarg, "wb"); break;
-            case 'd': opt->min_dp = atoi(optarg); break;
-            case 'D': opt->min_alt_dp = atoi(optarg); break;
+            case 'c': opt->min_dp = atoi(optarg); break;
+            case 'd': opt->min_alt_dp = atoi(optarg); break;
             case 'a': opt->min_af = atof(optarg); break;
             case 'n': opt->sample_name = strdup(optarg); break;
             case 'x': opt->noisy_reg_max_xgaps = atoi(optarg); break;
