@@ -12,7 +12,6 @@ read_var_profile_t *init_read_var_profile(int n_reads, int n_total_vars) {
     for (int i = 0; i < n_reads; ++i) {
         p[i].read_id = i;
         p[i].start_var_idx = -1; p[i].end_var_idx = -2;
-        // p[i].var_is_used = (uint8_t*)calloc(n_total_vars, sizeof(uint8_t));
         p[i].alleles = (int*)malloc(n_total_vars * sizeof(int));
         for (int j = 0; j < n_total_vars; ++j) p[i].alleles[j] = -1; // init as unused
     }
@@ -24,7 +23,6 @@ read_var_profile_t *init_read_var_profile_with_ids(int n_reads, int *read_ids, i
     for (int i = 0; i < n_reads; ++i) {
         p[i].read_id = read_ids[i];
         p[i].start_var_idx = -1; p[i].end_var_idx = -2;
-        // p[i].var_is_used = (uint8_t*)calloc(n_total_vars, sizeof(uint8_t));
         p[i].alleles = (int*)malloc(n_total_vars * sizeof(int));
         for (int j = 0; j < n_total_vars; ++j) p[i].alleles[j] = -1; // init as unused
     }
@@ -33,7 +31,6 @@ read_var_profile_t *init_read_var_profile_with_ids(int n_reads, int *read_ids, i
 
 void free_read_var_profile(read_var_profile_t *p, int n_reads) {
     for (int i = 0; i < n_reads; ++i) {
-        // if (p[i].var_is_used) free(p[i].var_is_used);
         if (p[i].alleles) free(p[i].alleles);
     }
     free(p);
@@ -105,63 +102,6 @@ void free_xid_queue(xid_queue_t *q) {
     free(q);
 }
 
-// pos/len: region pos and length
-// count: number of sub/gaps in the region
-//        equal: 0
-//        sub: 1 (for each sub)
-//        ins/del: 1 (entire gap, ignore the length)
-// void push_xid_queue(xid_queue_t *q, hts_pos_t pos, int len, int count) {
-//     q->pos[++q->rear] = pos; // left-most pos of the region
-//     q->lens[q->rear] = len; q->counts[q->rear] = count;
-//     q->count += count;
-
-//     while (q->pos[q->front]+q->lens[q->front]-1 <= pos - q->win) {
-//         q->count -= q->counts[q->front]; // q->lens[q->front];
-//         q->front++;
-//     }
-//     // fprintf(stderr, "pos: %ld, len: %d, count: %d, front: %d, rear: %d, count: %d\n", pos, len, count, q->front, q->rear, q->count);
-//     if (count > 0) {
-//         if (q->count > q->max_s) {
-//             for (int j = q->front; j <= q->rear; j++) {
-//                 q->is_dense[j] = 1; // mark all dense regions
-//             }
-//         }
-//     }
-// }
-
-void push_xid_queue_win(xid_queue_t *q, hts_pos_t pos, int len, int count, cgranges_t *cr, hts_pos_t *cr_cur_start, hts_pos_t *cr_cur_end) {
-    q->pos[++q->rear] = pos; // left-most pos of the region
-    q->lens[q->rear] = len; q->counts[q->rear] = count;
-    q->count += count;
-
-    hts_pos_t noisy_start = -1, noisy_end = -1;
-    while (q->pos[q->front]+q->lens[q->front]-1 <= pos - q->win) {
-        q->count -= q->counts[q->front]; // q->lens[q->front];
-        q->front++;
-    }
-    // fprintf(stderr, "pos: %ld, len: %d, count: %d, front: %d, rear: %d, count: %d\n", pos, len, count, q->front, q->rear, q->count);
-    if (count > 0) {
-        if (q->count > q->max_s) {
-            for (int j = q->front; j <= q->rear; j++) {
-                q->is_dense[j] = 1; // mark all dense regions
-            }
-            noisy_start = q->pos[q->front]; noisy_end = q->pos[q->rear]+q->lens[q->rear];
-            if (*cr_cur_start == -1) {
-                *cr_cur_start = noisy_start; *cr_cur_end = noisy_end;
-            } else {
-                if (noisy_start <= *cr_cur_end) { // merge
-                    *cr_cur_end = noisy_end;
-                } else {
-                    // add the previous region
-                    cr_add(cr, "cr", *cr_cur_start-1, *cr_cur_end, 0);
-                    *cr_cur_start = noisy_start; *cr_cur_end = noisy_end;
-                }
-            }
-            // fprintf(stderr, "noisy region: %" PRId64 "-%" PRId64 "\n", noisy_start, noisy_end);
-        }
-    }
-}
-
 void push_xid_size_queue_win(xid_queue_t *q, hts_pos_t pos, int len, int count,
                              cgranges_t *cr, hts_pos_t *cr_cur_start, hts_pos_t *cr_cur_end,
                              int *cr_q_start, int *cr_q_end) {
@@ -221,39 +161,6 @@ void check_eqx_cigar_MD_tag(samFile *in_bam, bam_hdr_t *header, uint8_t *has_eqx
     // rewind the file
 }
 
-
-
-int get_x_site_index(hts_pos_t *x_sites, int cur_site_i, int n_total_pos, hts_pos_t pos) {
-    int site_i = -1;
-    for (int i = cur_site_i; i < n_total_pos; i++) {
-        if (x_sites[i] == pos) {
-            site_i = i;
-            break;
-        } else if (x_sites[i] > pos) {
-            break;
-        }
-    }
-    if (site_i == -1) {
-        if (LONGCALLD_VERBOSE >= 2)
-        _err_func_printf("Mismatch position is ignored (no high-qual bases): %" PRId64 "\n", pos);
-    }
-    return site_i;
-}
-
-// int check_snp_site_index(hts_pos_t *mis_pos, int cur_mis_i, int n_total_mis_pos, hts_pos_t pos, int *hit) {
-//     int mis_i = -1; *hit = 0;
-//     for (int i = cur_mis_i; i < n_total_mis_pos; i++) {
-//         if (mis_pos[i] >= pos) {
-//             mis_i = i;
-//             if (mis_pos[i] == pos) *hit = 1;
-//             break;
-//         }
-//     }
-//     if (mis_i == -1) mis_i = n_total_mis_pos;
-//         // _err_error_exit("Mismatch position not found: %ld", pos);
-//     return mis_i;
-// }
-
 int get_var_start(cand_var_t *var_sites, int cur_site_i, int n_total_pos, hts_pos_t start) {
     int i;
     for (i = cur_site_i; i < n_total_pos; ++i) {
@@ -261,24 +168,6 @@ int get_var_start(cand_var_t *var_sites, int cur_site_i, int n_total_pos, hts_po
     }
     return i;
 }
-
-int get_x_site_start(hts_pos_t *pos, int cur_site_i, int n_total_pos, hts_pos_t start) {
-    int i;
-    for (i = cur_site_i; i < n_total_pos; ++i) {
-        if (pos[i] >= start) return i;
-    }
-    return i;
-}
-
-// for high-qual sites: update both depth and base
-// for low-qual sites: only update depth
-
-// int merge_var_sites(cand_var_t *cand_vars, var_site_t *var_sites, int cur_site_i, int n_total_var_sites, hts_pos_t pos, uint8_t base, uint8_t is_low_qual) {
-    // int new_site_i = get_var_site_index(var_sites, cur_site_i, n_total_var_sites, pos);
-    // if (new_site_i == -1) return cur_site_i;
-    // merge_var_site1(cand_vars+new_site_i, base, is_low_qual);
-    // return new_site_i;
-// }
 
 int get_var_site_start(var_site_t *var_sites, int cur_site_i, int n_total_pos, hts_pos_t start) {
     int i;
@@ -307,68 +196,12 @@ void update_var_site_with_allele(cand_var_t *cand_var, int is_low_qual, int alle
     cand_var->alle_covs[allele_i] += 1; // ref/alt
 }
 
-// void update_var_site_with_alt_allele(cand_var_t *cand_var, digar1_t *digar, const uint8_t *bseq, int is_low_qual) {
-//     if (is_low_qual) {
-//         cand_var->low_qual_cov++;
-//         return;
-//     }
-//     cand_var->total_cov++;
-//     uint8_t *alt_seq = make_alt_seq(digar, bseq);
-//     int alt_len = digar->len;
-//     if (digar->type == BAM_CDEL) {
-//         alt_len = 0;
-//     }
-
-//     int allele_i = -1, exist=0;
-//     for (int i = 0; i < cand_var->n_uniq_alles-1; ++i) {
-//         if (cand_var->alt_lens[i] == alt_len && memcmp(cand_var->alt_seqs[i], alt_seq, alt_len) == 0) {
-//             exist = 1; allele_i = i+1;
-//         }
-//     }
-//     if (exist == 0) { // new alt allele
-//         cand_var->alle_covs = (int*)realloc(cand_var->alle_covs, (cand_var->n_uniq_alles+1) * sizeof(int));
-//         cand_var->alt_lens = (int*)realloc(cand_var->alt_lens, (cand_var->n_uniq_alles) * sizeof(int));
-//         cand_var->alt_seqs = (uint8_t**)realloc(cand_var->alt_seqs, (cand_var->n_uniq_alles) * sizeof(uint8_t*));
-
-//         cand_var->alle_covs[cand_var->n_uniq_alles] = 1;
-//         cand_var->alt_lens[cand_var->n_uniq_alles-1] = alt_len;
-//         cand_var->alt_seqs[cand_var->n_uniq_alles-1] = alt_seq;
-//         cand_var->n_uniq_alles += 1;
-//     } else {
-//         cand_var->alle_covs[allele_i] += 1;
-//         free(alt_seq);
-//     }
-// }
-
-void update_var_site_with_other_alt_allele(cand_var_t *cand_var, int is_low_qual) {
-    if (is_low_qual) {
-        cand_var->low_qual_cov++;
-        return;
-    }
-    cand_var->total_cov++;
-    cand_var->alle_covs[2] += 1;
-}
-
-// no used
-// void update_read_var_profile_with_ref_allele(int var_i, read_var_profile_t *read_var_profile) {
-//     if (read_var_profile->start_var_idx == -1) read_var_profile->start_var_idx = var_i;
-//     read_var_profile->end_var_idx = var_i;
-//     int _var_i = var_i - read_var_profile->start_var_idx;
-//     read_var_profile->alleles[_var_i] = 0; // ref
-//     // read_var_profile->var_is_used[_var_i] = 1;
-// }
-
 void update_read_var_profile_with_allele(int var_i, int allele_i, read_var_profile_t *read_var_profile) {
     // even allele_i is -1, we still set it XXX
     if (read_var_profile->start_var_idx == -1) read_var_profile->start_var_idx = var_i;
     read_var_profile->end_var_idx = var_i;
     int _var_i = var_i - read_var_profile->start_var_idx;
     read_var_profile->alleles[_var_i] = allele_i; // ref:0, alt:1~n, or -1: not ref/alt
-    // if (is_low_qual) {
-    //     read_var_profile->var_is_used[_var_i] = 0;
-    // } else {
-    //     read_var_profile->var_is_used[_var_i] = 1;
-    // }
 }
 
 // cand_vars:
@@ -495,14 +328,6 @@ void set_seq_digar(digar1_t *digar, hts_pos_t pos, int type, int len, int qi, ui
     digar->pos = pos; digar->type = type; digar->len = len; digar->qi = qi; digar->alt_seq = alt_seq;
 }
 
-// void push_digar0(digar_t *digar, hts_pos_t pos, int type, int len, int qi, uint8_t base, uint8_t qual, int is_low_qual) {
-//     _uni_realloc(digar->digars, digar->n_digar, digar->m_digar, digar1_t);
-//     digar->digars[digar->n_digar].pos = pos; digar->digars[digar->n_digar].type = type; digar->digars[digar->n_digar].len = len;
-//     digar->digars[digar->n_digar].qi = qi; digar->digars[digar->n_digar].base = base; digar->digars[digar->n_digar].qual = qual;
-//     digar->digars[digar->n_digar].is_low_qual = is_low_qual;
-//     digar->n_digar++;
-// }
-
 void push_digar1(digar_t *digar, digar1_t d) {
     _uni_realloc(digar->digars, digar->n_digar, digar->m_digar, digar1_t);
     digar->digars[digar->n_digar].pos = d.pos; digar->digars[digar->n_digar].type = d.type;
@@ -515,106 +340,6 @@ void print_digar1(digar1_t *digars, int n_digar, FILE *fp) {
     fprintf(fp, "pos\ttype\tlen\tqi\tbase\tis_low_qual\n");
     for (int i = 0; i < n_digar; ++i) {
         fprintf(fp, "%" PRId64 "\t%c\t%d\t%d\t%d\n", digars[i].pos, BAM_CIGAR_STR[digars[i].type], digars[i].len, digars[i].qi, digars[i].is_low_qual);
-    }
-}
-
-// collect reg_digars that are within [reg_beg, reg_end]
-int collect_reg_digars_var_seqs(bam_chunk_t *chunk, int read_i, hts_pos_t reg_beg, hts_pos_t reg_end, digar1_t *reg_digars, uint8_t **reg_var_seqs, int *fully_cover) {
-    char *ref_seq = chunk->ref_seq; hts_pos_t ref_beg = chunk->ref_beg, ref_end = chunk->ref_end;
-    digar_t *read_digars = chunk->digars+read_i; int n_digar = read_digars->n_digar; digar1_t *digars = read_digars->digars;
-    int n_reg_digars = 0;
-    hts_pos_t reg_digar_beg = -1, reg_digar_end = -1;
-    for (int i = 0; i < n_digar; ++i) {
-        if (digars[i].type == BAM_CSOFT_CLIP || digars[i].type == BAM_CHARD_CLIP) continue;
-        uint8_t **var_seqs = reg_var_seqs+n_reg_digars;
-        hts_pos_t beg, end;
-        beg = digars[i].pos;
-        if (digars[i].type == BAM_CINS) end = digars[i].pos; // insertion
-        else end = digars[i].pos + digars[i].len - 1; // equal, diff or deletion
-        reg_digars[n_reg_digars] = digars[i];
-        if (beg > reg_end) break;
-        if (end < reg_beg) continue;
-        // cover left end of the region, only for equal, diff or deletion
-        if (beg <= reg_beg) {
-            reg_digars[n_reg_digars].pos = reg_beg;
-            reg_digars[n_reg_digars].len -= (reg_beg - beg);
-        }
-        // cover right end of the region
-        if (end >= reg_end) {
-            reg_digars[n_reg_digars].len -= (end - reg_end);
-        }
-        // collect variant seq
-        if (reg_digars[n_reg_digars].type == BAM_CINS) {
-            *var_seqs = (uint8_t*)malloc(reg_digars[n_reg_digars].len * sizeof(uint8_t));
-            for (int j = 0; j < reg_digars[n_reg_digars].len; ++j)
-                (*var_seqs)[j] = seq_nt16_int[bam_seqi(read_digars->bseq, reg_digars[n_reg_digars].qi+j)];
-        } else if (reg_digars[n_reg_digars].type == BAM_CDEL) {
-            *var_seqs = (uint8_t*)malloc(reg_digars[n_reg_digars].len * sizeof(uint8_t));
-            for (int j = 0; j < reg_digars[n_reg_digars].len; ++j)
-                (*var_seqs)[j] = nst_nt4_table[(int)ref_seq[reg_digars[n_reg_digars].pos-ref_beg+j]];
-        } else if (reg_digars[n_reg_digars].type == BAM_CDIFF) {
-            *var_seqs = (uint8_t*)malloc(reg_digars[n_reg_digars].len * 2 * sizeof(uint8_t)); // Ref+Query
-            for (int j = 0; j < reg_digars[n_reg_digars].len; ++j) {
-                (*var_seqs)[j*2] = nst_nt4_table[(int)ref_seq[reg_digars[n_reg_digars].pos-ref_beg+j]];
-                (*var_seqs)[j*2+1] = seq_nt16_int[bam_seqi(read_digars->bseq, reg_digars[n_reg_digars].qi+j)];
-            }
-        } else (*var_seqs) = NULL;
-        if (reg_digar_beg == -1) reg_digar_beg = reg_digars[n_reg_digars].pos;
-        reg_digar_end = reg_digars[n_reg_digars].pos + reg_digars[n_reg_digars].len - 1;
-        n_reg_digars++;
-    }
-    if (reg_digar_beg != reg_beg || reg_digar_end != reg_end) *fully_cover = 0; else *fully_cover = 1;
-    return n_reg_digars;
-}
-
-void assign_down_flanking_len(digar1_t *digars, int i, int len, int *down_low_qual_len) {
-    int j = i, remain_low_qual_len = len;
-    while (j >= 0 && remain_low_qual_len > 0) {
-        if (digars[j].type == BAM_CINS || digars[j].type == BAM_CSOFT_CLIP || digars[j].type == BAM_CHARD_CLIP) {
-            down_low_qual_len[j] = digars[j].len;
-            j--;
-            continue;
-        }
-        if (digars[j].type == BAM_CDEL) {
-            down_low_qual_len[j] = digars[j].len;
-            remain_low_qual_len -= digars[j].len;
-            j--;
-            continue;
-        }
-
-        if (digars[j].len < remain_low_qual_len) {
-            down_low_qual_len[j] = digars[j].len;
-            remain_low_qual_len -= digars[j].len;
-        } else {
-            down_low_qual_len[j] = MAX_OF_TWO(remain_low_qual_len, down_low_qual_len[j]);
-            remain_low_qual_len = 0;
-        }
-        j--;
-    }
-}
-
-void assign_up_flanking_len(digar1_t *digars, int i, int n, int len, int *up_low_qual_len) {
-    int j = i, remain_low_qual_len = len;
-    while (j < n && remain_low_qual_len > 0) {
-        if (digars[j].type == BAM_CINS || digars[j].type == BAM_CSOFT_CLIP || digars[j].type == BAM_CHARD_CLIP) {
-            up_low_qual_len[j] = digars[j].len;
-            j++;
-            continue;
-        }
-        if (digars[j].type == BAM_CDEL) {
-            up_low_qual_len[j] = digars[j].len;
-            remain_low_qual_len -= digars[j].len;
-            j++;
-            continue;
-        }
-        if (digars[j].len < remain_low_qual_len) {
-            up_low_qual_len[j] = digars[j].len;
-            remain_low_qual_len -= digars[j].len;
-        } else {
-            up_low_qual_len[j] = MAX_OF_TWO(remain_low_qual_len, up_low_qual_len[j]);
-            remain_low_qual_len = 0;
-        }
-        j++;
     }
 }
 

@@ -91,7 +91,6 @@ call_var_opt_t *call_var_init_para(void) {
     opt->min_dp = LONGCALLD_MIN_CAND_DP;
     opt->min_alt_dp = LONGCALLD_MIN_ALT_DP;
 
-    // opt->noisy_reg_merge_win = LONGCALLD_NOISY_REG_MERGE_WIN;
     opt->noisy_reg_flank_len = LONGCALLD_NOISY_REG_FLANK_LEN;
 
     opt->noisy_reg_max_xgaps = LONGCALLD_NOISY_REG_MAX_XGAPS;

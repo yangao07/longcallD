@@ -37,7 +37,7 @@ cand_var_t *init_cand_vars_based_on_sites(int n_var_sites, var_site_t *var_sites
             for (int j = 0; j < cand_vars[i].alt_len; ++j) cand_vars[i].alt_seq[j] = var_sites[i].alt_seq[j];
         } else cand_vars[i].alt_seq = NULL;
         // dynamic information, allocate and update during haplotype assignment
-        cand_vars[i].alle_to_hap = NULL; cand_vars[i].hap_to_alle_profile = NULL; cand_vars[i].hap_to_cons_alle = NULL;
+        cand_vars[i].hap_to_alle_profile = NULL; cand_vars[i].hap_to_cons_alle = NULL;
         cand_vars[i].is_low_qual = 0; cand_vars[i].is_skipped = 0;
     }
     return cand_vars;
@@ -46,7 +46,6 @@ cand_var_t *init_cand_vars_based_on_sites(int n_var_sites, var_site_t *var_sites
 void free_cand_vars1(cand_var_t *cand_vars) {
     if (cand_vars->alle_covs != NULL) free(cand_vars->alle_covs); 
     if (cand_vars->alt_seq != NULL) free(cand_vars->alt_seq);
-    if (cand_vars->alle_to_hap != NULL) free(cand_vars->alle_to_hap);
     if (cand_vars->hap_to_alle_profile != NULL) {
         for (int j = 0; j <= LONGCALLD_DEF_PLOID; ++j) {
             free(cand_vars->hap_to_alle_profile[j]);
@@ -65,7 +64,6 @@ void free_noisy_cand_vars1(cand_var_t *cand_vars) {
     if (cand_vars->alle_covs != NULL) free(cand_vars->alle_covs); 
     if (cand_vars->alt_seq != NULL) free(cand_vars->alt_seq);
 
-    if (cand_vars->alle_to_hap != NULL) free(cand_vars->alle_to_hap);
     if (cand_vars->hap_to_alle_profile != NULL) {
         for (int j = 0; j <= LONGCALLD_DEF_PLOID; ++j) {
             free(cand_vars->hap_to_alle_profile[j]);
@@ -77,34 +75,6 @@ void free_noisy_cand_vars1(cand_var_t *cand_vars) {
 void free_noisy_cand_vars(cand_var_t *cand_vars, int m) {
     for (int i = 0; i < m; ++i) free_noisy_cand_vars1(cand_vars+i);
     free(cand_vars);
-}
-
-
-int merge_x_sites(int n_total_x_sites, hts_pos_t **x_sites, int n_digar, digar1_t *digars) {
-    int new_total_x_sites = 0;
-    hts_pos_t *new_x_sites = (hts_pos_t*)malloc((n_total_x_sites + n_digar) * sizeof(hts_pos_t));
-    int i, j;
-    for (i = j = 0; i < n_total_x_sites && j < n_digar; ) {
-        if (digars[j].type != BAM_CDIFF || digars[j].is_low_qual) { j++; continue; }
-        if ((*x_sites)[i] < digars[j].pos) {
-            new_x_sites[new_total_x_sites] = (*x_sites)[i];
-            i++;
-        } else if ((*x_sites)[i] > digars[j].pos) {
-            new_x_sites[new_total_x_sites] = digars[j].pos;
-            j++;
-        } else {
-            new_x_sites[new_total_x_sites] = (*x_sites)[i];
-            i++; j++;
-        }
-        new_total_x_sites++;
-    }
-    for (; i < n_total_x_sites; ++i, ++new_total_x_sites) new_x_sites[new_total_x_sites] = (*x_sites)[i];
-    for (; j < n_digar; ++j) {
-        if (digars[j].type != BAM_CDIFF || digars[j].is_low_qual) continue;
-        new_x_sites[new_total_x_sites++] = digars[j].pos;
-    }
-    free(*x_sites); *x_sites = new_x_sites;
-    return new_total_x_sites;
 }
 
 int collect_cand_vars(bam_chunk_t *chunk, int n_var_sites, var_site_t *var_sites) {
@@ -403,16 +373,11 @@ int classify_cand_vars(bam_chunk_t *chunk, int n_var_sites, call_var_opt_t *opt)
             if (var->pos >= reg_beg && var->pos <= reg_end) {
                 if (var->var_type == BAM_CINS) {
                     var_start = var->pos; var_end = var->pos;
-                }
-                // cr_add(noisy_var_cr, "cr", var->pos-1, var->pos, opt->noisy_reg_flank_len+1);
-                else if (var->var_type == BAM_CDEL) {
+                } else if (var->var_type == BAM_CDEL) {
+                    var_start = var->pos; var_end = var->pos+var->ref_len-1;
+                } else {
                     var_start = var->pos; var_end = var->pos+var->ref_len-1;
                 }
-                //cr_add(noisy_var_cr, "cr", var->pos-1, var->pos+var->ref_len-1, opt->noisy_reg_flank_len+1);
-                else {
-                    var_start = var->pos; var_end = var->pos+var->ref_len-1;
-                }
-                // cr_add(noisy_var_cr, "cr", var->pos-1, var->pos+var->ref_len-1, opt->noisy_reg_flank_len);
                 if (low_comp_cr != NULL) {
                     int64_t *low_comp_b = 0; int64_t low_comp_n = 0, max_low_comp_n = 0;
                     low_comp_n = cr_overlap(low_comp_cr, "cr", var_start-1, var_end, &low_comp_b, &max_low_comp_n);
@@ -424,7 +389,7 @@ int classify_cand_vars(bam_chunk_t *chunk, int n_var_sites, call_var_opt_t *opt)
                     }
                     free(low_comp_b);
                 }
-                cr_add(noisy_var_cr, "cr", var_start-1, var_end, opt->noisy_reg_flank_len);
+                cr_add(noisy_var_cr, "cr", var_start-1, var_end, 1); // XXX set merge_win as 1, previously: niosy_reg_flank_len
             }
             continue;
         }
@@ -736,15 +701,6 @@ int collect_all_cand_var_sites(bam_chunk_t *chunk, var_site_t **var_sites) {
     return n_total_var_sites;
 }
 
-int merge_cand_var_profile(cand_var_t *vars1, read_var_profile_t *p1, int n_vars1,
-                           cand_var_t *vars2, read_var_profile_t *p2, int n_vars2,
-                           cand_var_t **vars, read_var_profile_t **p) {
-
-    if (n_vars1 + n_vars2 <= 0) return 0;
-    int n_vars = 0;
-    return n_vars;
-}
-
 int comp_cand_var(cand_var_t *var1, cand_var_t *var2) {
     var_site_t var_site1 = make_var_site_from_cand_var(var1);
     var_site_t var_site2 = make_var_site_from_cand_var(var2);
@@ -863,7 +819,6 @@ read_var_profile_t *collect_read_var_profile(bam_chunk_t *chunk) {
             if (p[i].start_var_idx >= 0) {
                 fprintf(stderr, "Read: %s, start_var_i: %d, end_var_i: %d\n", bam_get_qname(read), p[i].start_var_idx, p[i].end_var_idx);
                 for (int j = 0; j <= p[i].end_var_idx-p[i].start_var_idx; ++j) {
-                    // if (p[i].var_is_used[j] == 0) continue;
                     fprintf(stderr, "P\tVar: (%d) %" PRId64 "", j, cand_vars[j+p[i].start_var_idx].pos);
                     fprintf(stderr, " %d-%c-%d, allele: %d\n", cand_vars[j+p[i].start_var_idx].ref_len, BAM_CIGAR_STR[cand_vars[j+p[i].start_var_idx].var_type], cand_vars[j+p[i].start_var_idx].alt_len, p[i].alleles[j]);
                 }
@@ -1038,7 +993,7 @@ int flip_variant_hap(bam_chunk_t *prev_chunk, bam_chunk_t *cur_chunk) {
         int cur_var_start_i0 = cur_chunk->read_var_profile[i].start_var_idx;
         int cur_var_end_i0 = cur_chunk->read_var_profile[i].end_var_idx;
         for (int j = cur_var_start_i; j <= cur_var_end_i; ++j) {
-            if (j < cur_var_start_i0 || j > cur_var_end_i0) // || cur_chunk->read_var_profile[i].var_is_used[j - cur_var_start_i0] == 0)
+            if (j < cur_var_start_i0 || j > cur_var_end_i0)
                 continue;
             int allele_i = cur_chunk->read_var_profile[i].alleles[j - cur_var_start_i0];
             // fprintf(stderr, "\tCur-Var: %lld, %c, allele: %d\n", (long long) cur_chunk->cand_vars[j].pos, BAM_CIGAR_STR[cur_chunk->cand_vars[j].var_type], allele_i);
@@ -1277,7 +1232,7 @@ int make_cand_vars_from_baln0(int tid, hts_pos_t noisy_reg_beg, hts_pos_t active
         }
     }
     for (int i = 0; i < n_vars; ++i) {
-        (*cand_vars)[i].alle_to_hap = NULL; (*cand_vars)[i].hap_to_alle_profile = NULL; (*cand_vars)[i].hap_to_cons_alle = NULL;
+        (*cand_vars)[i].hap_to_alle_profile = NULL; (*cand_vars)[i].hap_to_cons_alle = NULL;
         (*cand_vars)[i].is_low_qual = 0; (*cand_vars)[i].is_skipped = 0;
         (*var_cate)[i] = LONGCALLD_NOISY_CAND_HOM_VAR;
     }
@@ -1462,33 +1417,6 @@ int make_vars_from_aln0(char *chunk_ref_seq, hts_pos_t chunk_ref_seq_beg, hts_po
     return n_vars;
 }
 
-// allocate memory for new vars
-int make_vars_from_msa1(hts_pos_t ref_beg, uint8_t *ref_seq, uint8_t *query_seq, int msa_len, var_t **vars, int is_hom) {
-    uint8_t *_ref_seq = (uint8_t*)malloc(msa_len * sizeof(uint8_t));
-    uint8_t *_query_seq = (uint8_t*)malloc(msa_len * sizeof(uint8_t));
-    int i = 0, j = 0;
-    // remove '-' if it is in both ref_seq and query_seq
-    int new_msa_len = 0;
-    for (int k = 0; k < msa_len; ++k) {
-        if (ref_seq[k] != 5 || query_seq[k] != 5) {
-            _ref_seq[new_msa_len] = ref_seq[k];
-            _query_seq[new_msa_len] = query_seq[k];
-            new_msa_len++;
-        }
-    }
-    int n_vars = make_vars_from_baln0(ref_beg, _ref_seq, _query_seq, new_msa_len, vars, is_hom);
-    (*vars)->n = n_vars;
-    free(_ref_seq); free(_query_seq);
-    return n_vars;
-}
-
-int identical_alt_base(uint8_t *alt1, uint8_t *alt2, int len) {
-    for (int i = 0; i < len; ++i) {
-        if (alt1[i] != alt2[i]) return 0;
-    }
-    return 1;
-}
-
 // order of variants with same pos: order by type, ref_len, alt_len
 int comp_var_site(var_site_t *var1, var_site_t *var2) {
     if (var1->pos < var2->pos) return -1;
@@ -1509,186 +1437,6 @@ int comp_var_site(var_site_t *var1, var_site_t *var2) {
     else return 0;
 }
 
-
-int merge_cand_vars(cand_var_t *vars1, int n_vars1, cand_var_t *vars2, int n_vars2, cand_var_t **vars) {
-    if (n_vars1 + n_vars2 <= 0) return 0;
-    int n_vars = 0;
-    *vars = (cand_var_t *)malloc((n_vars1 + n_vars2) * sizeof(cand_var_t));
-    int i1 = 0, i2 = 0;
-    for (; i1 < n_vars1 && i2 < n_vars2; ) {
-        var_site_t var_site1 = make_var_site_from_cand_var(vars1 + i1);
-        var_site_t var_site2 = make_var_site_from_cand_var(vars2 + i2);
-        int ret = comp_var_site(&var_site1, &var_site2);
-        if (ret < 0) {
-            (*vars)[n_vars++] = vars1[i1++];
-        } else if (ret > 0) {
-            (*vars)[n_vars++] = vars2[i2++];
-        } else { // same
-            (*vars)[n_vars++] = vars1[i1++];
-            free_cand_vars1(vars2 + i2); i2++;
-        }
-    }
-    for (; i1 < n_vars1; ++i1) (*vars)[n_vars++] = vars1[i1];
-    for (; i2 < n_vars2; ++i2) (*vars)[n_vars++] = vars2[i2];
-    return n_vars;
-}
-
-int merge_noisy_cand_vars(cand_var_t *vars1, int n_vars1, cand_var_t *vars2, int n_vars2, cand_var_t **vars) {
-    if (n_vars1 + n_vars2 <= 0) return 0;
-    int n_vars = 0;
-    *vars = (cand_var_t *)malloc((n_vars1 + n_vars2) * sizeof(cand_var_t));
-    int i1 = 0, i2 = 0;
-    for (; i1 < n_vars1 && i2 < n_vars2; ) {
-        var_site_t var_site1 = make_var_site_from_cand_var(vars1 + i1);
-        var_site_t var_site2 = make_var_site_from_cand_var(vars2 + i2);
-        int ret = comp_var_site(&var_site1, &var_site2);
-        if (ret < 0) {
-            (*vars)[n_vars++] = vars1[i1++];
-        } else if (ret > 0) {
-            (*vars)[n_vars++] = vars2[i2++];
-        } else { // same
-            (*vars)[n_vars++] = vars1[i1++];
-            free_noisy_cand_vars1(vars2 + i2); i2++;
-        }
-    }
-    for (; i1 < n_vars1; ++i1) (*vars)[n_vars++] = vars1[i1];
-    for (; i2 < n_vars2; ++i2) (*vars)[n_vars++] = vars2[i2];
-    return n_vars;
-}
-
-// copy vars from hap1_vars and hap2_vars, merge them based on pos
-// free unused hap1_vars and hap2_vars
-int merge_hap_vars(var_t *hap1_vars, int n_hap1_vars, var_t *hap2_vars, int n_hap2_vars, var_t **vars) {
-    if (n_hap1_vars + n_hap2_vars == 0)
-        return 0;
-    int n_vars = 0;
-    *vars = (var_t *)malloc(sizeof(var_t));
-    (*vars)->vars = (var1_t *)malloc((n_hap1_vars + n_hap2_vars) * sizeof(var1_t));
-    (*vars)->m = n_hap1_vars + n_hap2_vars;
-    // merge sort
-    int i1, i2;
-    for (i1 = 0, i2 = 0; i1 < n_hap1_vars && i2 < n_hap2_vars; ) {
-        if (hap1_vars->vars[i1].pos < hap2_vars->vars[i2].pos) {
-            (*vars)->vars[n_vars] = hap1_vars->vars[i1++];
-            (*vars)->vars[n_vars].GT[0] = 1;
-            (*vars)->vars[n_vars].GT[1] = 0;
-            n_vars++;
-        } else if (hap1_vars->vars[i1].pos > hap2_vars->vars[i2].pos) {
-            (*vars)->vars[n_vars] = hap2_vars->vars[i2++];
-            (*vars)->vars[n_vars].GT[0] = 0;
-            (*vars)->vars[n_vars].GT[1] = 1;
-            n_vars++;
-        } else {
-            if (hap1_vars->vars[i1].ref_len == hap2_vars->vars[i2].ref_len &&
-                hap1_vars->vars[i1].type == hap2_vars->vars[i2].type &&
-                // XXX only expect to have 1 alt
-                hap1_vars->vars[i1].alt_len[0] == hap2_vars->vars[i2].alt_len[0] &&
-                identical_alt_base(hap1_vars->vars[i1].alt_bases[0], hap2_vars->vars[i2].alt_bases[0], hap1_vars->vars[i1].alt_len[0])) {
-                (*vars)->vars[n_vars] = hap1_vars->vars[i1++];
-                (*vars)->vars[n_vars].GT[0] = 1;
-                (*vars)->vars[n_vars].GT[1] = 1;
-                var1_free(hap2_vars->vars + i2);
-                n_vars++;
-                i2++;
-            } else {
-                // fprintf(stderr, "DIFF: %ld, %ld\n", hap1_vars->vars[i1].pos, hap2_vars->vars[i2].pos);
-                (*vars)->vars[n_vars] = hap1_vars->vars[i1++];
-                (*vars)->vars[n_vars].GT[0] = 1;
-                (*vars)->vars[n_vars].GT[1] = 0;
-                n_vars++;
-                (*vars)->vars[n_vars] = hap2_vars->vars[i2++];
-                (*vars)->vars[n_vars].GT[0] = 0;
-                (*vars)->vars[n_vars].GT[1] = 1;
-                n_vars++;
-            }
-        }
-    }
-    for (; i1 < n_hap1_vars; ++i1) {
-        (*vars)->vars[n_vars] = hap1_vars->vars[i1];
-        (*vars)->vars[n_vars].GT[0] = 1;
-        (*vars)->vars[n_vars].GT[1] = 0;
-        n_vars++;
-    }
-    for (; i2 < n_hap2_vars; ++i2) {
-        (*vars)->vars[n_vars] = hap2_vars->vars[i2];
-        (*vars)->vars[n_vars].GT[0] = 0;
-        (*vars)->vars[n_vars].GT[1] = 1;
-        n_vars++;
-    }
-    (*vars)->n = n_vars;
-    return n_vars;
-}
-
-int make_vars_from_cons_aln(const call_var_opt_t *opt, bam_chunk_t *chunk, hts_pos_t noisy_reg_beg, hts_pos_t noisy_reg_end, hts_pos_t active_reg_beg, hts_pos_t active_reg_end,
-                            uint8_t **cons_seqs, int *cons_lens, int n_cons, var_t **vars) {
-    if (n_cons == 0)
-        return 0;
-    char *ref_seq = NULL;
-    int ref_seq_len = collect_reg_ref_cseq(chunk, noisy_reg_beg, noisy_reg_end, &ref_seq);
-    char *chunk_ref_seq = chunk->ref_seq;
-    hts_pos_t chunk_ref_seq_beg = chunk->ref_beg, chunk_ref_seq_end = chunk->ref_end;
-
-    // WFA for ref vs cons1/2
-    int n_vars = 0, n_hap1_vars = 0, n_hap2_vars = 0;
-    var_t *hap1_vars = NULL, *hap2_vars = NULL;
-    for (int i = 0; i < n_cons; ++i) {
-        uint32_t *cigar_buf = NULL;
-        int cigar_len = end2end_aln(opt, ref_seq, ref_seq_len, cons_seqs[i], cons_lens[i], &cigar_buf);
-        if (n_cons == 1) {
-            n_vars = make_vars_from_aln0(chunk_ref_seq, chunk_ref_seq_beg, chunk_ref_seq_end, noisy_reg_beg, active_reg_beg, active_reg_end, cons_seqs[i], cons_lens[i], cigar_buf, cigar_len, vars, 1);
-        } else {
-            if (i == 0) {
-                n_hap1_vars = make_vars_from_aln0(chunk_ref_seq, chunk_ref_seq_beg, chunk_ref_seq_end, noisy_reg_beg, active_reg_beg, active_reg_end, cons_seqs[i], cons_lens[i], cigar_buf, cigar_len, &hap1_vars, 0);
-            } else if (i == 1) {
-                n_hap2_vars = make_vars_from_aln0(chunk_ref_seq, chunk_ref_seq_beg, chunk_ref_seq_end, noisy_reg_beg, active_reg_beg, active_reg_end, cons_seqs[i], cons_lens[i], cigar_buf, cigar_len, &hap2_vars, 0);
-            }
-        }
-        if (cigar_buf != NULL)
-            free(cigar_buf);
-    }
-    if (LONGCALLD_VERBOSE >= 2) {
-        for (int i = 0; i < n_hap1_vars; ++i) {
-            fprintf(stderr, "H1: %" PRId64 ", %d-%c-%d\n", hap1_vars->vars[i].pos, hap1_vars->vars[i].ref_len, BAM_CIGAR_STR[hap1_vars->vars[i].type], hap1_vars->vars[i].alt_len[0]);
-        }
-        for (int i = 0; i < n_hap2_vars; ++i) {
-            fprintf(stderr, "H2: %" PRId64 ", %d-%c-%d\n", hap2_vars->vars[i].pos, hap2_vars->vars[i].ref_len, BAM_CIGAR_STR[hap2_vars->vars[i].type], hap2_vars->vars[i].alt_len[0]);
-        }
-        for (int i = 0; i < n_vars; ++i) {
-            fprintf(stderr, "HOM: %" PRId64 ", %d-%c-%d\n", (*vars)->vars[i].pos, (*vars)->vars[i].ref_len, BAM_CIGAR_STR[(*vars)->vars[i].type], (*vars)->vars[i].alt_len[0]);
-        }
-    }
-    if (n_cons == 2) {
-        n_vars = merge_hap_vars(hap1_vars, n_hap1_vars, hap2_vars, n_hap2_vars, vars);
-    }
-    // free
-    free(ref_seq);
-    if (hap1_vars != NULL) {
-        free(hap1_vars->vars); free(hap1_vars);
-    }
-    if (hap2_vars != NULL) {
-        free(hap2_vars->vars); free(hap2_vars);
-    }
-    return n_vars;
-}
-
-// XXX 
-int is_match_base(uint8_t *read_seq, uint8_t *target_seq, int msa_len, int target_pos, int target_len, uint8_t *base, float sim_thres) {
-    int cur_pos = -1, n_eq = 0, n_xid = 0, base_i = 0;
-    for (int i = 0; i < msa_len; ++i) {
-        if (target_seq[i] != 5) cur_pos++;
-        if (cur_pos >= target_pos+target_len) break;
-        else if (cur_pos >= target_pos) {
-            if (base_i < target_len) {
-                if (read_seq[i] == base[base_i]) n_eq++;
-                else n_xid++;
-                base_i++;
-            }
-            if (base_i == target_len) break;
-        }
-    }
-    if (target_len >= 10) return (n_eq >= (target_len * sim_thres));
-    else return (n_eq == target_len && n_xid == 0);
-}
 
 // check if read_seq and target_seq are identical at positions [target_pos...target_pos+len-1]
 // XXX reads with part of the inserted sequence ???
@@ -1713,82 +1461,6 @@ int is_match(uint8_t *read_seq, uint8_t *target_seq, int msa_len, int target_pos
     else return (n_eq == len && n_xid == 0);
 }
 
-int is_match_ref(uint8_t *read_seq, uint8_t *target_seq, int msa_len, int target_pos, int len, float sim_thres) {
-    int cur_pos = -1, n_eq = 0, n_xid = 0;
-    int checked_base = 0;
-    for (int i = 0; i < msa_len; ++i) {
-        if (target_seq[i] != 5) cur_pos++;
-        // if (cur_pos == target_pos + len) break;
-        if (cur_pos >= target_pos) {
-            if (read_seq[i] == target_seq[i]) n_eq++;
-            else n_xid++;
-        } 
-        if (cur_pos == target_pos+len-1) break;
-    }
-    // if (len >= 100) return (n_eq >= (len * sim_thres));
-    if (len >= 10) return (n_eq >= (len * sim_thres));
-    else return (n_eq == len && n_xid == 0);
-}
-
-int is_match_with_ins(uint8_t *read_seq, uint8_t *target_seq, int msa_len, int target_pos, int len, float sim_thres) {
-    int cur_pos = -1, n_eq = 0, n_xid = 0;
-    int checked_base = 0;
-    int excluding_first = 0;
-    for (int i = 0; i < msa_len; ++i) {
-        if (target_seq[i] != 5) cur_pos++;
-        if (cur_pos == target_pos + len) break;
-        else if (cur_pos >= target_pos) {
-            if (excluding_first == 1) {
-                if (read_seq[i] == target_seq[i]) n_eq++;
-                else n_xid++;
-            } else excluding_first = 1;
-        }
-    }
-    int n_base = len - 1;
-    // if (len >= 100) return (n_eq >= (len * sim_thres));
-    if (n_base >= 10) return (n_eq >= (n_base * sim_thres));
-    else return (n_eq == n_base && n_xid == 0);
-}
-
-int is_match_no_ins(uint8_t *read_seq, uint8_t *target_seq, int msa_len, int target_pos, int len, float sim_thres) {
-    int cur_pos = -1, n_eq = 0, n_xid = 0;
-    int checked_base = 0, excluding_first = 0;
-    for (int i = 0; i < msa_len; ++i) {
-        if (target_seq[i] != 5) cur_pos++;
-        if (cur_pos == target_pos + len) break;
-        else if (cur_pos >= target_pos) {
-            if (cur_pos != target_pos + len-1) { // excluding the last base
-                if (excluding_first == 1) {
-                    if (read_seq[i] == target_seq[i]) n_eq++;
-                    else n_xid++;
-                } else excluding_first = 1;
-            }
-        }
-    }
-    int n_base = len - 2;
-    if (n_base >= 10) return (n_eq >= (n_base * sim_thres));
-    else return (n_eq == n_base && n_xid == 0);
-}
-
-// check if the read_seq has a len-long D from target_pos
-int old_is_match_del(uint8_t *read_seq, uint8_t *target_seq, int msa_len, int target_pos, int len, float sim_thres) {
-    int n_del = 0, cur_pos = -1;
-    int read_first_del_i = -1, read_last_del_i = -1;
-    for (int i = 0; i < msa_len; ++i) {
-        if (target_seq[i] != 5) cur_pos++;
-        if (cur_pos >= target_pos + len) break;
-        else if (cur_pos >= target_pos) {
-            if (read_seq[i] == 5) n_del++;
-            if (read_first_del_i == -1) read_first_del_i = i;
-            read_last_del_i = i;
-        }
-    }
-    if (read_first_del_i >= 1 && read_seq[read_first_del_i-1] == 5) return 0;
-    if (read_last_del_i < msa_len-1 && read_seq[read_last_del_i+1] == 5) return 0;
-    if (len >= 10) return (n_del >= (len * sim_thres));
-    else return (n_del == len);
-}
-
 int is_match_del(uint8_t *read_seq, uint8_t *target_seq, int msa_len, int target_pos, int len, float sim_thres) {
     int n_del = 0, cur_pos = -1;
     int checked_targed_bases = 0;
@@ -1805,64 +1477,6 @@ int is_match_del(uint8_t *read_seq, uint8_t *target_seq, int msa_len, int target
     else return (n_del == len);
 }
 
-// check if the read seq has a len-long I from target_pos
-int is_match_ins_base(uint8_t *read_seq, uint8_t *target_seq, int msa_len, int target_pos, uint8_t *ins_seq, int ins_len, float sim_thres) {
-    int n_ins = 0, cur_pos = 0;
-    uint8_t *_ins_seq = (uint8_t*)malloc(msa_len * sizeof(uint8_t));
-    for (int i = 0; i < msa_len; ++i) {
-        if (cur_pos >= target_pos + 1) break;
-        else if (cur_pos >= target_pos) {
-            if (target_seq[i] == 5 && read_seq[i] != 5) {
-                _ins_seq[n_ins] = read_seq[i];
-                n_ins++;
-            }
-        }
-        if (target_seq[i] != 5) cur_pos++;
-    }
-    // check the similarity between _ins_seq and ins_seq
-    int n_eq = 0, n_xid = 0;
-    wfa_heuristic_aln(_ins_seq, n_ins, ins_seq, ins_len, &n_eq, &n_xid);
-    free(_ins_seq);
-    if (ins_len >= 10) return (n_eq >= (ins_len * sim_thres));
-    else return (n_eq == ins_len && n_xid == 0);
-}
-
-// return 1: var, 0: ref
-int get_var_allele_i_from_ref_msa(uint8_t *read_seq, uint8_t *ref_seq, int msa_len, int var_type, int target_pos, int target_len, uint8_t *alt_seq, int alt_len, float ref_sim_thres, float alt_sim_thres) {
-    int allele_i = -1;
-    if (var_type == BAM_CDIFF) {
-        // if (is_match(read_seq, ref_seq, msa_len, target_pos, target_len, ref_sim_thres)) return 0;
-        if (is_match_ref(read_seq, ref_seq, msa_len, target_pos, target_len, ref_sim_thres)) return 0;
-        else if (is_match_base(read_seq, ref_seq, msa_len, target_pos, target_len, alt_seq, alt_sim_thres)) return 1;
-        else return -1;
-    } else if (var_type == BAM_CINS) {
-        if (is_match_no_ins(read_seq, ref_seq, msa_len, target_pos-1, 2, ref_sim_thres)) return 0;
-        // if (is_match(read_seq, ref_seq, msa_len, target_pos-1, 2, ref_sim_thres)) return 0;
-        else if (is_match_ins_base(read_seq, ref_seq, msa_len, target_pos, alt_seq, alt_len, alt_sim_thres)) return 1;
-        else return -1; 
-    } else if (var_type == BAM_CDEL) {
-        if (is_match(read_seq, ref_seq, msa_len, target_pos, target_len, ref_sim_thres)) return 0;
-        else if (is_match_del(read_seq, ref_seq, msa_len, target_pos, target_len, alt_sim_thres)) return 1;
-        else return -1;
-    }
-    return allele_i;
-}
-
-// return 0: ref, -1: not ref
-int get_var_ref_from_ref_msa(uint8_t *read_seq, uint8_t *ref_seq, int msa_len, int var_type, int ref_pos, int ref_len, float ref_sim_thres) {
-    int allele_i = -1;
-    if (var_type == BAM_CDIFF) {
-        if (is_match(read_seq, ref_seq, msa_len, ref_pos, ref_len, ref_sim_thres)) return 0;
-        else return -1;
-    } else if (var_type == BAM_CINS) {
-        if (is_match(read_seq, ref_seq, msa_len, ref_pos-1, 2, ref_sim_thres)) return 0;
-        else return -1;
-    } else if (var_type == BAM_CDEL) {
-        if (is_match(read_seq, ref_seq, msa_len, ref_pos, ref_len, ref_sim_thres)) return 0;
-        else return -1;
-    }
-    return allele_i;
-}
 // return 1: alt_allele, -1: not ref or alt
 int get_var_allele_i_from_cons_ref_msa(uint8_t *cons_read_seq, uint8_t *cons_seq, int cons_read_aln_len, uint8_t *ref_read_seq, uint8_t *ref_seq, int ref_read_aln_len,
                                        int var_type, int ref_pos, int alt_pos, int alt_len, float cons_sim_thres) {
@@ -1921,24 +1535,6 @@ void update_cand_var_profile_from_msa_cons_ref_aln(aln_str_t *cons_aln_str, aln_
         if (vars[i].var_type == BAM_CINS) delta_ref_alt -= var_alt_len;
         else if (vars[i].var_type == BAM_CDEL) delta_ref_alt += var_ref_len;
     }
-    // update allele_i for overlapping vars
-    // for (int i = 0; i < n_vars; ++i) {
-    //     int n_ovlp_vars = 0; int *ovlp_vars = (int *)malloc(n_vars * sizeof(int));
-    //     for (int j = 0; j < n_vars; ++j) {
-    //         if (j == i) continue;
-    //         if (vars[j].pos > vars[i].pos + vars[i].ref_len) break;
-    //         if (ovlp_cand_vars(vars+i, vars+j)) {
-    //             ovlp_vars[n_ovlp_vars++] = j;
-    //         }
-    //     }
-    //     if (p->alleles[i - p->start_var_idx] == 1) {
-    //         for (int j = 0; j < n_ovlp_vars; ++j) {
-    //             int var_i = ovlp_vars[j];
-    //             p->alleles[var_i - p->start_var_idx] = 0;
-    //         }
-    //     }
-    //     free(ovlp_vars);
-    // }
 }
 
 // aln_strs:
@@ -2004,39 +1600,6 @@ void update_cand_var_profile_from_msa_cons_ref_aln21(int clu_idx, aln_str_t *con
             }
         }
     }
-    // update allele_i for overlapping vars
-    // for (int i = 0; i < n_vars; ++i) {
-    //     if (p->alleles[i - p->start_var_idx] == 1) {
-    //         int n_ovlp_vars = 0; int *ovlp_vars = (int *)malloc(n_vars * sizeof(int));
-    //         for (int j = 0; j < n_vars; ++j) {
-    //             if (j == i) continue;
-    //             if (vars[j].pos > vars[i].pos + vars[i].ref_len) break;
-    //             if (ovlp_cand_vars(vars+i, vars+j)) {
-    //                 if (LONGCALLD_VERBOSE >= 2)
-    //                     fprintf(stderr, "OvlpVars: %ld %d-%c-%d vs %ld %d-%c-%d\n", 
-    //                             vars[i].pos, vars[i].ref_len, BAM_CIGAR_STR[vars[i].var_type], vars[i].alt_len,
-    //                             vars[j].pos, vars[j].ref_len, BAM_CIGAR_STR[vars[j].var_type], vars[j].alt_len);
-    //                 ovlp_vars[n_ovlp_vars++] = j;
-    //             }
-    //         }
-    //         for (int j = 0; j < n_ovlp_vars; ++j) {
-    //             int var_i = ovlp_vars[j];
-    //             if (LONGCALLD_VERBOSE >= 2) {
-    //                 fprintf(stderr, "old_allele_i: %d\n", p->alleles[var_i - p->start_var_idx]);
-    //                 if (p->alleles[var_i - p->start_var_idx] == 1) {
-    //                     _err_error_exit("OvlpVars-Both1: %ld %d-%c-%d vs %ld %d-%c-%d\n", 
-    //                             vars[i].pos, vars[i].ref_len, BAM_CIGAR_STR[vars[i].var_type], vars[i].alt_len,
-    //                             vars[var_i].pos, vars[var_i].ref_len, BAM_CIGAR_STR[vars[var_i].var_type], vars[var_i].alt_len);
-    //                 }
-    //             }
-    //             if (p->alleles[var_i - p->start_var_idx] == -1) {
-    //                 p->alleles[var_i - p->start_var_idx] = 0;
-    //                 vars[var_i].alle_covs[0]++;
-    //             }
-    //         }
-    //         free(ovlp_vars);
-    //     }
-    // }
 }
 
 // msa_seqs: clu_n_seqs + cons + cons from the other haplotype
@@ -2173,56 +1736,6 @@ int make_vars_from_msa_cons_aln(const call_var_opt_t *opt, bam_chunk_t *chunk, i
     return n_vars;
 }
 
-int make_vars_from_msa(const call_var_opt_t *opt, bam_chunk_t *chunk, hts_pos_t reg_beg, hts_pos_t reg_end, uint8_t **cons_seqs, int *cons_lens, int n_cons, var_t **vars) {
-    if (n_cons == 0) return 0;
-    uint8_t *ref_seq = NULL;
-    int ref_seq_len = collect_reg_ref_bseq(chunk, reg_beg, reg_end, &ref_seq);
-    // MSA for ref + cons1 + cons2 -> collect variant based on MSA result
-    uint8_t **msa_seqs = NULL;
-    int msa_len = collect_ref_cons_msa_seqs(opt, ref_seq, ref_seq_len, cons_seqs, cons_lens, n_cons, &msa_seqs);
-
-    var_t *hap1_vars = NULL, *hap2_vars = NULL;
-    int n_hap1_vars = 0, n_hap2_vars = 0, n_vars = 0;
-    if (n_cons == 2) {
-        n_hap1_vars = make_vars_from_msa1(reg_beg, msa_seqs[0], msa_seqs[1], msa_len, &hap1_vars, 0);
-        n_hap2_vars = make_vars_from_msa1(reg_beg, msa_seqs[0], msa_seqs[2], msa_len, &hap2_vars, 0);
-        n_vars = merge_hap_vars(hap1_vars, n_hap1_vars, hap2_vars, n_hap2_vars, vars);
-    } else {
-        n_vars = make_vars_from_msa1(reg_beg, msa_seqs[0], msa_seqs[1], msa_len, vars, 1);
-    }
-    // if (LONGCALLD_VERBOSE >= 2) {
-    //     for (int i = 0; i < n_hap1_vars; ++i) {
-    //         fprintf(stderr, "H1: %" PRId64 ", %d-%c-%d\n", hap1_vars->vars[i].pos, hap1_vars->vars[i].ref_len, BAM_CIGAR_STR[hap1_vars->vars[i].type], hap1_vars->vars[i].alt_len[0]);
-    //     }
-    //     for (int i = 0; i < n_hap2_vars; ++i) {
-    //         fprintf(stderr, "H2: %" PRId64 ", %d-%c-%d\n", hap2_vars->vars[i].pos, hap2_vars->vars[i].ref_len, BAM_CIGAR_STR[hap2_vars->vars[i].type], hap2_vars->vars[i].alt_len[0]);
-    //     }
-    //     for (int i = 0; i < n_vars; ++i) {
-    //         fprintf(stderr, "HOM: %" PRId64 ", %d-%c-%d\n", (*vars)->vars[i].pos, (*vars)->vars[i].ref_len, BAM_CIGAR_STR[(*vars)->vars[i].type], (*vars)->vars[i].alt_len[0]);
-    //     }
-    // }
-    if (hap1_vars != NULL) {
-        free(hap1_vars->vars); free(hap1_vars);
-    }
-    if (hap2_vars != NULL) {
-        free(hap2_vars->vars); free(hap2_vars);
-    }
-    // collect variants based on MSA
-    if (msa_seqs != NULL) {
-        for (int i = 0; i < n_cons+1; ++i) {
-            // if (LONGCALLD_VERBOSE >= 2) {
-            //     fprintf(stderr, ">MSA-%d\n", i);
-            //     for (int j = 0; j < msa_len; ++j) {
-            //         fprintf(stderr, "%c", "ACGTN-"[msa_seqs[i][j]]);
-            //     } fprintf(stderr, "\n");
-            // }
-            free(msa_seqs[i]);
-        }
-    } free(msa_seqs);
-    if (ref_seq != NULL) free(ref_seq);
-    return n_vars;
-}
-
 // copy add_vars and old_vars to new_vars, merge them based on pos
 // free unused add_vars
 int merge_vars(var_t *old_vars, var_t *add_vars) {
@@ -2274,17 +1787,6 @@ int merge_vars(var_t *old_vars, var_t *add_vars) {
     return new_i;
 }
 
-int collect_homo_vars(bam_chunk_t *chunk, var_t *var, int var_cate, call_var_opt_t *opt) {
-    int n_vars = 0;
-    read_var_profile_t *p = chunk->read_var_profile;
-    int n_cand_vars = chunk->n_cand_vars;
-    int *var_i_to_cate = chunk->var_i_to_cate;
-    cand_var_t *cand_vars = chunk->cand_vars;
-    cgranges_t *read_var_cr = chunk->read_var_cr;
-    int64_t ovlp_i, ovlp_n, *ovlp_b = 0, max_b = 0;
-    return n_vars;
-}
-
 // XXX ignore regions without fully-spanning reads
 // re-alignment of specific regions within each haplotyp, and collect candidate variants
 // 1. consensus calling within each haplotype
@@ -2327,7 +1829,7 @@ int collect_noisy_vars1(bam_chunk_t *chunk, const call_var_opt_t *opt, int noisy
         }
     }
 
-    n_cons = collect_noisy_reg_msa_cons(opt, chunk, noisy_reg_beg, noisy_reg_end, noisy_reg_i, n_noisy_reads, noisy_reads, ref_seq, ref_seq_len, // both cons_seqs and msa_seqs are separated for n_cons==2
+    n_cons = collect_noisy_reg_aln_strs(opt, chunk, noisy_reg_beg, noisy_reg_end, noisy_reg_i, n_noisy_reads, noisy_reads, ref_seq, ref_seq_len, // both cons_seqs and msa_seqs are separated for n_cons==2
                                         clu_n_seqs, clu_read_ids, aln_strs);
     fprintf(stderr, "n_cons: %d\n", n_cons);
     free(ref_seq);
@@ -2372,89 +1874,26 @@ int *sort_noisy_regs(bam_chunk_t *chunk) {
     int n_noisy_regs = noisy_regs->n_r;
     int *sorted_noisy_regs = (int*)malloc(n_noisy_regs * sizeof(int));
     int *noisy_reg_lens = (int*)malloc(n_noisy_regs * sizeof(int));
-    int *noisy_reg_labels = (int*)malloc(n_noisy_regs * sizeof(int));
+    int *noisy_reg_var_sizes = (int*)malloc(n_noisy_regs * sizeof(int));
     for (int i = 0; i < n_noisy_regs; ++i) {
         noisy_reg_lens[i] = cr_end(noisy_regs, i) - cr_start(noisy_regs, i);
-        noisy_reg_labels[i] = cr_label(noisy_regs, i);
+        noisy_reg_var_sizes[i] = cr_label(noisy_regs, i);
         sorted_noisy_regs[i] = i;
     }
     for (int i = 0; i < n_noisy_regs; ++i) {
         for (int j = i+1; j < n_noisy_regs; ++j) {
-            if (noisy_reg_lens[sorted_noisy_regs[i]] > noisy_reg_lens[sorted_noisy_regs[j]]) {
+            if (noisy_reg_var_sizes[sorted_noisy_regs[i]] > noisy_reg_var_sizes[sorted_noisy_regs[j]]) {
                 int tmp = sorted_noisy_regs[i]; sorted_noisy_regs[i] = sorted_noisy_regs[j]; sorted_noisy_regs[j] = tmp;
-            } else if (noisy_reg_lens[sorted_noisy_regs[i]] == noisy_reg_lens[sorted_noisy_regs[j]]) {
-                if (noisy_reg_labels[sorted_noisy_regs[i]] > noisy_reg_labels[sorted_noisy_regs[j]]) {
+            } else if (noisy_reg_var_sizes[sorted_noisy_regs[i]] == noisy_reg_var_sizes[sorted_noisy_regs[j]]) {
+                if (noisy_reg_lens[sorted_noisy_regs[i]] > noisy_reg_lens[sorted_noisy_regs[j]]) {
                     int tmp = sorted_noisy_regs[i]; sorted_noisy_regs[i] = sorted_noisy_regs[j]; sorted_noisy_regs[j] = tmp;
                 }
             }
         }
     }
-    free(noisy_reg_lens); free(noisy_reg_labels);
+    free(noisy_reg_lens); free(noisy_reg_var_sizes);
     return sorted_noisy_regs;
 }
-
-// int collect_noisy_vars(bam_chunk_t *chunk, const call_var_opt_t *opt) {
-//     int n_vars = 0; hts_pos_t active_reg_beg = chunk->reg_beg, active_reg_end = chunk->reg_end;
-//     cgranges_t *noisy_regs = chunk->chunk_noisy_regs;
-//     int n_noisy_regs = noisy_regs->n_r;
-
-//     // iteratively call consensus sequences for noisy regions
-//     // sort noisy regions based on region length, from short to long
-//     int *sorted_noisy_regs = (int*)malloc(n_noisy_regs * sizeof(int)), *noisy_reg_lens = (int*)malloc(n_noisy_regs * sizeof(int));
-//     for (int i = 0; i < n_noisy_regs; ++i) {
-//         noisy_reg_lens[i] = cr_end(noisy_regs, i) - cr_start(noisy_regs, i);
-//         sorted_noisy_regs[i] = i;
-//     }
-//     for (int i = 0; i < n_noisy_regs; ++i) {
-//         for (int j = i+1; j < n_noisy_regs; ++j) {
-//             if (noisy_reg_lens[sorted_noisy_regs[i]] > noisy_reg_lens[sorted_noisy_regs[j]]) {
-//                 int tmp = sorted_noisy_regs[i]; sorted_noisy_regs[i] = sorted_noisy_regs[j]; sorted_noisy_regs[j] = tmp;
-//             }
-//         }
-//     }
-//     // some regions may be skipped first and then called later after other regions are processed
-//     int *noisy_reg_is_done = (int*)calloc(n_noisy_regs, sizeof(int));
-//     for (int _i = 0; _i < n_noisy_regs; ++_i) {
-//         int reg_i = sorted_noisy_regs[_i];
-//         // if (noisy_reg_is_done[reg_i]) continue;
-//         // collect candicate variants in noisy region based on XID-profile
-//         hts_pos_t noisy_reg_beg = cr_start(noisy_regs, reg_i), noisy_reg_end = cr_end(noisy_regs, reg_i);
-//         if (noisy_reg_end - noisy_reg_beg > opt->max_noisy_reg_len) {
-//             fprintf(stderr, "Skipped (>%d) noisy region: %s:%ld-%ld %ld\n", opt->max_noisy_reg_len, chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end - noisy_reg_beg);
-//             continue; // XXX
-//         }
-//         if (LONGCALLD_VERBOSE >= 2)
-//             fprintf(stderr, "NoisyReg: chunk_reg: %s:%ld-%ld, reg: %s:%ld-%ld %d (all)\n", chunk->tname, chunk->reg_beg, chunk->reg_end, chunk->tname, noisy_reg_beg, noisy_reg_end, cr_label(chunk->chunk_noisy_regs, reg_i));
-        
-//         // MSA and consensus calling
-//         int n_cons = 0; int *cons_lens = (int*)calloc(2, sizeof(int)); uint8_t **cons_seqs = (uint8_t**)malloc(2 * sizeof(uint8_t*));
-//         int *msa_len = (int*)calloc(2, sizeof(int)); int *msa_n_seqs = (int*)calloc(2, sizeof(int));
-//         uint8_t ***msa_seqs = (uint8_t***)malloc(2 * sizeof(uint8_t**));
-//         for (int j = 0; j < 2; ++j) {
-//             cons_seqs[j] = NULL; msa_seqs[j] = NULL;
-//         }
-//         n_cons = collect_noisy_reg_msa_cons(opt, chunk, reg_i, cons_lens, cons_seqs, msa_n_seqs, msa_len, msa_seqs);
-//         if (n_cons == 0) continue;
-
-//         // make variants and update cand_var & read_var_profile
-//         cand_var_t *noisy_vars = NULL; read_var_profile_t *noisy_rvp = NULL;
-//         int n_noisy_vars = make_vars_from_msa_cons_aln(opt, chunk, noisy_reg_beg, noisy_reg_end, active_reg_beg, active_reg_end, 
-//                                                        n_cons, cons_seqs, cons_lens, msa_n_seqs, msa_len, msa_seqs,
-//                                                        &noisy_vars, &noisy_rvp);
-//         free(cons_lens);
-//         for (int j = 0; j < 2; ++j) {
-//             if (cons_seqs[j] != NULL) free(cons_seqs[j]);
-//             if (msa_seqs[j] != NULL) {
-//                 for (int k = 0; k < msa_n_seqs[j]; ++k) free(msa_seqs[j][k]);
-//                 free(msa_seqs[j]);
-//             }
-//         } free(cons_seqs); free(msa_n_seqs); free(msa_len); free(msa_seqs);
-//         // noisy_reg_is_done[reg_i] = 1;
-//         merge_var_profile(chunk, n_noisy_vars, noisy_vars, noisy_rvp);
-//     }
-//     free(noisy_reg_lens); free(sorted_noisy_regs); free(noisy_reg_is_done);
-//     return 0;
-// }
 
 // remove noisy_regions that have low coverage, i.e., either low ratio or low absolute read count
 void pre_process_noisy_regs(bam_chunk_t *chunk, call_var_opt_t *opt) {
@@ -2582,7 +2021,6 @@ void collect_var_main(const call_var_pl_t *pl, bam_chunk_t *chunk) {
                 } // unable to resolve the region
             }
             if (new_var) {
-                // assign_hap_based_on_het_vars(chunk, LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CAND_HOM_VAR | LONGCALLD_NOISY_CAND_HET_VAR | LONGCALLD_NOISY_CAND_HOM_VAR, pl->opt);
                 assign_hap_based_on_het_vars_kmeans(chunk, LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CAND_HOM_VAR | LONGCALLD_NOISY_CAND_HET_VAR | LONGCALLD_NOISY_CAND_HOM_VAR, pl->opt);
             }
             if (new_region_is_done == 0) break;

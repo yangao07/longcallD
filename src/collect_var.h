@@ -55,7 +55,6 @@ typedef struct cand_var_t {
     int alt_len; uint8_t *alt_seq; // only used for mismatch/insertion, deletion:NULL
 
     // dynamic information, update during haplotype assignment
-    uint8_t *alle_to_hap; // var-wise (alle_to_hap): alle_i -> 1:H1/2:H2/0:not set yet
     int **hap_to_alle_profile; // read-wise: 1:H1/2:H2 -> alle_i -> read count
     int *hap_to_cons_alle; // HAP-wise (hap_to_cons_alle_i): 1:H1/2:H2 -> alle_i
 
