@@ -105,6 +105,7 @@ call_var_opt_t *call_var_init_para(void) {
     opt->min_noisy_reg_ratio = LONGCALLD_NOISY_REG_RATIO;
     opt->max_noisy_frac_per_read = LONGCALLD_MAX_NOISY_FRAC_PER_READ;
     opt->min_hap_full_reads = LONGCALLD_MIN_HAP_FULL_READS;
+    opt->min_hap_reads = LONGCALLD_MIN_HAP_READS;
     opt->min_no_hap_full_reads = LONGCALLD_MIN_NO_HAP_FULL_READS;
 
     opt->min_somatic_af = LONGCALLD_MIN_SOMATIC_AF;
@@ -123,6 +124,8 @@ call_var_opt_t *call_var_init_para(void) {
     opt->pl_threads = MIN_OF_TWO(CALL_VAR_PL_THREAD_N, get_num_processors());
     opt->n_threads = MIN_OF_TWO(CALL_VAR_THREAD_N, get_num_processors());
 
+    opt->p_error = 0.001; opt->log_p = -3.0; opt->log_1p = log10(1-opt->p_error); opt->log_2 = 0.301023;
+    opt->max_gq = 60; opt->max_qual = 60;
     opt->out_vcf = NULL; opt->no_vcf_header = 0; opt->out_amb_base = 0;
     opt->out_bam = NULL; opt->no_bam_header = 0;
     // opt->verbose = 0;

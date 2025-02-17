@@ -13,8 +13,8 @@
 #define LONGCALLD_GAP_LEFT_ALN 1 // default: put gap at the left-most position
 #define LONGCALLD_GAP_RIGHT_ALN 2
 
-#define LONGCALLD_EXT_ALN_RIGHT 1
-#define LONGCALLD_EXT_ALN_LEFT  2
+#define LONGCALLD_EXT_ALN_LEFT_TO_RIGHT 1
+#define LONGCALLD_EXT_ALN_RIGHT_TO_LEFT  2
 
 #ifdef __cplusplus
 extern "C" {
@@ -22,13 +22,6 @@ extern "C" {
 
 struct bam_chunk_t;
 struct aln_str_t;
-
-int test_wfa(char *pattern, char *text);
-int test_abpoa(uint8_t **bseqs, int n_seqs, int *seq_lens);
-int test_edlib(char *pattern, char *text);
-int test_ksw2(char *pattern, char *text, const call_var_opt_t *opt);
-
-int wfa_heuristic_aln(uint8_t *pattern, int plen, uint8_t *text, int tlen, int *n_eq, int *n_xid);
 
 // int wfa_aln(int gap_pos, char *pattern, int plen, char *text, int tlen, uint32_t **cigar_buf);
 int end2end_aln(const call_var_opt_t *opt, char *pattern, int plen, uint8_t *text, int tlen, uint32_t **cigar_buf);

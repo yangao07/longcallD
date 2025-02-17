@@ -36,9 +36,10 @@
 #define LONGCALLD_NOISY_REG_READS 5 // >= 5 reads supporting noisy region
 #define LONGCALLD_NOISY_REG_RATIO 0.20 // >= 25% reads supporting noisy region
 
-#define LONGCALLD_MIN_HAP_FULL_READS 2 // full read supporting each haplotype
-#define LONGCALLD_MIN_HAP_READS 3 // XXX >= 3 reads supporting each haplotype, including partial/clipped reads
-#define LONGCALLD_MIN_NO_HAP_FULL_READS 10 // total full reads in noisy region
+#define LONGCALLD_MIN_HAP_FULL_READS 1 // >= 1full read supporting each haplotype
+#define LONGCALLD_MIN_HAP_READS 2 // >= 3 reads supporting each haplotype, including partial/clipped reads, call consensus from >= 3 reads
+#define LONGCALLD_MIN_NO_HAP_FULL_READS 10 // >10 total full reads in noisy region
+#define LONGCALLD_MIN_READ_TO_HAP_CONS_SIM 0.9 // for reads with >= 90% equal bases, assign haplotype
 // for sdust
 #define LONGCALLD_SDUST_T 5
 #define LONGCALLD_SDUST_W 20
@@ -98,10 +99,11 @@ typedef struct call_var_opt_t {
     // filters for noisy region, i.e., coverage/ratio
     int max_noisy_reg_reads, max_noisy_reg_len, min_noisy_reg_reads; 
     float max_noisy_frac_per_read, min_noisy_reg_ratio;
-    int min_hap_full_reads, min_no_hap_full_reads;
+    int min_hap_full_reads, min_hap_reads, min_no_hap_full_reads;
     // alignment
     int match, mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2;
     int gap_aln; // default: 1: left (minimap2, abpoa), 2: right (wfa2)
+    float min_read_to_hap_cons_sim;
     int disable_read_realign; // disable re-alignment/MSA, only use variant calling from consensus sequence
                               // phasing is based on read cluster of the current haplotype, so not error-robust
     // general
@@ -109,7 +111,8 @@ typedef struct call_var_opt_t {
     int pl_threads, n_threads;
     // output
     htsFile *out_bam; // phased bam
-    FILE *out_vcf;
+    FILE *out_vcf; 
+    double p_error, log_p, log_1p, log_2; int max_gq; int max_qual;
     int8_t no_vcf_header, out_amb_base, no_bam_header; // phased vcf
 } call_var_opt_t;
 

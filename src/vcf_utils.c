@@ -59,6 +59,7 @@ int write_var_to_vcf(var_t *vars, const struct call_var_opt_t *opt, char *chrom)
     for (int i = 0; i < n_vars; i++) {
         var1_t var = vars->vars[i];
         if (var.n_alt_allele == 0) continue;
+        if (var.DP < opt->min_dp || var.AD[1] < opt->min_alt_dp) continue;
         if (opt->out_amb_base == 0) {
             uint8_t skip = 0;
             for (int j = 0; j < var.ref_len; j++) {
@@ -111,7 +112,12 @@ int write_var_to_vcf(var_t *vars, const struct call_var_opt_t *opt, char *chrom)
         fprintf(out_vcf, "\t%d\tPASS\tEND=%" PRId64 "", var.QUAL, var.pos + var.ref_len - 1);
         if (is_sv) fprintf(out_vcf, ";%s;%s\t", SVTYPE, SVLEN);
         else fprintf(out_vcf, "\t");
-        fprintf(out_vcf, "GT:PS\t%d|%d:%" PRId64 "\n", var.GT[0], var.GT[1], var.PS);
+        fprintf(out_vcf, "GT:DP:AD:GQ:PS\t%d|%d:%d:", var.GT[0], var.GT[1], var.DP);
+        for (int j = 0; j < 1+var.n_alt_allele; j++) {
+            if (j > 0) fprintf(out_vcf, ",");
+            fprintf(out_vcf, "%d", var.AD[j]);
+        }
+        fprintf(out_vcf, ":%d:%" PRId64 "\n", var.GQ, var.PS);
     }
     return ret;
 }

@@ -23,8 +23,10 @@
 #define LONGCALLD_VAR_CATE_TYPE(var_cate) LONGCALLD_VAR_CATE_STR[(int)(log2(var_cate))]
 
 #define LONGCALLD_REF_CONS_ALN_STR(clu_aln_strs) clu_aln_strs
-#define LONGCALLD_CONS_READ_ALN_STR(clu_aln_strs, read_i) clu_aln_strs+(read_i+1)*2-1
-#define LONGCALLD_REF_READ_ALN_STR(clu_aln_strs, read_i) clu_aln_strs+(read_i+1)*2
+#define LONGCALLD_CONS_READ_ALN_STR(clu_aln_strs, read_i) clu_aln_strs+read_i+1
+#define LONGCALLD_REF_READ_ALN_STR(clu_aln_strs, read_i) clu_aln_strs+read_i+1
+// #define LONGCALLD_CONS_READ_ALN_STR(clu_aln_strs, read_i) clu_aln_strs+(read_i+1)*2-1
+// #define LONGCALLD_REF_READ_ALN_STR(clu_aln_strs, read_i) clu_aln_strs+(read_i+1)*2
 
 #ifdef __cplusplus
 extern "C" {
@@ -73,6 +75,8 @@ typedef struct aln_str_t {
     uint8_t *target_aln;
     uint8_t *query_aln;
     int aln_len;
+    // for partially aligned reads
+    int target_beg, target_end, query_beg, query_end; // 0..aln_len-1, including '-'/5
 } aln_str_t;
 
 struct bam_chunk_t;
