@@ -319,8 +319,7 @@ void post_process_noisy_regs(bam_chunk_t *chunk, call_var_opt_t *opt) {
         cr_add(noisy_regs, "cr", noisy_reg_start, noisy_reg_end, cr_label(chunk->chunk_noisy_regs, reg_i));
     }
     cr_index(noisy_regs); cr_destroy(chunk->chunk_noisy_regs);
-    chunk->chunk_noisy_regs = noisy_regs;
-
+    chunk->chunk_noisy_regs = cr_merge(noisy_regs, 0);
     // free(first_left_vars); free(first_right_vars);
     // free(noisy_reg_to_total_n_reads); free(ovlp_b);
 }
@@ -397,7 +396,7 @@ int classify_cand_vars(bam_chunk_t *chunk, int n_var_sites, call_var_opt_t *opt)
     }
     if (noisy_var_cr->n_r > 0) {
         cr_index(noisy_var_cr);
-        cgranges_t *tmp_cr = cr_merge2(chunk->chunk_noisy_regs, noisy_var_cr);
+        cgranges_t *tmp_cr = cr_merge2(chunk->chunk_noisy_regs, noisy_var_cr, -1);
         cr_destroy(chunk->chunk_noisy_regs);
         chunk->chunk_noisy_regs = tmp_cr;
     }
@@ -2033,7 +2032,7 @@ void pre_process_noisy_regs(bam_chunk_t *chunk, call_var_opt_t *opt) {
     // for (int i = 0; i < chunk->chunk_noisy_regs->n_r; ++i) {
     //     fprintf(stderr, "NoisyReg: %s:%d-%d %d\n", chunk->tname, cr_start(chunk->chunk_noisy_regs, i), cr_end(chunk->chunk_noisy_regs, i), cr_label(chunk->chunk_noisy_regs, i));
     // }
-    chunk->chunk_noisy_regs = cr_merge(chunk->chunk_noisy_regs);
+    chunk->chunk_noisy_regs = cr_merge(chunk->chunk_noisy_regs, -1);
     // fprintf(stderr, "After merge: %s:%ld-%ld %d noisy regions\n", chunk->tname, chunk->reg_beg, chunk->reg_end, chunk->chunk_noisy_regs->n_r);
     // for (int i = 0; i < chunk->chunk_noisy_regs->n_r; ++i) {
     //     fprintf(stderr, "NoisyReg: %s:%d-%d %d\n", chunk->tname, cr_start(chunk->chunk_noisy_regs, i), cr_end(chunk->chunk_noisy_regs, i), cr_label(chunk->chunk_noisy_regs, i));

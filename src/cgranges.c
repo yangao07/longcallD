@@ -222,7 +222,7 @@ int compare_by_label_desc(const void *a, const void *b) {
     return intv2->label - intv1->label; // Descending order
 }
 
-cgranges_t *cr_cluster0(cgranges_t *cr) {
+cgranges_t *cr_cluster0(cgranges_t *cr, int32_t fixed_merge_win) {
     cgranges_t *clustered_cr = cr_init();
 
     for (int32_t i = 0; i < cr->n_ctg; ++i) {
@@ -244,7 +244,9 @@ cgranges_t *cr_cluster0(cgranges_t *cr) {
                 uint64_t next_end = cr_en(&cr->r[k]);
                 int32_t next_label = cr->r[k].label;
                 
-                int merge_win = merged_label < next_label ? merged_label : next_label;
+                int merge_win;
+                if (fixed_merge_win < 0) merge_win = merged_label < next_label ? merged_label : next_label;
+                else merge_win = fixed_merge_win;
                 if (merged_end + merge_win >= next_start) { // merge
                     merged_label = merged_label > next_label ? merged_label : next_label;
                     merged_start = merged_start < next_start ? merged_start : next_start;
@@ -261,10 +263,10 @@ cgranges_t *cr_cluster0(cgranges_t *cr) {
     return clustered_cr;
 }
 
-cgranges_t *cr_cluster(cgranges_t *cr) {
+cgranges_t *cr_cluster(cgranges_t *cr, int32_t fixed_merge_win) {
     int cur_cr_n = cr->n_r;
     while (1) {
-        cgranges_t *tmp_cr = cr_cluster0(cr);
+        cgranges_t *tmp_cr = cr_cluster0(cr, fixed_merge_win);
         cr = tmp_cr;
         if (cr->n_r == cur_cr_n) {
             break;
@@ -274,10 +276,10 @@ cgranges_t *cr_cluster(cgranges_t *cr) {
     return cr;
 }
 
-cgranges_t *cr_merge(cgranges_t *cr) {
+cgranges_t *cr_merge(cgranges_t *cr, int32_t fixed_merge_win) {
     int cur_cr_n = cr->n_r;
     while (1) {
-        cgranges_t *tmp_cr = cr_cluster0(cr);
+        cgranges_t *tmp_cr = cr_cluster0(cr, fixed_merge_win);
         cr = tmp_cr;
         if (cr->n_r == cur_cr_n) {
             break;
@@ -288,7 +290,7 @@ cgranges_t *cr_merge(cgranges_t *cr) {
 }
 
 // merge two intervals with a distance <= cr_label
-cgranges_t *cr_merge2(cgranges_t *cr1, cgranges_t *cr2) {
+cgranges_t *cr_merge2(cgranges_t *cr1, cgranges_t *cr2, int32_t fixed_merge_win) {
     cgranges_t *merged_cr = cr_init();
     
     // Add all intervals from cr1 to merged_cr
@@ -318,7 +320,7 @@ cgranges_t *cr_merge2(cgranges_t *cr1, cgranges_t *cr2) {
     }
     // Now merge intervals within merged_cr
     cr_index(merged_cr);
-    cgranges_t *final_cr = cr_merge(merged_cr);
+    cgranges_t *final_cr = cr_merge(merged_cr, fixed_merge_win);
     return final_cr;
 }
 
