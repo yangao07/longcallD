@@ -618,6 +618,7 @@ int collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct cal
         if (_digars[i].type == BAM_CDIFF || _digars[i].type == BAM_CINS || _digars[i].type == BAM_CDEL) {
             _digars[i].is_low_qual = q->is_dense[j++];
         } else _digars[i].is_low_qual = 0;
+        push_digar1(digar, _digars[i]);
     }
     if (noisy_start != -1) {
         int var_size = 0;
@@ -751,6 +752,7 @@ int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct ca
         if (_digars[i].type == BAM_CDIFF || _digars[i].type == BAM_CINS || _digars[i].type == BAM_CDEL) {
             _digars[i].is_low_qual = q->is_dense[j++];
         } else _digars[i].is_low_qual = 0;
+        push_digar1(digar, _digars[i]);
     }
     if (noisy_start != -1) {
         int var_size = 0;
