@@ -149,9 +149,9 @@ int assign_read_hap_phase_set_based_on_cons_alle(int read_i, hts_pos_t *phase_se
 int update_var_hap_to_cons_alle(cand_var_t *var, int var_cate, int hap) {
     if (hap == 0) return 0;
     int max_cov = 0, max_cov_alle_i = -1;
-    int n_max_alt = 0;
-    if (var_cate & (LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_NOISY_CAND_HET_VAR)) n_max_alt = 1;
-    else if (var_cate & (LONGCALLD_CAND_HOM_VAR | LONGCALLD_NOISY_CAND_HOM_VAR)) n_max_alt = 2;
+    // int n_max_alt = 0;
+    // if (var_cate & (LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_NOISY_CAND_HET_VAR)) n_max_alt = 1;
+    // else if (var_cate & (LONGCALLD_CAND_HOM_VAR | LONGCALLD_NOISY_CAND_HOM_VAR)) n_max_alt = 2;
 
     for (int i = 0; i < var->n_uniq_alles; ++i) {
         if (var->hap_to_alle_profile[hap][i] > max_cov) { // prefer ref allele
@@ -221,13 +221,15 @@ int check_agree_haps(int read_i, int hap, cand_var_t *vars, int var1, int var2, 
 }
 
 // reads->haps/haps_to_cons_alle are UpToDate
-int update_var_hap_cons_phase_set(bam_chunk_t *chunk, int *var_idx, read_var_profile_t *p, cand_var_t *cand_vars, int n_cand_vars) {
+int update_var_hap_cons_phase_set(bam_chunk_t *chunk, int *var_idx, read_var_profile_t *p, cand_var_t *cand_vars, int n_cand_vars, int *var_i_to_cate) {
     int *het_var_idx = (int*)malloc(n_cand_vars * sizeof(int));
     int n_het_vars = 0;
     int *is_het = (int*)calloc(n_cand_vars, sizeof(int));
     for (int _var_i = 0; _var_i < n_cand_vars; ++_var_i) {
         int var_i = var_idx[_var_i];
         cand_var_t *var = cand_vars+var_i;
+        // XXX only use clean het vars
+        // if (var_i_to_cate[var_i] == LONGCALLD_NOISY_CAND_HOM_VAR || var_i_to_cate[var_i] == LONGCALLD_NOISY_CAND_HET_VAR) continue;
         if (var->hap_to_cons_alle[1] != -1 && var->hap_to_cons_alle[2] != -1 
             && var->hap_to_cons_alle[1] != var->hap_to_cons_alle[2]) {
             // fprintf(stderr, "is_het: %d %ld %d-%c-%d\n", var_i, var->pos, var->ref_len, BAM_CIGAR_STR[var->var_type], var->alt_len);
@@ -371,7 +373,7 @@ int assign_hap_based_on_het_vars_kmeans(bam_chunk_t *chunk, int target_var_cate,
         // for each var: assign reads covering the var to HAP1 or HAP2
         for (int _var_i = 0; _var_i < n_valid_vars; ++_var_i) {
             int var_i = valid_var_idx[var_ii[_var_i]];
-            if (var_i_to_cate[var_i] == LONGCALLD_NOISY_CAND_HOM_VAR || var_i_to_cate[var_i] == LONGCALLD_CAND_HOM_VAR)
+            if (var_i_to_cate[var_i] == LONGCALLD_NOISY_CAND_HOM_VAR || var_i_to_cate[var_i] == LONGCALLD_CAND_HOM_VAR) // || var_i_to_cate[var_i] == LONGCALLD_NOISY_CAND_HET_VAR)
                 continue;
             cand_var_t *var = cand_vars+var_i;
             if (LONGCALLD_VERBOSE >= 2)
@@ -408,7 +410,7 @@ int assign_hap_based_on_het_vars_kmeans(bam_chunk_t *chunk, int target_var_cate,
         if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "iter: %d\n", i_iter);
         // XXX var-wise loop update PS
         // read-wise loop: update read_hap
-        int changed_hap1 = update_var_hap_cons_phase_set(chunk, valid_var_idx, p, cand_vars, n_valid_vars);
+        int changed_hap1 = update_var_hap_cons_phase_set(chunk, valid_var_idx, p, cand_vars, n_valid_vars, var_i_to_cate);
         int changed_hap2 = update_hap_to_cons_alle(chunk, valid_var_idx, n_valid_vars, p, cand_vars, var_i_to_cate, target_var_cate);
         // int changed_hap2 = update_read_hap_phase_set(chunk, valid_var_idx, n_valid_vars, p, cand_vars, var_i_to_cate, target_var_cate);
         if (changed_hap1 == 0 && changed_hap2 == 0) break;

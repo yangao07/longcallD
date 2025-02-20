@@ -13,8 +13,8 @@
 #define CALL_VAR_PL_THREAD_N 2 // num of threads for pipeline
 #define CALL_VAR_THREAD_N 8    // num of threads for variant calling
 
-#define LONGCALLD_MIN_CAND_MQ 30 // low-qual
-#define LONGCALLD_MIN_CAND_BQ 0 // low-qual
+#define LONGCALLD_MIN_CAND_MQ 30 // ignore reads with MAPQ < 30
+#define LONGCALLD_MIN_CAND_BQ 10 // ignore bases with BQ < 10
 #define LONGCALLD_MIN_CAND_DP 5 // total depth < 5: skipped
 #define LONGCALLD_MIN_ALT_DP 2 // max alt depth < 2: skipped
 #define LONGCALLD_MIN_SOMATIC_AF 0.05 // AF < 0.05: filtered out, 0.05~0.25: candidate somatic
@@ -46,6 +46,7 @@
 
 
 
+#define LONGCALLD_MAX_VAR_RATIO_PER_READ 0.05 // skip reads with n_var / ref_span > 5% 
 #define LONGCALLD_MAX_READ_DEPTH 500 // vars with >500 reads will be skipped
 #define LONGCALLD_MAX_NOISY_REG_READS 1000 // regions with >1000 reads will be skipped
 
@@ -85,25 +86,24 @@ typedef struct var_t {
 typedef struct call_var_opt_t {
     // input
     char *ref_fa_fn;
-    char *rep_bed_fn; char *in_bam_fn; char *sample_name;
+    char *rep_bed_fn;
+    char *in_bam_fn; char *sample_name;
+    uint8_t is_pb_hifi, is_ont;
     char *region_list; uint8_t region_is_file; // for -R/--region/--region-file option
     // filters for variant calling
     int max_ploid, min_mq, min_bq, min_dp, min_alt_dp;
     double min_af, max_af, min_somatic_af;
     int noisy_reg_max_xgaps, noisy_reg_slide_win;
-    // skip read if contans a noisy region with 1) >= min_non_low_comp_noisy_reg_ratio non-low-comp XIDs, and 
-    //                                          2) >= min_non_low_comp_noisy_reg_size bps
-    // int min_non_low_comp_noisy_reg_size; float min_non_low_comp_noisy_reg_ratio; int min_non_low_comp_noisy_reg_XID;
     int end_clip_reg, end_clip_reg_flank_win;
     int noisy_reg_flank_len; // noisy_reg_merge_win; // for re-alignment
     // filters for noisy region, i.e., coverage/ratio
     int max_noisy_reg_reads, max_noisy_reg_len, min_noisy_reg_reads; 
-    float max_noisy_frac_per_read, min_noisy_reg_ratio;
+    double max_var_ratio_per_read, max_noisy_frac_per_read, min_noisy_reg_ratio;
     int min_hap_full_reads, min_hap_reads, min_no_hap_full_reads;
     // alignment
     int match, mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2;
     int gap_aln; // default: 1: left (minimap2, abpoa), 2: right (wfa2)
-    float min_read_to_hap_cons_sim;
+    double min_read_to_hap_cons_sim;
     int disable_read_realign; // disable re-alignment/MSA, only use variant calling from consensus sequence
                               // phasing is based on read cluster of the current haplotype, so not error-robust
     // general

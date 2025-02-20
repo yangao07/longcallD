@@ -26,6 +26,8 @@ extern int LONGCALLD_VERBOSE;
 const struct option call_var_opt [] = {
     // long options
     { "amb-base", 0, NULL, 0},
+    { "hifi", 0, NULL, 0},
+    { "ont", 0, NULL, 0},
 
     // short options
     { "ref-fa", 1, NULL, 'r' },
@@ -77,11 +79,23 @@ int get_num_processors() {
 #endif
 }
 
+void set_hifi_opt(call_var_opt_t *opt) {
+    opt->is_pb_hifi = 1;
+    opt->noisy_reg_max_xgaps = 5;
+}
+
+void set_ont_opt(call_var_opt_t *opt) {
+    opt->is_ont = 1;
+    opt->noisy_reg_max_xgaps = 20;
+}
+
 call_var_opt_t *call_var_init_para(void) {
     call_var_opt_t *opt = (call_var_opt_t*)_err_malloc(sizeof(call_var_opt_t));
 
     opt->sample_name = NULL;
     opt->ref_fa_fn = NULL;
+
+    opt->is_pb_hifi = 0; opt->is_ont = 0;
 
     opt->region_list = NULL; opt->region_is_file = 0;
 
@@ -99,6 +113,7 @@ call_var_opt_t *call_var_init_para(void) {
     opt->end_clip_reg = LONGCALLD_NOISY_END_CLIP;
     opt->end_clip_reg_flank_win = LONGCALLD_NOISY_END_CLIP_WIN;
 
+    opt->max_var_ratio_per_read = LONGCALLD_MAX_VAR_RATIO_PER_READ;
     opt->max_noisy_reg_reads = LONGCALLD_MAX_NOISY_REG_READS;
     opt->max_noisy_reg_len  = LONGCALLD_MAX_NOISY_REG_LEN;
     opt->min_noisy_reg_reads = LONGCALLD_NOISY_REG_READS;
@@ -440,13 +455,16 @@ int call_var_main(int argc, char *argv[]) {
     // _err_cmd("%s\n", CMD);
     int c, op_idx; call_var_opt_t *opt = call_var_init_para();
     double realtime0 = realtime();
-    while ((c = getopt_long(argc, argv, "r:o:Hb:c:d:a:n:x:w:j:f:p:g:Nt:hvV:", call_var_opt, &op_idx)) >= 0) {
+    while ((c = getopt_long(argc, argv, "r:o:Hb:c:d:a:n:x:w:j:L:f:p:g:Nt:hvV:", call_var_opt, &op_idx)) >= 0) {
         switch(c) {
             case 'r': opt->ref_fa_fn = strdup(optarg); break;
             // case 'b': cgp->var_block_size = atoi(optarg); break;
             case 'o': opt->out_vcf = fopen(optarg, "w"); break;
             case 'H': opt->no_vcf_header = 1; break;
-            case 0: if (op_idx == 0) { opt->out_amb_base = 1; } break;
+            case 0: if (strcmp(call_var_opt[op_idx].name, "amb-base") == 0) opt->out_amb_base = 1; 
+                    else if (strcmp(call_var_opt[op_idx].name, "hifi") == 0) set_hifi_opt(opt);
+                    else if (strcmp(call_var_opt[op_idx].name, "ont") == 0) set_ont_opt(opt);
+                    break;
             case 'b': opt->out_bam = hts_open(optarg, "wb"); break;
             case 'c': opt->min_dp = atoi(optarg); break;
             case 'd': opt->min_alt_dp = atoi(optarg); break;
@@ -457,6 +475,7 @@ int call_var_main(int argc, char *argv[]) {
             case 'p': opt->min_hap_full_reads = atoi(optarg); break;
             case 'f': opt->min_no_hap_full_reads = atoi(optarg); break;
             case 'j': opt->min_noisy_reg_ratio = atof(optarg); break;
+            case 'L': opt->max_noisy_reg_len = atoi(optarg); break;
             // case 'f': opt->dens_reg_flank_win = atoi(optarg); break;
             // case 'c': opt->end_clip_reg = atoi(optarg); break;
             // case 'F': opt->end_clip_reg_flank_win = atoi(optarg); break;
@@ -491,6 +510,8 @@ int call_var_main(int argc, char *argv[]) {
     }
     // check if input is (short) URL
     opt->ref_fa_fn = retrieve_full_url(opt->ref_fa_fn); opt->in_bam_fn = retrieve_full_url(opt->in_bam_fn);
+    // check if hifi and ont are both set
+    if (opt->is_pb_hifi && opt->is_ont) _err_error_exit("Cannot set both --hifi and --ont\n");
     // threads
     if (opt->n_threads <= 0) {
         opt->n_threads = 1; opt->pl_threads = 1;
