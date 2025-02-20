@@ -1169,7 +1169,9 @@ int collect_noisy_reg_aln_strs(const call_var_opt_t *opt, bam_chunk_t *chunk, ht
     } else { // if (n_full_cover_reads <= 0 || reg_end - reg_beg + 1 > 5000) {
         fprintf(stderr, "Skipped region: %s:%ld-%ld %ld %d reads (%d full)\n", chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end-noisy_reg_beg+1, n_noisy_reg_reads, n_full_reads);
     }
-    for (int i = 0; i < n_noisy_reg_reads; ++i) free(seqs[i]);
-    free(names); free(seqs); free(lens); free(fully_covers); free(haps); free(phase_sets);
+    for (int i = 0; i < n_noisy_reg_reads; ++i) {
+        free(seqs[i]); free(base_quals[i]);
+    }
+    free(names); free(seqs); free(base_quals); free(lens); free(fully_covers); free(haps); free(phase_sets);
     return n_cons;
 }

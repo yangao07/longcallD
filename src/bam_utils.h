@@ -133,8 +133,10 @@ int update_cand_vars_from_digar(digar_t *digar, bam1_t *read, int n_var_sites, s
 void update_read_var_profile_with_allele(int var_i, int allele_i, read_var_profile_t *read_var_profile);
 int update_read_var_profile_from_digar(digar_t *digar, bam1_t *read, int n_cand_vars, struct cand_var_t *cand_vars, int start_var_i, struct read_var_profile_t *read_var_profile);
 
-int collect_bam_chunk(struct call_var_pl_t *pl, int **last_chunk_read_i, int *n_last_chunk_reads, hts_pos_t *cur_active_reg_beg, bam_chunk_t *chunk);
+int collect_bam_chunk(struct call_var_pl_t *pl, bam_chunk_t *chunk, int chunk_i);
+void copy_bam_chunk0(bam_chunk_t *from_chunk, bam_chunk_t *to_chunk);
 void bam_chunk_free(bam_chunk_t *chunk);
+void bam_ovlp_chunk_free(bam_chunk_t *chunk);
 void bam_chunks_free(bam_chunk_t *chunks, int n_chunks);
 struct read_var_profile_t *init_read_var_profile(int n_reads, int n_total_vars);
 struct read_var_profile_t *init_read_var_profile_with_ids(int n_reads, int *read_ids, int n_total_vars);

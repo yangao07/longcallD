@@ -166,6 +166,8 @@ void call_var_free_pl(call_var_pl_t pl) {
         sam_close(pl.bam); 
         hts_tpool_destroy(pl.p);
     }
+    bam_ovlp_chunk_free(pl.last_chunk); free(pl.last_chunk);
+    if (pl.last_chunk_read_i != NULL) free(pl.last_chunk_read_i);
 }
 
 void var_free(var_t *v) {
@@ -248,6 +250,9 @@ static void call_var_pl_open_fa_bam(call_var_opt_t *opt, call_var_pl_t *pl, char
         hts_tpool_destroy(pl->p); sam_close(pl->bam);
         _err_error_exit("Failed to read BAM header \'%s\'\n", opt->in_bam_fn);
     }
+    // init chunk
+    pl->last_chunk = calloc(1, sizeof(bam_chunk_t)); pl->last_chunk_read_i = NULL; pl->n_last_chunk_reads = 0; pl->cur_active_reg_beg = -1; pl->cur_active_reg_beg = -1;
+    // input reference fasta file
     pl->fai = fai_load(opt->ref_fa_fn);
     if (pl->fai == NULL) {
         hts_tpool_destroy(pl->p); sam_hdr_destroy(pl->header); sam_close(pl->bam);
@@ -313,7 +318,7 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
         s = calloc(1, sizeof(call_var_step_t));
         s->pl = p;
         s->max_chunks = 4*p->opt->n_threads; s->chunks = calloc(s->max_chunks, sizeof(bam_chunk_t));
-        int r, n_last_chunk_reads=0, *last_chunk_read_i=NULL; hts_pos_t cur_active_reg_beg=-1;
+        int r;
         // for each round, collect s->max_chunks of reads
         // TODO:
         // XXX use the variant calling result of current round to guide the reg_beg of next round 
@@ -323,7 +328,7 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
         // this enables the phasing across multiple rounds
         // XXX add a tmp_bam_chunk to store the last chunk of last round, stitch it with the first chunk of current round
         while (!p->reach_bam_end) {
-            r = collect_bam_chunk(p, &last_chunk_read_i, &n_last_chunk_reads, &cur_active_reg_beg, s->chunks+s->n_chunks);
+            r = collect_bam_chunk(p, s->chunks, s->n_chunks);
             if (s->chunks[s->n_chunks].n_reads == 0) break;
             if (++s->n_chunks >= s->max_chunks) break;
             if (r < 0) {
@@ -332,10 +337,18 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
             }
         }
         fprintf(stderr, "n_chunks: %d\n", s->n_chunks);
-        if (last_chunk_read_i != NULL) free(last_chunk_read_i);
         // XXX merge chunks if too few reads
-        if (s->n_chunks > 0) return s;
-        else { free(s->chunks); free(s); return 0; }
+        if (s->n_chunks > 0) {
+            // copy last chunk to the first chunk
+            if (p->n_last_chunk_reads > 0) {
+                bam_ovlp_chunk_free(p->last_chunk);
+                copy_bam_chunk0(s->chunks+s->n_chunks-1, p->last_chunk);
+            }
+            return s;
+        } else {
+            free(s->chunks); free(s);
+            return 0;
+        }
     } else if (step == 1) { // step 1: work on the BAM chunks
         if (LONGCALLD_VERBOSE >= 1) _err_info("Step 1: call variants.\n");
         if (((call_var_step_t*)in)->n_chunks > 0) {
@@ -491,7 +504,7 @@ int call_var_main(int argc, char *argv[]) {
         }
     }
 
-    if (!isatty(STDIN_FILENO)) {
+    if (!isatty(STDIN_FILENO) && argc - optind == 1) { // bam file is piped, only ref.fa is provided, not working with region when bam is from pipe
         opt->in_bam_fn = "-";
         if (argc - optind < 1) {
             _err_error("Reference FASTA is required.\n");

@@ -549,8 +549,6 @@ void collect_noisy_reg_reads(bam_chunk_t *chunk) {
 void collect_digars_from_bam(bam_chunk_t *chunk, const struct call_var_pl_t *pl) {
     chunk->chunk_noisy_regs = cr_init();
     call_var_opt_t *opt = pl->opt;
-    // if (LONGCALLD_VERBOSE >= 2)
-        // fprintf(stderr, "CHUNK: %s\tbeg: %" PRId64 ", end: %" PRId64 ", total_n: %d, ovlp_n: %d\n", chunk->tname, chunk->beg, chunk->end, chunk->n_reads, chunk->n_up_ovlp_reads);
     for (int i = 0; i < chunk->n_reads; ++i) {
         bam1_t *read = chunk->reads[i];
         if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "%d: qname: %s, flag: %d, pos: %" PRId64 ", end: %" PRId64 "\n", i, bam_get_qname(read), read->core.flag, read->core.pos+1, bam_endpos(read));

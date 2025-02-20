@@ -126,6 +126,7 @@ typedef struct call_var_pl_t {
     // parameters, output files
     struct call_var_opt_t *opt;
     // m-threads
+    struct bam_chunk_t *last_chunk; int n_last_chunk_reads, *last_chunk_read_i; hts_pos_t cur_active_reg_beg;
     int max_reads_per_chunk, max_reg_len_per_chunk;
     int n_threads;
 } call_var_pl_t;
