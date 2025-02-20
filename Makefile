@@ -34,7 +34,8 @@ LIB         = $(HTSLIB) $(ABPOA_LIB) $(WFA2_LIB) -lm -lz -lpthread -llzma -lbz2 
 INCLUDE     = -I $(HTSLIB_DIR) -I $(EDLIB_INC_DIR) -I $(ABPOA_INC_DIR) -I $(WFA2_DIR)
 
 ifeq ($(UNAME_S),Linux) # Linux
-	LIB += -lcrypto
+# LIB += -lcrypto
+	LIB += /homes2/yangao/software/miniconda3/envs/bcftools/lib/libcrypto.so
 endif
 
 # Try linking against libdeflate
