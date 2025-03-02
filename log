@@ -1,8 +1,0 @@
-==2025/03/01 22:23:30== [INFO] Opening BAM file: /homes2/yangao/data/HG002/01bam/pacbio/HG002_PacBio-HiFi-Revio_20231031_48x_GRCh38-GIABv3.bam
-[1;93m==2025/03/01 22:23:30== [WARNING] Multiple RG/SM found in the BAM header, using the first one: HG002
-[0m[W::hts_idx_load3] The index file is older than the data file: /homes2/yangao/data/HG002/01bam/pacbio/HG002_PacBio-HiFi-Revio_20231031_48x_GRCh38-GIABv3.bam.bai
-==2025/03/01 22:23:30== [INFO] Loading region(s) from reference genome: /homes2/yangao/data/HG002/00ref/GRCh38_GIABv3_no_alt_analysis_set_maskedGRC_decoys_MAP2K3_KMT2C_KCNJ18.fasta
-==2025/03/01 22:23:30== [INFO] Processed 68 reads.
-==2025/03/01 22:23:30== [INFO] Real time: 0.907 sec; CPU: 0.881 sec; Peak RSS: 0.668 GB.
-[1;32m==2025/03/01 22:23:30== [SUCCESS] /homes2/yangao/programs/longcallD/bin/longcallD call -t1 /homes2/yangao/data/HG002/00ref/GRCh38_GIABv3_no_alt_analysis_set_maskedGRC_decoys_MAP2K3_KMT2C_KCNJ18.fasta /homes2/yangao/data/HG002/01bam/pacbio/HG002_PacBio-HiFi-Revio_20231031_48x_GRCh38-GIABv3.bam chr20:29,897,208-29,919,624
-[0m
