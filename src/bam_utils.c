@@ -187,13 +187,14 @@ uint8_t *make_alt_seq(digar1_t *digar, const uint8_t *bseq) {
     return alt_seq;
 }
 
-void update_var_site_with_allele(cand_var_t *cand_var, int is_low_qual, int allele_i) {
-    // if (is_low_qual) { // low_qual site will always be called in noisy regions XXX
-    //     cand_var->low_qual_cov++;
-    //     return;
-    // }
+void update_var_site_with_allele(cand_var_t *cand_var, int is_low_qual, uint8_t strand, int allele_i) {
+    if (is_low_qual) { // low qual base quality, allele_i considered as -1
+        cand_var->low_qual_cov++;
+        return;
+    }
     cand_var->total_cov++;
     cand_var->alle_covs[allele_i] += 1; // ref/alt
+    cand_var->strand_to_alle_covs[strand][allele_i] += 1; // strand-wise: 0:forward/1:reverse -> allele_i -> read count
 }
 
 void update_read_var_profile_with_allele(int var_i, int allele_i, read_var_profile_t *read_var_profile) {
@@ -213,7 +214,7 @@ void update_read_var_profile_with_allele(int var_i, int allele_i, read_var_profi
 int update_cand_vars_from_digar(digar_t *digar, bam1_t *read, int n_var_sites, var_site_t *var_sites, int start_i, cand_var_t *cand_vars) {
     int cur_start_i, site_i, digar_i = 0;
     hts_pos_t pos_start = read->core.pos+1, pos_end = bam_endpos(read);
-    digar1_t *digars = digar->digars;
+    digar1_t *digars = digar->digars; uint8_t strand = bam_is_rev(read);
 
     cur_start_i = site_i = get_var_site_start(var_sites, start_i, n_var_sites, pos_start);
     int tid = read->core.tid;
@@ -226,10 +227,11 @@ int update_cand_vars_from_digar(digar_t *digar, bam1_t *read, int n_var_sites, v
         var_site_t digar_var_site = make_var_site_from_digar(tid, digar->digars+digar_i);
         int ret = comp_var_site(var_sites+site_i, &digar_var_site);
         if (ret < 0) { // var_site < digar_var_site
-            update_var_site_with_allele(cand_vars+site_i, is_in_noisy_reg(cand_vars[site_i].pos, digar->noisy_regs), 0);
+            // update_var_site_with_allele(cand_vars+site_i, is_in_noisy_reg(cand_vars[site_i].pos, digar->noisy_regs), strand, 0);
+            update_var_site_with_allele(cand_vars+site_i, 0, strand, 0);
             site_i++;
         } else if (ret == 0) { // merge together, update/add alt allele
-            update_var_site_with_allele(cand_vars+site_i, digar->digars[digar_i].is_low_qual, 1);
+            update_var_site_with_allele(cand_vars+site_i, digar->digars[digar_i].is_low_qual, strand, 1);
             site_i++;
         } else { // ret > 0, var_site > digar_var_site
             digar_i++;
@@ -237,14 +239,15 @@ int update_cand_vars_from_digar(digar_t *digar, bam1_t *read, int n_var_sites, v
     }
     for (; site_i < n_var_sites; ++site_i) {
         if (var_sites[site_i].pos > pos_end) break;
-        update_var_site_with_allele(cand_vars+site_i, is_in_noisy_reg(cand_vars[site_i].pos, digar->noisy_regs), 0);
+        // update_var_site_with_allele(cand_vars+site_i, is_in_noisy_reg(cand_vars[site_i].pos, digar->noisy_regs), strand, 0);
+        update_var_site_with_allele(cand_vars+site_i, 0, strand, 0);
     }
     return cur_start_i;
 }
 
 int get_alt_allele_idx(cand_var_t *cand_var, digar1_t *digar, const uint8_t *bseq) {
-    // if (digar->is_low_qual) return -1; // low_qual site will always be called in noisy regions XXX
-    return 1; // alt allele
+    if (digar->is_low_qual) return -1; // low qual base quality
+    else return 1; // alt allele
     // if (cand_var->var_type == BAM_CDEL) return 1; // only 0/1 for deletion
     // uint8_t *alt_seq = make_alt_seq(digar, bseq);
     // int alt_len = digar->len;
@@ -318,14 +321,14 @@ int update_read_var_profile_from_digar(digar_t *digar, bam1_t *read, int n_cand_
     return cur_start_i;
 }
 
-void set_digar(digar1_t *digar, hts_pos_t pos, int type, int len, int qi) {
+void set_digar(digar1_t *digar, hts_pos_t pos, int type, int len, int qi, int is_low_qual) {
     // fprintf(stderr, "Set digar: %ld, %d%c, %d\n", pos, len, BAM_CIGAR_STR[type], qi);
     // uint8_t d_qual; if (qi > 0) d_qual = (qual[qi] + qual[qi-1]) / 2; else d_qual = qual[qi];
-    digar->pos = pos; digar->type = type; digar->len = len; digar->qi = qi; digar->alt_seq = NULL;
+    digar->pos = pos; digar->type = type; digar->len = len; digar->qi = qi; digar->alt_seq = NULL; digar->is_low_qual = is_low_qual;
 }
 
-void set_seq_digar(digar1_t *digar, hts_pos_t pos, int type, int len, int qi, uint8_t *alt_seq) {
-    digar->pos = pos; digar->type = type; digar->len = len; digar->qi = qi; digar->alt_seq = alt_seq;
+void set_seq_digar(digar1_t *digar, hts_pos_t pos, int type, int len, int qi, int is_low_qual, uint8_t *alt_seq) {
+    digar->pos = pos; digar->type = type; digar->len = len; digar->qi = qi; digar->is_low_qual = is_low_qual; digar->alt_seq = alt_seq;
 }
 
 void push_digar1(digar_t *digar, digar1_t d) {
@@ -405,6 +408,7 @@ int check_noisy_end_clip(const call_var_opt_t *opt, bam1_t *read) {
     return 1;
 }
 
+// is_low_qual: low base quality
 int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct call_var_pl_t *pl, const struct call_var_opt_t *opt, digar_t *digar) {
     hts_pos_t pos = read->core.pos+1, qi = 0;
     const uint32_t *cigar = bam_get_cigar(read); int n_cigar = read->core.n_cigar;
@@ -432,46 +436,47 @@ int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct 
                 _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
                 uint8_t *x_seq = (uint8_t*)malloc(sizeof(uint8_t));
                 x_seq[0] = seq_nt16_int[bam_seqi(digar->bseq, qi)];
-                set_seq_digar(_digars+_n_digar, pos, op, 1, qi, x_seq);
-                _n_digar++; // push_xid_queue(q, pos, 1, 1);
-                if (digar->qual[qi] >= opt->min_bq)
+                if (digar->qual[qi] >= opt->min_bq) { // skip low-quality bases for noisy regions
                     push_xid_size_queue_win(q, pos, 1, 1, digar->noisy_regs, &noisy_start, &noisy_end, &cr_q_start, &cr_q_end);
+                    set_seq_digar(_digars+_n_digar, pos, op, 1, qi, 0, x_seq);
+                } else set_seq_digar(_digars+_n_digar, pos, op, 1, qi, 1, x_seq);
+                _n_digar++; // push_xid_queue(q, pos, 1, 1);
                 n_total_cand_vars++;
                 pos++; qi++;
             }
         } else if (op == BAM_CEQUAL) {
             _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
-            set_digar(_digars+_n_digar, pos, op, len, qi);
+            set_digar(_digars+_n_digar, pos, op, len, qi, 0);
             _n_digar++; // push_xid_queue(q, pos, 0, 0);
             // push_xid_queue_win(q, pos, len, 0, digar->noisy_regs, &noisy_start, &noisy_end);
             pos += len; qi += len;
         } else if (op == BAM_CDEL) {
             _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
-            set_digar(_digars+_n_digar, pos, op, len, qi);
-            _n_digar++; // push_xid_queue(q, pos, len, 1);
-            if ((qi == 0 || digar->qual[qi-1] >= opt->min_bq) && digar->qual[qi] >= opt->min_bq)
+            if ((qi == 0 || digar->qual[qi-1] >= opt->min_bq) && digar->qual[qi] >= opt->min_bq) {
                 push_xid_size_queue_win(q, pos, len, len, digar->noisy_regs, &noisy_start, &noisy_end, &cr_q_start, &cr_q_end);
+                set_digar(_digars+_n_digar, pos, op, len, qi, 0);
+            } else set_digar(_digars+_n_digar, pos, op, len, qi, 1);
+            _n_digar++; // push_xid_queue(q, pos, len, 1);
             n_total_cand_vars++;
             pos += len;
         } else if (op == BAM_CINS) {
             _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
             uint8_t *ins_seq = (uint8_t*)malloc(len * sizeof(uint8_t));
             for (int j = 0; j < len; ++j) ins_seq[j] = seq_nt16_int[bam_seqi(digar->bseq, qi+j)];
-            set_seq_digar(_digars+_n_digar, pos, op, len, qi, ins_seq); // insertion
-            // set_digar(_digars+_n_digar, pos, op, len, qi); // insertion
-            _n_digar++; // push_xid_queue(q, pos, 0, 1);
-            int keep_noisy = 0;
+            int is_low_qual = 1;
             for (int _i = 0; _i < len; ++_i) {
                 if (digar->qual[qi+_i] >= opt->min_bq) {
-                    keep_noisy = 1; break;
+                    is_low_qual = 0; break;
                 }
             }
-            if (keep_noisy) push_xid_size_queue_win(q, pos, 0, len, digar->noisy_regs, &noisy_start, &noisy_end, &cr_q_start, &cr_q_end);
+            if (!is_low_qual) push_xid_size_queue_win(q, pos, 0, len, digar->noisy_regs, &noisy_start, &noisy_end, &cr_q_start, &cr_q_end);
+            set_seq_digar(_digars+_n_digar, pos, op, len, qi, is_low_qual, ins_seq); // insertion
+            _n_digar++; // push_xid_queue(q, pos, 0, 1);
             n_total_cand_vars++;
             qi += len;
         } else if (op == BAM_CSOFT_CLIP) {
             _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
-            set_digar(_digars+_n_digar, pos, op, len, qi); // clipping
+            set_digar(_digars+_n_digar, pos, op, len, qi, 0); // clipping
             _n_digar++; // push_xid_queue(q, pos, 0, 0);
             if (len > end_clip_reg) {
                 if (check_noisy_end_clip(opt, read)) {
@@ -486,7 +491,7 @@ int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct 
             qi += len;
         } else if (op == BAM_CHARD_CLIP) {
             _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
-            set_digar(_digars+_n_digar, pos, op, len, qi); // clipping
+            set_digar(_digars+_n_digar, pos, op, len, qi, 0); // clipping
             _n_digar++; // push_xid_queue(q, pos, 0, 0);
             if (len > end_clip_reg) {
                 if (i == 0) {
@@ -503,10 +508,7 @@ int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct 
             _err_error_exit("CIGAR operation 'M' is not expected in EQX CIGAR: %s\n", bam_get_qname(read));
         }
     }
-    for (int i = 0, j = 0; i < _n_digar; ++i) {
-        if (_digars[i].type == BAM_CDIFF || _digars[i].type == BAM_CINS || _digars[i].type == BAM_CDEL) {
-            _digars[i].is_low_qual = q->is_dense[j++];
-        } else _digars[i].is_low_qual = 0;
+    for (int i = 0, j = 0; i < _n_digar; ++i) { // XXX not set noisy-region for digars
         push_digar1(digar, _digars[i]);
     }
     if (noisy_start != -1) {
@@ -557,7 +559,6 @@ int collect_digar_from_cs_tag(bam1_t *read, const struct call_var_opt_t *opt, di
     return 0;
 }
 
-// XXX TODO make it consistent with collect_digar_from_eqx_cigar
 int collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct call_var_pl_t *pl, const struct call_var_opt_t *opt, digar_t *digar) {
     hts_pos_t reg_beg = chunk->reg_beg, reg_end = chunk->reg_end; cgranges_t *chunk_noisy_regs = chunk->chunk_noisy_regs;
     uint8_t *s = bam_aux_get(read, "MD");
@@ -592,13 +593,13 @@ int collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct cal
                     if (last_eq_len >= m_len) {
                         eq_len = m_len;
                         _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
-                        set_digar(_digars+_n_digar, pos, BAM_CEQUAL, eq_len, qi);
+                        set_digar(_digars+_n_digar, pos, BAM_CEQUAL, eq_len, qi, 0);
                         _n_digar++; // push_xid_queue(q, pos, 0, 0);
                         pos += eq_len; qi += eq_len;
                         last_eq_len -= m_len; m_len = 0;
                     } else { // last_eq_len < m_len
                         _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
-                        set_digar(_digars+_n_digar, pos, BAM_CEQUAL, last_eq_len, qi);
+                        set_digar(_digars+_n_digar, pos, BAM_CEQUAL, last_eq_len, qi, 0);
                         _n_digar++; // push_xid_queue(q, pos, 0, 0);
                         pos += last_eq_len; qi += last_eq_len;
                         m_len -= last_eq_len; md_i = 0; // start of the next run
@@ -613,7 +614,7 @@ int collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct cal
                         md_i=0; continue;
                     }
                     _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
-                    set_digar(_digars+_n_digar, pos, BAM_CEQUAL, eq_len, qi); // qual unset XXX
+                    set_digar(_digars+_n_digar, pos, BAM_CEQUAL, eq_len, qi, 0); // qual unset XXX
                     _n_digar++; // push_xid_queue(q, pos, 0, 0);
                     pos += eq_len; qi += eq_len;
                     m_len -= eq_len; md_i = 0; // start of the next run
@@ -622,10 +623,11 @@ int collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct cal
                     _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
                     uint8_t *x_seq = (uint8_t*)malloc(sizeof(uint8_t));
                     x_seq[0] = seq_nt16_int[bam_seqi(digar->bseq, qi)];
-                    set_seq_digar(_digars+_n_digar, pos, BAM_CDIFF, 1, qi, x_seq);
-                    _n_digar++; // push_xid_queue(q, pos, 1, 1);
-                    if (digar->qual[qi] >= opt->min_bq) 
+                    if (digar->qual[qi] >= opt->min_bq) {
                         push_xid_size_queue_win(q, pos, 1, 1, digar->noisy_regs, &noisy_start, &noisy_end, &cr_q_start, &cr_q_end);
+                        set_seq_digar(_digars+_n_digar, pos, BAM_CDIFF, 1, qi, 0, x_seq);
+                    } else set_seq_digar(_digars+_n_digar, pos, BAM_CDIFF, 1, qi, 1, x_seq);
+                    _n_digar++; // push_xid_queue(q, pos, 1, 1);
                     n_total_cand_vars++;
                     pos++; qi++; m_len -= 1; 
                     if (md[md_i+1] == '\0' || md[md_i+1] != '0') md_i++;
@@ -635,10 +637,11 @@ int collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct cal
             }
         } else if (op == BAM_CDEL) {
             _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
-            set_digar(_digars+_n_digar, pos, BAM_CDEL, len, qi);
-            _n_digar++; // push_xid_queue(q, pos, len, 1);
-            if ((qi == 0 || digar->qual[qi-1] >= opt->min_bq) && digar->qual[qi] >= opt->min_bq)
+            if ((qi == 0 || digar->qual[qi-1] >= opt->min_bq) && digar->qual[qi] >= opt->min_bq) {
                 push_xid_size_queue_win(q, pos, len, len, digar->noisy_regs, &noisy_start, &noisy_end, &cr_q_start, &cr_q_end);
+                set_digar(_digars+_n_digar, pos, BAM_CDEL, len, qi, 0);
+            } else set_digar(_digars+_n_digar, pos, BAM_CDEL, len, qi, 1);
+            _n_digar++; // push_xid_queue(q, pos, len, 1);
             n_total_cand_vars++;
             pos += len;
             // MD
@@ -649,21 +652,20 @@ int collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct cal
             _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
             uint8_t *ins_seq = (uint8_t*)malloc(len * sizeof(uint8_t));
             for (int j = 0; j < len; ++j) ins_seq[j] = seq_nt16_int[bam_seqi(digar->bseq, qi+j)];
-            set_seq_digar(_digars+_n_digar, pos, BAM_CINS, len, qi, ins_seq); // insertion
-            // set_digar(_digars+_n_digar, pos, BAM_CINS, len, qi); // insertion
-            _n_digar++; // push_xid_queue(q, pos, 0, 1);
-            int keep_noisy = 0;
+            int is_low_qual = 1;
             for (int _i = 0; _i < len; ++_i) {
                 if (digar->qual[qi] >= opt->min_bq) {
-                    keep_noisy = 1; break;
+                    is_low_qual = 0; break;
                 }
             }
-            if (keep_noisy) push_xid_size_queue_win(q, pos, 0, len, digar->noisy_regs, &noisy_start, &noisy_end, &cr_q_start, &cr_q_end);
+            if (!is_low_qual) push_xid_size_queue_win(q, pos, 0, len, digar->noisy_regs, &noisy_start, &noisy_end, &cr_q_start, &cr_q_end);
+            set_seq_digar(_digars+_n_digar, pos, BAM_CINS, len, qi, is_low_qual, ins_seq); // insertion
+            _n_digar++; // push_xid_queue(q, pos, 0, 1);
             n_total_cand_vars++;
             qi += len;
         } else if (op == BAM_CSOFT_CLIP) {
             _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
-            set_digar(_digars+_n_digar, pos, BAM_CSOFT_CLIP, len, qi); // clipping
+            set_digar(_digars+_n_digar, pos, BAM_CSOFT_CLIP, len, qi, 0); // clipping
             _n_digar++; // push_xid_queue(q, pos, 0, 0);
             if (len > end_clip_reg) {
                 if (check_noisy_end_clip(opt, read)) {
@@ -678,7 +680,7 @@ int collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct cal
             qi += len;
         } else if (op == BAM_CHARD_CLIP) {
             _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
-            set_digar(_digars+_n_digar, pos, BAM_CHARD_CLIP, len, qi); // insertion
+            set_digar(_digars+_n_digar, pos, BAM_CHARD_CLIP, len, qi, 0); // insertion
             _n_digar++; // push_xid_queue(q, pos, 0, 0);
             if (len > end_clip_reg) {
                 if (i == 0) {
@@ -695,9 +697,6 @@ int collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct cal
         }
     }
     for (int i = 0, j = 0; i < _n_digar; ++i) {
-        if (_digars[i].type == BAM_CDIFF || _digars[i].type == BAM_CINS || _digars[i].type == BAM_CDEL) {
-            _digars[i].is_low_qual = q->is_dense[j++];
-        } else _digars[i].is_low_qual = 0;
         push_digar1(digar, _digars[i]);
     }
     if (noisy_start != -1) {
@@ -766,54 +765,56 @@ int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct ca
                 if (ref_base != read_base) {
                     if (eq_len > 0) {
                         _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
-                        set_digar(_digars+_n_digar, pos-eq_len, BAM_CEQUAL, eq_len, qi-eq_len);
+                        set_digar(_digars+_n_digar, pos-eq_len, BAM_CEQUAL, eq_len, qi-eq_len, 0);
                         _n_digar++; // push_xid_queue(q, pos-eq_len, 0, 0);
                         eq_len = 0;
                     }
                     _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
                     uint8_t *x_seq = (uint8_t*)malloc(sizeof(uint8_t));
                     x_seq[0] = seq_nt16_int[bam_seqi(digar->bseq, qi)];
-                    set_seq_digar(_digars+_n_digar, pos, BAM_CDIFF, 1, qi, x_seq);
-                    _n_digar++;
-                    if (digar->qual[qi] >= opt->min_bq) 
+                    if (digar->qual[qi] >= opt->min_bq) {
                         push_xid_size_queue_win(q, pos, 1, 1, digar->noisy_regs, &noisy_start, &noisy_end, &cr_q_start, &cr_q_end);
+                        set_seq_digar(_digars+_n_digar, pos, BAM_CDIFF, 1, qi, 0, x_seq);
+                    } else set_seq_digar(_digars+_n_digar, pos, BAM_CDIFF, 1, qi, 1, x_seq);
+                    _n_digar++;
                     n_total_cand_vars++;
                 } else eq_len++;
                 pos++; qi++;
             }
             if (eq_len > 0) {
                 _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
-                set_digar(_digars+_n_digar, pos-eq_len, BAM_CEQUAL, eq_len, qi-eq_len);
+                set_digar(_digars+_n_digar, pos-eq_len, BAM_CEQUAL, eq_len, qi-eq_len, 0);
                 _n_digar++; // push_xid_queue(q, pos-eq_len, 0, 0);
                 eq_len = 0;
             }
         } else if (op == BAM_CDEL) {
             _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
-            set_digar(_digars+_n_digar, pos, BAM_CDEL, len, qi);
-            _n_digar++; // push_xid_queue(q, pos, len, 1);
-            if ((qi == 0 || digar->qual[qi-1] >= opt->min_bq) && digar->qual[qi] >= opt->min_bq)
+            if ((qi == 0 || digar->qual[qi-1] >= opt->min_bq) && digar->qual[qi] >= opt->min_bq) {
                 push_xid_size_queue_win(q, pos, len, len, digar->noisy_regs, &noisy_start, &noisy_end, &cr_q_start, &cr_q_end);
+                set_digar(_digars+_n_digar, pos, BAM_CDEL, len, qi, 0);
+            } else set_digar(_digars+_n_digar, pos, BAM_CDEL, len, qi, 1);
+            _n_digar++; // push_xid_queue(q, pos, len, 1);
             n_total_cand_vars++;
             pos += len;
         } else if (op == BAM_CINS) {
             _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
             uint8_t *ins_seq = (uint8_t*)malloc(len * sizeof(uint8_t));
             for (int j = 0; j < len; ++j) ins_seq[j] = seq_nt16_int[bam_seqi(digar->bseq, qi+j)];
-            set_seq_digar(_digars+_n_digar, pos, BAM_CINS, len, qi, ins_seq);
             // set_digar(_digars+_n_digar, pos, BAM_CINS, len, qi); // insertion
-            _n_digar++; //push_xid_queue(q, pos, 0, 1);
-            int keep_noisy = 0;
+            int is_low_qual = 1;
             for (int _i = 0; _i < len; ++_i) {
                 if (digar->qual[qi] >= opt->min_bq) {
-                    keep_noisy = 1; break;
+                    is_low_qual = 0; break;
                 }
             }
-            if (keep_noisy) push_xid_size_queue_win(q, pos, 0, len, digar->noisy_regs, &noisy_start, &noisy_end, &cr_q_start, &cr_q_end);
+            if (!is_low_qual) push_xid_size_queue_win(q, pos, 0, len, digar->noisy_regs, &noisy_start, &noisy_end, &cr_q_start, &cr_q_end);
+            set_seq_digar(_digars+_n_digar, pos, BAM_CINS, len, qi, is_low_qual, ins_seq);
+            _n_digar++; //push_xid_queue(q, pos, 0, 1);
             n_total_cand_vars++;
             qi += len;
         } else if (op == BAM_CSOFT_CLIP) {
             _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
-            set_digar(_digars+_n_digar, pos, BAM_CSOFT_CLIP, len, qi); // clipping 
+            set_digar(_digars+_n_digar, pos, BAM_CSOFT_CLIP, len, qi, 0); // clipping 
             _n_digar++; //push_xid_queue(q, pos, 0, 0);
             if (len > end_clip_reg) {
                 if (check_noisy_end_clip(opt, read)) {
@@ -828,7 +829,7 @@ int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct ca
             qi += len;
         } else if (op == BAM_CHARD_CLIP) {
             _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
-            set_digar(_digars+_n_digar, pos, BAM_CHARD_CLIP, len, qi); // clipping 
+            set_digar(_digars+_n_digar, pos, BAM_CHARD_CLIP, len, qi, 0); // clipping 
             _n_digar++; //push_xid_queue(q, pos, 0, 0);
             if (len > end_clip_reg) {
                 if (i == 0) {
@@ -845,9 +846,6 @@ int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct ca
         }
     }
     for (int i = 0, j = 0; i < _n_digar; ++i) {
-        if (_digars[i].type == BAM_CDIFF || _digars[i].type == BAM_CINS || _digars[i].type == BAM_CDEL) {
-            _digars[i].is_low_qual = q->is_dense[j++];
-        } else _digars[i].is_low_qual = 0;
         push_digar1(digar, _digars[i]);
     }
     if (noisy_start != -1) {
@@ -1155,6 +1153,9 @@ int collect_bam_chunk(call_var_pl_t *pl, bam_chunk_t *chunks, int chunk_i) {
             next_active_reg_beg = beg0;
             _n_last_chunk_reads = 0;
             pl->last_chunk_read_i[_n_last_chunk_reads++] = chunk->n_reads; // only keep one read for the next chunk
+            chunk->is_ovlp[chunk->n_reads] = 0; // no overlap with the current chunk
+            chunk->is_skipped[chunk->n_reads] = 1; // skip this read
+            ++chunk->n_reads; // add the current read to the current chunk
             break;
         } else { // same chromosome
             // reg_beg/reg_end is already set
@@ -1181,7 +1182,7 @@ int collect_bam_chunk(call_var_pl_t *pl, bam_chunk_t *chunks, int chunk_i) {
         if (has_MD == 0) has_MD = has_MD_in_bam(chunk->reads[chunk->n_reads]);
         ++chunk->n_reads;
     }
-    if (chunk->n_reads > pl->n_last_chunk_reads) {
+    if (chunk->n_reads > pl->n_last_chunk_reads || _n_last_chunk_reads > 0) {
         chunk->tid = reg_tid; chunk->tname = header->target_name[reg_tid];
         get_bam_chunk_reg_cr(pl->ref_reg_seq->reg_cr, chunk, active_reg_beg, active_reg_end);
         get_bam_chunk_reg_ref_seq(pl->fai, pl->ref_reg_seq, chunk);
@@ -1189,7 +1190,7 @@ int collect_bam_chunk(call_var_pl_t *pl, bam_chunk_t *chunks, int chunk_i) {
         // for the next chunk
         pl->cur_active_reg_beg = next_active_reg_beg;
         pl->n_last_chunk_reads = _n_last_chunk_reads;
-        if (LONGCALLD_VERBOSE >= 0) {
+        if (LONGCALLD_VERBOSE >= 2) {
             fprintf(stderr, "CHUNK: tname: %s, tid: %d, beg: %" PRId64 ", end: %" PRId64 ", n_reads: %d, n_ovlp: %d, next_act_beg: %ld\n", chunk->tname, reg_tid, chunk->reg_beg, chunk->reg_end, chunk->n_reads, _n_last_chunk_reads, next_active_reg_beg);
         }
         // print reads in current chunk

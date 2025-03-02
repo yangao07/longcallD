@@ -6,10 +6,10 @@
 
 // category of candidate variants
 // #define LONGCALLD_VAR_CATE_N 8
-#define LONGCALLD_VAR_CATE_STR "LENIRXSHehl"
+#define LONGCALLD_VAR_CATE_STR "LBNIRXSHehl"
 
 #define LONGCALLD_LOW_COV_VAR        0x001 // "L"
-// #define LONGCALLD_CLEAN_HET_VAR      0x002 // "E" // not used for now
+#define LONGCALLD_STRAND_BIAS_VAR    0x002 // "B"
 #define LONGCALLD_CLEAN_HET_SNP      0x004 // "N"
 #define LONGCALLD_CLEAN_HET_INDEL    0x008 // "I"
 #define LONGCALLD_REP_HET_VAR        0x010 // "R"
@@ -53,14 +53,13 @@ typedef struct cand_var_t {
                       // snp/ins: could be >2, del: ≤2
                       // minor_alt: not ref and not main alt alleles (mostly sequencing errors)
     int *alle_covs; // size: n_uniq_alles
+    int **strand_to_alle_covs; // strand-wise: 1:forward/2:reverse -> alle_i -> read count, used for strand bias
     int ref_len; uint8_t ref_base; // 1-base ref_base, only used for X
     int alt_len; uint8_t *alt_seq; // only used for mismatch/insertion, deletion:NULL
 
     // dynamic information, update during haplotype assignment
     int **hap_to_alle_profile; // read-wise: 1:H1/2:H2 -> alle_i -> read count
     int *hap_to_cons_alle; // HAP-wise (hap_to_cons_alle_i): 1:H1/2:H2 -> alle_i
-
-    uint8_t is_low_qual, is_skipped;
 } cand_var_t;
 
 // read X var

@@ -28,9 +28,10 @@ const struct option call_var_opt [] = {
     { "amb-base", 0, NULL, 0},
     { "hifi", 0, NULL, 0},
     { "ont", 0, NULL, 0},
+    { "ont-hp-prof", 1, NULL, 0},
 
     // short options
-    { "ref-fa", 1, NULL, 'r' },
+    { "ref-idx", 1, NULL, 'r' },
     { "out-vcf", 1, NULL, 'o'},
     { "out-bam", 1, NULL, 'b' },
     { "no-vcf-header", 0, NULL, 'H'},
@@ -89,11 +90,69 @@ void set_ont_opt(call_var_opt_t *opt) {
     opt->noisy_reg_max_xgaps = 20;
 }
 
+// profile format
+// CTA     5       +       5       10661016.0      0.8805382103122837
+// beg/hp/end   ref_len strand alt_len count prob
+void set_ont_hp_prof(call_var_opt_t *opt, char *prof_fn) {
+    opt->ont_hp_profile = (ont_hp_profile_t***)malloc(4*4*4*sizeof(ont_hp_profile_t**));
+    for (int i = 0; i < 4*4*4; ++i) {
+        opt->ont_hp_profile[i] = (ont_hp_profile_t**)malloc(50*sizeof(ont_hp_profile_t*));
+        for (int j = 0; j < 50; ++j) {
+            opt->ont_hp_profile[i][j] = (ont_hp_profile_t*)malloc(2*sizeof(ont_hp_profile_t));
+            for (int k = 0; k < 2; ++k) {
+                opt->ont_hp_profile[i][j][k].hp_len_to_prob = (double*)malloc(20*sizeof(double));
+                opt->ont_hp_profile[i][j][k].alt_hp_lens = (int*)malloc(20*sizeof(int));
+                opt->ont_hp_profile[i][j][k].beg_flank_base = i/16;
+                opt->ont_hp_profile[i][j][k].hp_base = (i%16)/4;
+                opt->ont_hp_profile[i][j][k].end_flank_base = i%4;
+                opt->ont_hp_profile[i][j][k].ref_hp_len = j+1;
+                opt->ont_hp_profile[i][j][k].strand = k;
+                opt->ont_hp_profile[i][j][k].n_alt_hp_lens = 0;
+            }
+        }
+    }
+    // load profile
+    FILE *fp = fopen(prof_fn, "r");
+    if (fp == NULL) _err_error_exit("Failed to open HP profile file: %s", prof_fn);
+    char line[1024];
+    while (fgets(line, sizeof(line), fp)) {
+        if (line[0] == '#') continue; // skip header/comment
+        char *token;
+        token = strtok(line, "\t");
+        char beg_base = token[0], hp_base = token[1], end_base = token[2];
+        token = strtok(NULL, "\t");
+        int ref_len = atoi(token);
+        if (ref_len < 5 || ref_len > 50) continue; // skip too short or too long ref length
+        token = strtok(NULL, "\t");
+        char strand = token[0];
+        // int hp_idx = nst_nt4_table[(int)beg_base]*16 + nst_nt4_table[(int)hp_base]*4 + nst_nt4_table[(int)end_base];
+        int hp_base_idx = nst_nt4_table[(int)beg_base]*16 + nst_nt4_table[(int)hp_base]*4 + nst_nt4_table[(int)end_base];
+        int hp_ref_idx = ref_len-1;
+        int hp_strand_idx = (strand == '+') ? 0 : 1;
+        // fprintf(stderr, "HP idx: %d, %c-%c-%c\n", hp_idx, beg_base, hp_base, end_base);
+        ont_hp_profile_t *hp_profile = &(opt->ont_hp_profile[hp_base_idx][hp_ref_idx][hp_strand_idx]);
+        if (hp_profile->n_alt_hp_lens >= 20) continue;
+
+        token = strtok(NULL, "\t");
+        int alt_len = atoi(token);
+        token = strtok(NULL, "\t");
+        double count = atof(token);
+        token = strtok(NULL, "\t");
+        double prob = atof(token);
+
+        hp_profile->ref_hp_len = ref_len;
+        hp_profile->alt_hp_lens[hp_profile->n_alt_hp_lens] = alt_len;
+        hp_profile->hp_len_to_prob[hp_profile->n_alt_hp_lens] = prob;
+        hp_profile->n_alt_hp_lens++;
+    }
+    fclose(fp);
+}
+
 call_var_opt_t *call_var_init_para(void) {
     call_var_opt_t *opt = (call_var_opt_t*)_err_malloc(sizeof(call_var_opt_t));
 
     opt->sample_name = NULL;
-    opt->ref_fa_fn = NULL;
+    opt->ref_fa_fn = NULL; opt->ref_fa_fai_fn = NULL;
 
     opt->is_pb_hifi = 0; opt->is_ont = 0;
 
@@ -135,6 +194,7 @@ call_var_opt_t *call_var_init_para(void) {
     opt->gap_ext2 = LONGCALLD_GAP_EXT2_SCORE;
     opt->gap_aln = LONGCALLD_GAP_LEFT_ALN;
     opt->disable_read_realign = 1; // XXX right now, always disable read realignment
+    opt->ont_hp_profile = NULL;
 
     opt->pl_threads = MIN_OF_TWO(CALL_VAR_PL_THREAD_N, get_num_processors());
     opt->n_threads = MIN_OF_TWO(CALL_VAR_THREAD_N, get_num_processors());
@@ -152,6 +212,19 @@ void call_var_free_para(call_var_opt_t *opt) {
     if (opt->in_bam_fn) free(opt->in_bam_fn);
     if (opt->sample_name) free(opt->sample_name);
     if (opt->region_list) free(opt->region_list);
+    if (opt->ont_hp_profile != NULL) {
+        for (int i = 0; i < 4*4*4; ++i) {
+            for (int j = 0; j < 50; ++j) {
+                for (int k = 0; k < 2; ++k) {
+                    free(opt->ont_hp_profile[i][j][k].alt_hp_lens);
+                    free(opt->ont_hp_profile[i][j][k].hp_len_to_prob);
+                }
+                free(opt->ont_hp_profile[i][j]);
+            }
+            free(opt->ont_hp_profile[i]);
+        }
+        free(opt->ont_hp_profile);
+    }
     free(opt);
 }
 
@@ -214,7 +287,7 @@ ref_reg_seq_t *call_var_pl_open_ref_reg_fa(const char *ref_fa_fn, faidx_t *fai, 
         }
     }
     cr_index(ref_reg_seq->reg_cr);
-    _err_info("Loading regions done!\n");
+    // _err_info("Loading regions done!\n");
     return ref_reg_seq;
 } 
 
@@ -253,7 +326,8 @@ static void call_var_pl_open_fa_bam(call_var_opt_t *opt, call_var_pl_t *pl, char
     // init chunk
     pl->last_chunk = calloc(1, sizeof(bam_chunk_t)); pl->last_chunk_read_i = NULL; pl->n_last_chunk_reads = 0; pl->cur_active_reg_beg = -1; pl->cur_active_reg_beg = -1;
     // input reference fasta file
-    pl->fai = fai_load(opt->ref_fa_fn);
+    // pl->fai = fai_load(opt->ref_fa_fn);
+    pl->fai = fai_load3(opt->ref_fa_fn, opt->ref_fa_fai_fn, NULL, FAI_CREATE);
     if (pl->fai == NULL) {
         hts_tpool_destroy(pl->p); sam_hdr_destroy(pl->header); sam_close(pl->bam);
         _err_error_exit("Failed to load/build reference fasta index: %s\n", opt->ref_fa_fn);
@@ -336,7 +410,7 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
                 break;
             }
         }
-        fprintf(stderr, "n_chunks: %d\n", s->n_chunks);
+        if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "n_chunks: %d\n", s->n_chunks);
         // XXX merge chunks if too few reads
         if (s->n_chunks > 0) {
             // copy last chunk to the first chunk
@@ -384,13 +458,29 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
                     int hap = c->haps[j]; 
                     if (hap != 0) {
                         if (c->flip_hap) hap ^= 3;
-                        bam_aux_append(b, "XP", 'i', 4, (uint8_t*)&(hap));
+                        // check if HP tag exists
+                        uint8_t *hp = bam_aux_get(b, "HP");
+                        if (hp != NULL) {
+                            if (hap != bam_aux2i(hp)) {
+                                bam_aux_del(b, hp);
+                                bam_aux_append(b, "HP", 'i', 4, (uint8_t*)&(hap));
+                            }
+                        } else {
+                            bam_aux_append(b, "HP", 'i', 4, (uint8_t*)&(hap));
+                        }
                     }
                     hts_pos_t ps = c->PS[j];
                     if (ps != -1) {
-                        char value_str[21]; // Enough for int64 max value + null terminator
-                        snprintf(value_str, sizeof(value_str), "%ld", ps);
-                        bam_aux_append(b, "PS", 'Z', strlen(value_str) + 1, (uint8_t *)value_str);
+                        // check if PS tag exists
+                        uint8_t *ps_tag = bam_aux_get(b, "PS");
+                        if (ps_tag != NULL) {
+                            if (ps != bam_aux2i(ps_tag)) {
+                                bam_aux_del(b, ps_tag);
+                                bam_aux_append(b, "PS", 'i', 4, (uint8_t *)&(ps));
+                            }
+                        } else {
+                            bam_aux_append(b, "PS", 'i', 4, (uint8_t *)&(ps));
+                        }
                     }
                     if (sam_write1(p->opt->out_bam, p->header, b) < 0)
                         _err_error_exit("Failed to write BAM record.");
@@ -401,6 +491,11 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
             // bam_chunk_free(c); // free input
             var_free(s->vars + i);  // free output
         }
+        int64_t n_processed_reads = 0;
+        for (int i = 0; i < s->n_chunks; ++i) {
+            n_processed_reads += s->chunks[i].n_reads;
+        }
+        _err_info("Processed %ld reads.\n", n_processed_reads);
         bam_chunks_free(s->chunks, s->n_chunks); // free input
         free(s->vars); free(s);
     }
@@ -420,7 +515,10 @@ static void call_var_usage(void) {//main usage
 
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "  Intput and output:\n");
-    fprintf(stderr, "    -n --sample-name STR  sample name. if not provided, input BAM file name will be used as sample name in output VCF [NULL]\n");
+    fprintf(stderr, "    -r  --ref-idx    STR  .fai index file for reference genome FASTA file, detect automaticaly if not provided [NULL]\n");
+    // fprintf(stderr, "    -b --out-bam     STR  output phased BAM file [NULL]\n");
+    fprintf(stderr, "    -n --sample-name STR  sample name. 'RG/SM' in BAM header will be used if not provided [NULL]\n");
+    fprintf(stderr, "                          BAM file name will be used if not provided and not 'RG/SM' in BAM header [NULL]\n");
     fprintf(stderr, "    -o --out-vcf     STR  output phased VCF file [stdout]\n");
     fprintf(stderr, "    -H --no-vcf-header    do NOT output VCF header\n");
     fprintf(stderr, "       --amb-base         output variant with ambiguous base [False]\n");
@@ -470,13 +568,14 @@ int call_var_main(int argc, char *argv[]) {
     double realtime0 = realtime();
     while ((c = getopt_long(argc, argv, "r:o:Hb:c:d:a:n:x:w:j:L:f:p:g:Nt:hvV:", call_var_opt, &op_idx)) >= 0) {
         switch(c) {
-            case 'r': opt->ref_fa_fn = strdup(optarg); break;
+            case 'r': opt->ref_fa_fai_fn = strdup(optarg); break;
             // case 'b': cgp->var_block_size = atoi(optarg); break;
             case 'o': opt->out_vcf = fopen(optarg, "w"); break;
             case 'H': opt->no_vcf_header = 1; break;
             case 0: if (strcmp(call_var_opt[op_idx].name, "amb-base") == 0) opt->out_amb_base = 1; 
                     else if (strcmp(call_var_opt[op_idx].name, "hifi") == 0) set_hifi_opt(opt);
                     else if (strcmp(call_var_opt[op_idx].name, "ont") == 0) set_ont_opt(opt);
+                    else if (strcmp(call_var_opt[op_idx].name, "ont-hp-prof") == 0) set_ont_hp_prof(opt, optarg);
                     break;
             case 'b': opt->out_bam = hts_open(optarg, "wb"); break;
             case 'c': opt->min_dp = atoi(optarg); break;

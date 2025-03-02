@@ -235,10 +235,12 @@ void ref_reg_seq_free(ref_reg_seq_t *r) {
 }
 
 void read_ref_reg_seq1(faidx_t *fai, ref_reg_seq_t *r, const char *rname, hts_pos_t beg, hts_pos_t end) {
+    if (beg >= end) _err_error_exit("Invalid region: %s:%d-%d\n", rname, beg, end);
     int len;
     int ref_seq_len = faidx_seq_len(fai, rname);
     // hts_pos_t _beg = MAX_OF_TWO(0, beg-1000), _end = end+1000;
     int _beg = MAX_OF_TWO(1000, beg)-1000, _end = MIN_OF_TWO(ref_seq_len-1000, end)+1000;
+    if (_beg >= _end || _beg >= ref_seq_len) _err_error_exit("Invalid region: %s:%d-%d\n", rname, beg, end);
     // fprintf(stderr, "rname: %s, beg: %" PRId64 ", end: %" PRId64 ", _beg: %d, _end: %d\n", rname, beg, end, _beg, _end);
     char *seq = faidx_fetch_seq(fai, rname, _beg, _end, &len);
     if (seq == NULL) _err_error_exit("Failed to fetch sequence (%s:%d-%d\n", rname, _beg, _end);
@@ -249,8 +251,7 @@ void read_ref_reg_seq1(faidx_t *fai, ref_reg_seq_t *r, const char *rname, hts_po
     r->reg_seq[r->n].end = _beg+len;
     // cr: (beg, end]
     // cr_add(r->reg_cr, rname, _beg, _end, r->n);
-    // fprintf(stderr, "rname: %s, beg: %" PRId64 ", end: %" PRId64 ", len: %d\n", rname, beg, end, len);
-    cr_add(r->reg_cr, rname, beg, end, r->n);
+    cr_add(r->reg_cr, rname, beg, end > ref_seq_len?ref_seq_len : end, r->n);
     ++r->n;
 }
 

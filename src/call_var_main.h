@@ -27,13 +27,16 @@
 
 #define LONGCALLD_NOISY_REG_MAX_XGAPS 5 // or 10; dense X/gap region: more than n X/gap bases in a 100-bp window
 #define LONGCALLD_NOISY_REG_SLIDE_WIN 100
-#define LONGCALLD_MAX_NOISY_FRAC_PER_READ 0.8 // skip reads with more than 80% bases in noisy region
+#define LONGCALLD_MAX_NOISY_FRAC_PER_READ 0.5 // skip reads with more than 50% bases in noisy region
+#define LONGCALLD_MAX_VAR_RATIO_PER_READ 0.05 // skip reads with n_var / ref_span > 5% 
+#define LONGCALLD_MAX_READ_DEPTH 500 // vars with >500 reads will be skipped
+#define LONGCALLD_MAX_NOISY_REG_READS 1000 // regions with >1000 reads will be skipped
 #define LONGCALLD_NOISY_END_CLIP 100 // >= 100 bp clipping on both ends will be considered as long clipping
 #define LONGCALLD_NOISY_END_CLIP_WIN 100 // 100 bp next to the long end-clipping will be considered as low-quality region
 #define LONGCALLD_NOISY_REG_FLANK_LEN 10 // during re-alignment, include 10-bp flanking region for both ends of noisy region
 
 #define LONGCALLD_MAX_NOISY_REG_LEN 50000 // >50kb noisy region will be skipped
-#define LONGCALLD_NOISY_REG_READS 5 // >= 5 reads supporting noisy region
+#define LONGCALLD_NOISY_REG_READS 2 // >= 5 reads supporting noisy region
 #define LONGCALLD_NOISY_REG_RATIO 0.20 // >= 25% reads supporting noisy region
 
 #define LONGCALLD_MIN_HAP_FULL_READS 1 // >= 1full read supporting each haplotype
@@ -46,9 +49,6 @@
 
 
 
-#define LONGCALLD_MAX_VAR_RATIO_PER_READ 0.05 // skip reads with n_var / ref_span > 5% 
-#define LONGCALLD_MAX_READ_DEPTH 500 // vars with >500 reads will be skipped
-#define LONGCALLD_MAX_NOISY_REG_READS 1000 // regions with >1000 reads will be skipped
 
 
 #ifdef __cplusplus
@@ -83,9 +83,15 @@ typedef struct var_t {
     var1_t *vars;
 } var_t;
 
+typedef struct ont_hp_profile_t {
+    uint8_t beg_flank_base, hp_base, end_flank_base; // 0: A, 1: C, 2: G, 3: T
+    int ref_hp_len; uint8_t strand; int *alt_hp_lens; int n_alt_hp_lens;
+    double *hp_len_to_prob; // -> len -> prob
+} ont_hp_profile_t; // 4x4x4 * 50 * 2 = 6400
+
 typedef struct call_var_opt_t {
     // input
-    char *ref_fa_fn;
+    char *ref_fa_fn, *ref_fa_fai_fn;
     char *rep_bed_fn;
     char *in_bam_fn; char *sample_name;
     uint8_t is_pb_hifi, is_ont;
@@ -106,6 +112,7 @@ typedef struct call_var_opt_t {
     double min_read_to_hap_cons_sim;
     int disable_read_realign; // disable re-alignment/MSA, only use variant calling from consensus sequence
                               // phasing is based on read cluster of the current haplotype, so not error-robust
+    ont_hp_profile_t ***ont_hp_profile; // for ONT data, use HP profile to call variants, size: 4x4x4
     // general
     // int max_ploidy;
     int pl_threads, n_threads;
