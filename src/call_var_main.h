@@ -18,8 +18,8 @@
 #define LONGCALLD_MIN_CAND_DP 5 // total depth < 5: skipped
 #define LONGCALLD_MIN_ALT_DP 2 // max alt depth < 2: skipped
 #define LONGCALLD_MIN_SOMATIC_AF 0.05 // AF < 0.05: filtered out, 0.05~0.25: candidate somatic
-#define LONGCALLD_MIN_CAND_AF 0.20 // AF < 0.25: not germline het.
-#define LONGCALLD_MAX_CAND_AF 0.80 // AF > 0.75: not germline het.
+#define LONGCALLD_MIN_CAND_AF 0.20 // AF < 0.20: not germline het.
+#define LONGCALLD_MAX_CAND_AF 0.80 // AF > 0.70: not germline het.
 #define LONGCALLD_DEF_PLOID 2 // diploid
 #define LONGCALLD_REF_ALLELE 0
 #define LONGCALLD_ALT_ALLELE1 1
@@ -46,10 +46,6 @@
 // for sdust
 #define LONGCALLD_SDUST_T 5
 #define LONGCALLD_SDUST_W 20
-
-
-
-
 
 #ifdef __cplusplus
 extern "C" {
@@ -134,7 +130,7 @@ typedef struct call_var_pl_t {
     struct call_var_opt_t *opt;
     // m-threads
     struct bam_chunk_t *last_chunk; int n_last_chunk_reads, *last_chunk_read_i; hts_pos_t cur_active_reg_beg;
-    int max_reads_per_chunk, max_reg_len_per_chunk;
+    int max_reads_per_chunk, max_reg_len_per_chunk, ovlp_region_len;
     int n_threads;
 } call_var_pl_t;
 

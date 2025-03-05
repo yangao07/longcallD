@@ -112,12 +112,15 @@ int write_var_to_vcf(var_t *vars, const struct call_var_opt_t *opt, char *chrom)
         fprintf(out_vcf, "\t%d\tPASS\tEND=%" PRId64 "", var.QUAL, var.pos + var.ref_len - 1);
         if (is_sv) fprintf(out_vcf, ";%s;%s\t", SVTYPE, SVLEN);
         else fprintf(out_vcf, "\t");
-        fprintf(out_vcf, "GT:DP:AD:GQ:PS\t%d|%d:%d:", var.GT[0], var.GT[1], var.DP);
+        int is_hom = var.GT[0] == var.GT[1] ? 1 : 0;
+        if (is_hom) fprintf(out_vcf, "GT:DP:AD:GQ\t%d|%d:%d:", var.GT[0], var.GT[1], var.DP);
+        else fprintf(out_vcf, "GT:DP:AD:GQ:PS\t%d|%d:%d:", var.GT[0], var.GT[1], var.DP);
         for (int j = 0; j < 1+var.n_alt_allele; j++) {
             if (j > 0) fprintf(out_vcf, ",");
             fprintf(out_vcf, "%d", var.AD[j]);
         }
-        fprintf(out_vcf, ":%d:%" PRId64 "\n", var.GQ, var.PS);
+        if (is_hom) fprintf(out_vcf, ":%d\n", var.GQ);
+        else fprintf(out_vcf, ":%d:%" PRId64 "\n", var.GQ, var.PS);
     }
     return ret;
 }

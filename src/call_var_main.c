@@ -427,8 +427,7 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
         if (LONGCALLD_VERBOSE >= 1) _err_info("Step 1: call variants.\n");
         if (((call_var_step_t*)in)->n_chunks > 0) {
             ((call_var_step_t*)in)->vars = calloc(((call_var_step_t*)in)->n_chunks, sizeof(var_t));
-            if (LONGCALLD_VERBOSE >= 2)
-                fprintf(stderr, "n_chunks: %d\n", ((call_var_step_t*)in)->n_chunks);
+            // if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "n_chunks: %d\n", ((call_var_step_t*)in)->n_chunks);
             kt_for(p->n_threads, call_var_worker_for, in, ((call_var_step_t*)in)->n_chunks);
         }
         return in;
@@ -446,49 +445,42 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
         for (int i = 0; i < s->n_chunks; ++i) {
             // if (i != 0) continue;
             bam_chunk_t *c = s->chunks + i;
-            for (int j = c->n_up_ovlp_reads; j < c->n_reads; ++j) {
-                // if (c->is_skipped[j]) continue;
-                // chrome, pos, qname, hap, rlen
-                // if (LONGCALLD_VERBOSE >= 2)
-                    // fprintf(stderr, "%d\t%s\t%ld\t%s\t%d\t%d\t%ld\n", j, c->tname, c->reads[j]->core.pos+1, bam_get_qname(c->reads[j]), c->reads[j]->core.flag, c->haps[j], bam_cigar2rlen(c->reads[j]->core.n_cigar, bam_get_cigar(c->reads[j])));
-                if (p->opt->out_bam != NULL) {
-                    // Add HP tag
+            if (p->opt->out_bam != NULL) {
+                bam_chunk_t *pre_c = NULL;
+                if (i > 0) pre_c = s->chunks + i - 1;
+                else pre_c = p->last_chunk;
+                for (int j = 0; j < c->n_reads; ++j) {
                     bam1_t *b = c->reads[j];
-                    // if (c->is_skipped[i] || c->haps[i] <= 0) continue;
-                    int hap = c->haps[j]; 
+                    int hap = c->haps[j]; hts_pos_t ps = c->PS[j]; // Add HP+PS tag
+                    if (j < c->n_up_ovlp_reads) { // ovlp reads
+                        int pre_read_i = c->up_ovlp_read_i[j];
+                        int pre_hap = pre_c->haps[pre_read_i]; hts_pos_t pre_ps = pre_c->PS[pre_read_i];
+                        if (hap == 0) hap = pre_hap;
+                        if (ps == -1) ps = pre_ps;
+                    }
                     if (hap != 0) {
-                        if (c->flip_hap) hap ^= 3;
-                        // check if HP tag exists
+                        // if (c->flip_hap) hap ^= 3; // check if HP tag exists
                         uint8_t *hp = bam_aux_get(b, "HP");
                         if (hp != NULL) {
                             if (hap != bam_aux2i(hp)) {
                                 bam_aux_del(b, hp);
                                 bam_aux_append(b, "HP", 'i', 4, (uint8_t*)&(hap));
                             }
-                        } else {
-                            bam_aux_append(b, "HP", 'i', 4, (uint8_t*)&(hap));
-                        }
+                        } else bam_aux_append(b, "HP", 'i', 4, (uint8_t*)&(hap));
                     }
-                    hts_pos_t ps = c->PS[j];
-                    if (ps != -1) {
-                        // check if PS tag exists
+                    if (ps != -1) { // check if PS tag exists
                         uint8_t *ps_tag = bam_aux_get(b, "PS");
                         if (ps_tag != NULL) {
                             if (ps != bam_aux2i(ps_tag)) {
                                 bam_aux_del(b, ps_tag);
                                 bam_aux_append(b, "PS", 'i', 4, (uint8_t *)&(ps));
                             }
-                        } else {
-                            bam_aux_append(b, "PS", 'i', 4, (uint8_t *)&(ps));
-                        }
+                        } else bam_aux_append(b, "PS", 'i', 4, (uint8_t *)&(ps));
                     }
-                    if (sam_write1(p->opt->out_bam, p->header, b) < 0)
-                        _err_error_exit("Failed to write BAM record.");
+                    if (sam_write1(p->opt->out_bam, p->header, b) < 0) _err_error_exit("Failed to write BAM record.");
                 }
             }
-            // fprintf(stdout, "beg: %ld, end: %ld\n", c->beg, c->end);
             write_var_to_vcf(s->vars+i, p->opt, c->tname);
-            // bam_chunk_free(c); // free input
             var_free(s->vars + i);  // free output
         }
         int64_t n_processed_reads = 0;
@@ -636,6 +628,7 @@ int call_var_main(int argc, char *argv[]) {
     call_var_pl_t pl;
     memset(&pl, 0, sizeof(call_var_pl_t));
     pl.max_reg_len_per_chunk = LONGCALLD_BAM_CHUNK_REG_SIZE; // pl.max_reads_per_chunk = LONGCALLD_BAM_CHUNK_READ_COUNT; 
+    pl.ovlp_region_len = LONGCALLD_BAM_CHUNK_OVLP_REG_SIZE;
     pl.n_threads = opt->n_threads;
     // open BAM file & reference genome
     call_var_pl_open_fa_bam(opt, &pl, argv+optind, argc-optind);

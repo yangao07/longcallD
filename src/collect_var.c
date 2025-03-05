@@ -353,7 +353,7 @@ void post_process_noisy_regs(bam_chunk_t *chunk, call_var_opt_t *opt) {
 // XXX excluding all vars in the noisy regions
 // update chunk_noisy_regs if any variant is overlapping with it
 int classify_cand_vars(bam_chunk_t *chunk, int n_var_sites, call_var_opt_t *opt) {
-    hts_pos_t reg_beg = chunk->reg_beg, reg_end = chunk->reg_end;
+    hts_pos_t reg_beg = chunk->active_reg_beg, reg_end = chunk->active_reg_end;
     cand_var_t *cand_vars = chunk->cand_vars;
     char *ref_seq = chunk->ref_seq; hts_pos_t ref_beg = chunk->ref_beg, ref_end = chunk->ref_end;
     int *var_i_to_cate = (int*)malloc(n_var_sites * sizeof(int));
@@ -365,6 +365,8 @@ int classify_cand_vars(bam_chunk_t *chunk, int n_var_sites, call_var_opt_t *opt)
     int var_cate = -1;
     for (int i = 0; i < n_var_sites; ++i) {
         cand_var_t *var = cand_vars+i;
+        // if (var->pos == 10001467)
+            // fprintf(stderr, "Debug: %s:%" PRId64 " %d-%c-%d %d\t", chunk->tname, cand_vars[i].pos, cand_vars[i].ref_len, BAM_CIGAR_STR[cand_vars[i].var_type], cand_vars[i].alt_len, cand_vars[i].total_cov);
         var_cate = classify_var_cate(opt, ref_seq, ref_beg, ref_end, var, min_dp, min_alt_dp, min_somatic_af, min_af, max_af, min_noisy_reg_ratio);
         var_i_to_cate[i] = var_cate;
         if (var_cate == LONGCALLD_LOW_COV_VAR) continue; // skipped
@@ -382,6 +384,8 @@ int classify_cand_vars(bam_chunk_t *chunk, int n_var_sites, call_var_opt_t *opt)
     int64_t var_pos_ovlp_n, noisy_ovlp_n, *ovlp_b = 0, max_b = 0;
     for (int i = 0; i < n_var_sites; ++i) {
         cand_var_t *var = cand_vars+i;
+        // if (var->pos == 10001467)
+            // fprintf(stderr, "Debug: %s:%" PRId64 " %d-%c-%d %d\t", chunk->tname, cand_vars[i].pos, cand_vars[i].ref_len, BAM_CIGAR_STR[cand_vars[i].var_type], cand_vars[i].alt_len, cand_vars[i].total_cov);
         var_cate = var_i_to_cate[i];
         if (var_cate == LONGCALLD_LOW_COV_VAR) continue;
         // 1. var is in noisy regions
@@ -432,6 +436,8 @@ int classify_cand_vars(bam_chunk_t *chunk, int n_var_sites, call_var_opt_t *opt)
     int cand_var_i = 0;
     for (int i = 0; i < n_var_sites; ++i) {
         cand_var_t *var = cand_vars+i;
+        // if (var->pos == 10001467)
+            // fprintf(stderr, "Debug: %s:%" PRId64 " %d-%c-%d %d\t", chunk->tname, cand_vars[i].pos, cand_vars[i].ref_len, BAM_CIGAR_STR[cand_vars[i].var_type], cand_vars[i].alt_len, cand_vars[i].total_cov);
         var_cate = var_i_to_cate[i];
         if (var_cate == LONGCALLD_LOW_COV_VAR) continue;
         if (chunk->chunk_noisy_regs != NULL && chunk->chunk_noisy_regs->n_r > 0) {
@@ -649,7 +655,7 @@ int collect_all_cand_var_sites(bam_chunk_t *chunk, var_site_t **var_sites) {
     for (int i = 0; i < chunk->n_reads; ++i) {
         if (chunk->is_skipped[i]) continue;
        n_total_var_sites = merge_var_sites(n_total_var_sites, var_sites, 
-                                           chunk->tid, chunk->reg_beg, chunk->reg_end, //->beg, chunk->end, 
+                                           chunk->tid, chunk->active_reg_beg, chunk->active_reg_end, //->beg, chunk->end, 
                                            chunk->digars[i].n_digar, chunk->digars[i].digars);
     }
     // fprintf(stderr, "total_cand_var: %d\n", n_total_var_sites);
@@ -823,14 +829,16 @@ int cal_var_QUAL1(int ref_depth, int alt_depth, double logp, double log1p, int m
 // 3) extend phase blocks if possible, e.g., if ≥ 1 read supports the longer phase block
 int make_variants(const call_var_opt_t *opt, bam_chunk_t *chunk, var_t **_var) {
     int n_cand_vars = chunk->n_cand_vars;
-    char *ref_seq = chunk->ref_seq; hts_pos_t ref_beg = chunk->ref_beg, ref_end = chunk->ref_end;
-    hts_pos_t active_reg_beg = chunk->reg_beg, active_reg_end = chunk->reg_end;
     if (n_cand_vars <= 0) return 0;
+    char *ref_seq = chunk->ref_seq; hts_pos_t ref_beg = chunk->ref_beg, ref_end = chunk->ref_end;
+    hts_pos_t output_reg_beg = chunk->active_reg_beg, output_reg_end = chunk->active_reg_end;
+    if (chunk->pre_chunk_reg_end != -1) output_reg_beg = chunk->pre_chunk_reg_end+1;
     cand_var_t *cand_vars = chunk->cand_vars;
     (*_var) = (var_t*)malloc(sizeof(var_t));
     var_t *var = *_var;
     var->n = 0; var->m = n_cand_vars;
-    int flip = chunk->flip_hap; int hap1_idx, hap2_idx, hom_idx=0;
+    int flip = chunk->flip_hap; hts_pos_t pre_chunk_PS = chunk->flip_pre_chunk_PS, cur_chunk_PS = chunk->flip_cur_chunk_PS;
+    int hap1_idx, hap2_idx, hom_idx=0;
     int64_t ovlp_n, *ovlp_b = 0, max_b = 0;
     if (flip) {
         hap1_idx = 2; hap2_idx = 1;
@@ -859,12 +867,14 @@ int make_variants(const call_var_opt_t *opt, bam_chunk_t *chunk, var_t **_var) {
 
         var->vars[i].type = cand_vars[cand_i].var_type;
         var->vars[i].PS = cand_vars[cand_i].phase_set;
+        if (var->vars[i].PS != -1 && var->vars[i].PS == cur_chunk_PS)
+            var->vars[i].PS = pre_chunk_PS; // extended phase set
         var->vars[i].ref_len = cand_vars[cand_i].ref_len;
         if (var->vars[i].type == BAM_CDEL || var->vars[i].type == BAM_CINS) {
             var->vars[i].pos = cand_vars[cand_i].pos-1;
             var->vars[i].ref_len += 1;
         } else var->vars[i].pos = cand_vars[cand_i].pos;
-        if (var->vars[i].pos < active_reg_beg || var->vars[i].pos > active_reg_end) continue;
+        if (var->vars[i].pos < output_reg_beg || var->vars[i].pos > output_reg_end) continue;
         if (cr_overlap(chunk->reg_cr, chunk->tname, var->vars[i].pos-1, var->vars[i].pos+var->vars[i].ref_len-1, &ovlp_b, &max_b) <= 0)
             continue;
         var->vars[i].ref_bases = get_bseq(ref_seq+var->vars[i].pos-ref_beg, var->vars[i].ref_len);
@@ -912,109 +922,70 @@ int make_variants(const call_var_opt_t *opt, bam_chunk_t *chunk, var_t **_var) {
         i++;
     }
     free(ovlp_b);
-    return(var->n = i);
+    var->n = i;
+    return var->m;
+}
+
+int update_chunk_read_hap_phase_set1(bam_chunk_t *chunk) {
+    // read haps
+    if (chunk->flip_hap) {
+        for (int i = 0; i < chunk->n_reads; ++i) {
+            if (chunk->haps[i] == 0) continue;
+            chunk->haps[i] = 3 - chunk->haps[i];
+        }
+    }
+    // read phase set
+    hts_pos_t flip_pre_chunk_PS = chunk->flip_pre_chunk_PS, flip_cur_chunk_PS = chunk->flip_cur_chunk_PS;
+    for (int i = 0; i < chunk->n_reads; ++i) {
+        if (chunk->PS[i] == -1) continue;
+        if (chunk->PS[i] == flip_cur_chunk_PS) chunk->PS[i] = flip_pre_chunk_PS;
+    }
+    return 0;
 }
 
 // XXX use overlapping reads to extend phase blocks
 // 1. check if haplotype of variants in bam_chunk is inconsistent with the previous bam_chunk
-// 2. extend phase blocks if possible (e.g., if ≥ 1 read supports the longer phase block)
-int flip_variant_hap(bam_chunk_t *prev_chunk, bam_chunk_t *cur_chunk) {
+// 2. extend phase blocks if possible (e.g., if ≥ 1 read supports extending phase block)
+// func: update hap/PS for cur_chunk's vars/reads
+int flip_variant_hap(bam_chunk_t *pre_chunk, bam_chunk_t *cur_chunk) {
     int n_ovlp_reads = cur_chunk->n_up_ovlp_reads; if (n_ovlp_reads <= 0) return 0;
-    if (prev_chunk->n_cand_vars <= 0 || cur_chunk->n_cand_vars <= 0) return 0;
+    if (cur_chunk->tid != pre_chunk->tid) return 0;
+    // if (pre_chunk->n_cand_vars <= 0 || cur_chunk->n_cand_vars <= 0) return 0;
+    cur_chunk->pre_chunk_reg_end = pre_chunk->active_reg_end;
     // 1) find overlapping reads that ovlp with both prev and cur variants
     int *ovlp_read_i = cur_chunk->up_ovlp_read_i; // read_i in the previous bam_chunk
-    int *used_ovlp_read_i = (int*)calloc(n_ovlp_reads, sizeof(int)); int n_used_ovlp_reads = 0;
-    // hts_pos_t ovlp_start_pos = -1;
-    hts_pos_t ovlp_end_pos = 0;
-    // int pre_var_start_i=0, pre_var_end_i=prev_chunk->n_cand_vars-1;
-    int cur_var_start_i=0, cur_var_end_i=cur_chunk->n_cand_vars-1; // variants covered by overlapping reads
-    // hts_pos_t pre_var_end_pos = prev_chunk->cand_vars[pre_var_end_i].pos;
-    hts_pos_t cur_var_start_pos = cur_chunk->cand_vars[cur_var_start_i].pos;
-    for (int i = 0; i < n_ovlp_reads; ++i) {
-        int read_i = ovlp_read_i[i];
-        if (prev_chunk->is_skipped[read_i]) continue;
-        // hts_pos_t start_pos = prev_chunk->reads[read_i]->core.pos+1;
-        hts_pos_t end_pos = bam_endpos(prev_chunk->reads[read_i]);
-        // if (start_pos > pre_var_end_pos) continue;
-        if (end_pos < cur_var_start_pos) continue;
-        // if (ovlp_start_pos == -1) ovlp_start_pos = start_pos;
-        if (end_pos > ovlp_end_pos) ovlp_end_pos = end_pos;
-        used_ovlp_read_i[i] = 1; n_used_ovlp_reads++;
-    }
-    // collect ovlp variants from the previous bam_chunk
-    // for (int i = pre_var_end_i; i >= 0; --i) {
-    //     cand_var_t *var = prev_chunk->cand_vars + i;
-    //    if (var->pos >= ovlp_start_pos) pre_var_start_i = i; else break;
-    // }
-    // collect ovlp variants from the current bam_chunk
-    for (int i = cur_var_start_i; i < cur_chunk->n_cand_vars; ++i) {
-        cand_var_t *var = cur_chunk->cand_vars + i;
-        if (var->pos <= ovlp_end_pos)
-            cur_var_end_i = i;
-        else
-            break;
-    }
-    // 2) collect read_var_profile for the overlapping reads & overlapping variants
-    // 3) check if haplotype needs to be flipped
-    //    var_hap == read_hap: +1
-    //    var_hap != read_hap: -1
-    //    var_hap == 0: 0
-    int keep_hap_score = 0;
-    for (int i = 0; i < n_ovlp_reads; ++i) {
-        int read_i = ovlp_read_i[i];
-        if (prev_chunk->is_skipped[read_i] || used_ovlp_read_i[i] == 0)
-            continue;
-        int read_hap = prev_chunk->haps[read_i];
-        if (read_hap == 0)
-            continue;
-        // bam1_t *read = prev_chunk->reads[read_i];
-        // fprintf(stderr, "Read: %s\n", bam_get_qname(read));
-        // int pre_var_start_i0 = prev_chunk->read_var_profile[read_i].start_var_idx;
-        // int pre_var_end_i0 = prev_chunk->read_var_profile[read_i].end_var_idx;
-        // for (int j = pre_var_start_i; j <= pre_var_end_i; ++j) {
-        // if (j < pre_var_start_i0 || j > pre_var_end_i0 || prev_chunk->read_var_profile[read_i].var_is_used[j-pre_var_start_i0] == 0) continue;
-        // int allele_i = prev_chunk->read_var_profile[read_i].alleles[j-pre_var_start_i0];
-        // fprintf(stderr, "\tPre-Var: %lld, %c, allele: %d\t", (long long) prev_chunk->cand_vars[j].pos, BAM_CIGAR_STR[prev_chunk->cand_vars[j].var_type], allele_i);
-        // cand_var_t *var = prev_chunk->cand_vars + j;
-        // if (var->hap_to_cons_alle[1] == allele_i) fprintf(stderr, "H1\n");
-        // else if (var->hap_to_cons_alle[2] == allele_i) fprintf(stderr, "H2\n");
-        // else fprintf(stderr, "none\n");
-        // }
-        int cur_var_start_i0 = cur_chunk->read_var_profile[i].start_var_idx;
-        int cur_var_end_i0 = cur_chunk->read_var_profile[i].end_var_idx;
-        for (int j = cur_var_start_i; j <= cur_var_end_i; ++j) {
-            if (j < cur_var_start_i0 || j > cur_var_end_i0)
-                continue;
-            int allele_i = cur_chunk->read_var_profile[i].alleles[j - cur_var_start_i0];
-            // fprintf(stderr, "\tCur-Var: %lld, %c, allele: %d\n", (long long) cur_chunk->cand_vars[j].pos, BAM_CIGAR_STR[cur_chunk->cand_vars[j].var_type], allele_i);
-            cand_var_t *var = cur_chunk->cand_vars + j;
-            if (var->hap_to_cons_alle[read_hap] == allele_i)
-                keep_hap_score++;
-            else if (var->hap_to_cons_alle[3 - read_hap] == allele_i)
-                keep_hap_score--;
+    int flip_hap_score = 0; hts_pos_t max_pre_read_PS = -1, min_cur_read_PS = INT64_MAX;
+    for (int cur_read_i = 0; cur_read_i < n_ovlp_reads; ++cur_read_i) {
+        int pre_read_i = ovlp_read_i[cur_read_i];
+        if (pre_read_i >= pre_chunk->n_reads) continue;
+        // fprintf(stderr, "read: %s pre_i: %d:%d (%d) cur_i: %d\n", bam_get_qname(cur_chunk->reads[cur_read_i]), pre_read_i, pre_chunk->is_ovlp[pre_read_i], pre_chunk->n_reads, cur_read_i);
+        // fprintf(stderr, "pre_hap: %d\n", pre_chunk->haps[pre_read_i]);
+        // fprintf(stderr, "cur_hap: %d\n", cur_chunk->haps[cur_read_i]);
+        // fprintf(stderr, "pre_PS: %ld\n", pre_chunk->PS[pre_read_i]);
+        // fprintf(stderr, "cur_PS: %ld\n", cur_chunk->PS[cur_read_i]);
+        if (pre_chunk->is_skipped[pre_read_i] || pre_chunk->haps[pre_read_i] == 0 ||
+            cur_chunk->is_skipped[cur_read_i] || cur_chunk->haps[cur_read_i] == 0) continue;
+        int pre_read_hap = pre_chunk->haps[pre_read_i];
+        hts_pos_t pre_read_PS = pre_chunk->PS[pre_read_i];
+        int cur_read_hap = cur_chunk->haps[cur_read_i];
+        hts_pos_t cur_read_PS = cur_chunk->PS[cur_read_i];
+        // check if pre_read_hap is consistent with cur_chunk's vars/reads
+        if (pre_read_hap == cur_read_hap) {
+            flip_hap_score -= 1;
+        } else {
+            flip_hap_score += 1;
         }
+        if (max_pre_read_PS < pre_read_PS) max_pre_read_PS = pre_read_PS;
+        if (min_cur_read_PS > cur_read_PS) min_cur_read_PS = cur_read_PS;
     }
-    free(used_ovlp_read_i);
-    // fprintf(stderr, "pos: %" PRId64 ", keep_hap_score: %d\n", prev_chunk->ref_end, keep_hap_score);
-    int flip = (keep_hap_score > 0 ? 0 : 1);
-    // 4) update HP tag for the overlapping reads (in prev_bam_chunk, not cur_bam_chunk, to maintain the order in output bam file)
-    // since only part of the variants (either prev or cur variants) are used to determine the HP in previous step
-    // XXX currently only use HP & variant from the cur_bam_chunk
-    // char test_read_name[1024] = "m84039_231005_222902_s1/234751166/ccs";
-    for (int i = 0; i < n_ovlp_reads; ++i) {
-        int read_i = ovlp_read_i[i];
-        // bam1_t *read = prev_chunk->reads[read_i];
-        // if (strcmp(test_read_name, bam_get_qname(read)) == 0)
-        // fprintf(stderr, "Read: %s\n", bam_get_qname(read));
-        if (prev_chunk->haps[read_i] != 0 || cur_chunk->haps[i] == 0)
-            continue;
-        if (flip)
-            prev_chunk->haps[read_i] = cur_chunk->haps[i] ^ 3;
-        else
-            prev_chunk->haps[read_i] = cur_chunk->haps[i];
-    }
-    // 5) update phase block for the current bam_chunk
-    return flip;
+    if (flip_hap_score == 0) return 0; // no extension
+    cur_chunk->flip_pre_chunk_PS = max_pre_read_PS;
+    cur_chunk->flip_cur_chunk_PS = min_cur_read_PS;
+    // fprintf(stderr, "pre_chunk_PS: %" PRId64 ", cur_chunk_PS: %" PRId64 "\n", max_pre_read_PS, min_cur_read_PS);
+    int flip = flip_hap_score > 0 ? 1 : 0; // flip : keep
+    cur_chunk->flip_hap = pre_chunk->flip_hap ^ flip;
+    update_chunk_read_hap_phase_set1(cur_chunk);
+    return 1;
 }
 
 // update phase set within bam_chunk
@@ -1882,7 +1853,7 @@ int collect_noisy_vars1(bam_chunk_t *chunk, const call_var_opt_t *opt, int noisy
     cgranges_t *noisy_regs = chunk->chunk_noisy_regs;
     hts_pos_t noisy_reg_beg = cr_start(noisy_regs, noisy_reg_i), noisy_reg_end = cr_end(noisy_regs, noisy_reg_i);
     uint8_t *ref_seq = NULL; int ref_seq_len = collect_reg_ref_bseq(chunk, &noisy_reg_beg, &noisy_reg_end, &ref_seq);
-    hts_pos_t active_reg_beg = chunk->reg_beg, active_reg_end = chunk->reg_end;
+    hts_pos_t active_reg_beg = chunk->active_reg_beg, active_reg_end = chunk->active_reg_end;
     int max_noisy_reg_len = opt->max_noisy_reg_len, max_noisy_reg_reads = opt->max_noisy_reg_reads;
     if (noisy_reg_end - noisy_reg_beg + 1 > max_noisy_reg_len) {
         if (LONGCALLD_VERBOSE >= 0) fprintf(stderr, "Skipped long region: %s:%ld-%ld %ld (>%d)\n", chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end-noisy_reg_beg+1, max_noisy_reg_len);
@@ -1899,7 +1870,7 @@ int collect_noisy_vars1(bam_chunk_t *chunk, const call_var_opt_t *opt, int noisy
     double realtime0 = realtime();
 
     if (LONGCALLD_VERBOSE >= 2) {
-        fprintf(stderr, "NoisyReg: chunk_reg: %s:%ld-%ld, reg: %s:%ld-%ld %ld (%d)\n", chunk->tname, chunk->reg_beg, chunk->reg_end, 
+        fprintf(stderr, "NoisyReg: chunk_reg: %s:%ld-%ld, reg: %s:%ld-%ld %ld (%d)\n", chunk->tname, chunk->active_reg_beg, chunk->active_reg_end, 
                         chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end-noisy_reg_beg+1, n_noisy_reads);
     }
     // MSA and consensus calling
@@ -1935,7 +1906,7 @@ int collect_noisy_vars1(bam_chunk_t *chunk, const call_var_opt_t *opt, int noisy
     for (int i = 0; i < n_cons; ++i) n_total_reads += clu_n_seqs[i];
     merge_var_profile(chunk, n_total_reads, n_noisy_vars, noisy_vars, noisy_var_cate, noisy_rvp);
     if (LONGCALLD_VERBOSE >= 2) {
-        fprintf(stderr, "NoisyReg: chunk_reg: %s:%ld-%ld, reg: %s:%ld-%ld %ld (%d)\t", chunk->tname, chunk->reg_beg, chunk->reg_end, 
+        fprintf(stderr, "NoisyReg: chunk_reg: %s:%ld-%ld, reg: %s:%ld-%ld %ld (%d)\t", chunk->tname, chunk->active_reg_beg, chunk->active_reg_end, 
                         chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end-noisy_reg_beg+1, n_noisy_reads);
         fprintf(stderr, "Real time: %.3f sec.\n", realtime() - realtime0);
     }
@@ -2101,7 +2072,7 @@ void collect_var_main(const call_var_pl_t *pl, bam_chunk_t *chunk) {
                         // assign_hap_based_on_het_vars(chunk, LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CAND_HOM_VAR | LONGCALLD_NOISY_CAND_HET_VAR | LONGCALLD_NOISY_CAND_HOM_VAR, pl->opt);
                         // assign_hap_based_on_het_vars_kmeans(chunk, LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CAND_HOM_VAR | LONGCALLD_NOISY_CAND_HET_VAR | LONGCALLD_NOISY_CAND_HOM_VAR, pl->opt);
                     } else {
-                        fprintf(stderr, "No var: %s:%d-%d\n", chunk->tname, cr_start(chunk->chunk_noisy_regs, noisy_reg_i), cr_end(chunk->chunk_noisy_regs, noisy_reg_i));
+                        if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "No var: %s:%d-%d\n", chunk->tname, cr_start(chunk->chunk_noisy_regs, noisy_reg_i), cr_end(chunk->chunk_noisy_regs, noisy_reg_i));
                     }
                 } // unable to resolve the region
             }
@@ -2115,14 +2086,18 @@ void collect_var_main(const call_var_pl_t *pl, bam_chunk_t *chunk) {
 }
 
 // stitch ii and ii+1
+// flip ii if needed
+// output ii, including ovlp part vars
 void stitch_var_main(call_var_step_t *step, bam_chunk_t *chunk, var_t *var, long ii) {
     call_var_pl_t *pl = step->pl;
     call_var_opt_t *opt = pl->opt;
     // ref_seq_t *ref_seq = pl->ref_seq;
-    // if (ii == 0) { // extend phase set between two adjacent bam chunks
-        // bam_chunk_t *prev_bam_chunk = step->chunks+ii-1;
-        // chunk->flip_hap = prev_chunk->flip_hap ^ flip_variant_hap(prev_bam_chunk, bam_chunk);
-    // }
+    bam_chunk_t *pre_chunk = NULL;
+    if (ii != 0) pre_chunk = step->chunks+ii-1;
+    else 
+        pre_chunk = pl->last_chunk;
+    // extend phase set between two adjacent bam chunks
+    flip_variant_hap(pre_chunk, chunk);
 
     // generate variant-related information, e.g., GT, DP, etc.
     // merge variants based on ref_pos if needed
