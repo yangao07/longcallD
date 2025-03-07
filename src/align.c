@@ -548,6 +548,7 @@ int abpoa_partial_aln_msa_cons(const call_var_opt_t *opt, abpoa_t *ab, int wb, i
         if (LONGCALLD_VERBOSE >= 2) {
             int min_qual = 100, min_i=-1, ave_qual = 0;
             for (int j = 0; j < read_lens[i]; ++j) {
+                // fprintf(stderr, "i: %d, j: %d, len: %d, qual: %d\n", i, j, read_lens[i], read_quals[i][j]);
                 if (read_quals[i][j] < min_qual) {
                     min_qual = read_quals[i][j];
                     min_i = j;
@@ -790,13 +791,14 @@ int collect_reg_ref_bseq(bam_chunk_t *chunk, hts_pos_t *reg_beg, hts_pos_t *reg_
     return (*reg_end - *reg_beg + 1);
 }
 
-void sort_by_full_cover_and_length(int n_reads, int *read_ids, int *read_lens, uint8_t **read_seqs, uint8_t *strands, int *full_covers, char **names, int *haps, hts_pos_t *phase_sets) {
+void sort_by_full_cover_and_length(int n_reads, int *read_ids, int *read_lens, uint8_t **read_seqs, uint8_t **read_quals, uint8_t *strands, int *full_covers, char **names, int *haps, hts_pos_t *phase_sets) {
     for (int i = 0; i < n_reads-1; ++i) {
         for (int j = i+1; j < n_reads; ++j) {
             if (full_covers[i] < full_covers[j]) {
                 int tmp_id = read_ids[i]; read_ids[i] = read_ids[j]; read_ids[j] = tmp_id;
                 int tmp_len = read_lens[i]; read_lens[i] = read_lens[j]; read_lens[j] = tmp_len;
                 uint8_t *tmp_seq = read_seqs[i]; read_seqs[i] = read_seqs[j]; read_seqs[j] = tmp_seq;
+                uint8_t *tmp_qual = read_quals[i]; read_quals[i] = read_quals[j]; read_quals[j] = tmp_qual;
                 uint8_t tmp_strand = strands[i]; strands[i] = strands[j]; strands[j] = tmp_strand;
                 int tmp_cover = full_covers[i]; full_covers[i] = full_covers[j]; full_covers[j] = tmp_cover;
                 char *tmp_name = names[i]; names[i] = names[j]; names[j] = tmp_name;
@@ -806,6 +808,7 @@ void sort_by_full_cover_and_length(int n_reads, int *read_ids, int *read_lens, u
                 int tmp_id = read_ids[i]; read_ids[i] = read_ids[j]; read_ids[j] = tmp_id;
                 int tmp_len = read_lens[i]; read_lens[i] = read_lens[j]; read_lens[j] = tmp_len;
                 uint8_t *tmp_seq = read_seqs[i]; read_seqs[i] = read_seqs[j]; read_seqs[j] = tmp_seq;
+                uint8_t *tmp_qual = read_quals[i]; read_quals[i] = read_quals[j]; read_quals[j] = tmp_qual;
                 uint8_t tmp_strand = strands[i]; strands[i] = strands[j]; strands[j] = tmp_strand;
                 char *tmp_name = names[i]; names[i] = names[j]; names[j] = tmp_name;
                 int tmp_hap = haps[i]; haps[i] = haps[j]; haps[j] = tmp_hap;
@@ -1305,7 +1308,7 @@ int collect_noisy_reg_aln_strs(const call_var_opt_t *opt, bam_chunk_t *chunk, ht
     char **names = NULL; uint8_t **seqs = NULL; uint8_t *strands=NULL; int *fully_covers = NULL, *lens = NULL, *haps = NULL; hts_pos_t *phase_sets = NULL; uint8_t **base_quals = NULL;
     collect_noisy_read_info(chunk, noisy_reg_beg, noisy_reg_end, noisy_reg_i, n_noisy_reg_reads, noisy_reads, &lens, &seqs, &strands, &base_quals, &names, &fully_covers, &haps, &phase_sets);
 
-    sort_by_full_cover_and_length(n_noisy_reg_reads, noisy_reads, lens, seqs, strands, fully_covers, names, haps, phase_sets);
+    sort_by_full_cover_and_length(n_noisy_reg_reads, noisy_reads, lens, seqs, base_quals, strands, fully_covers, names, haps, phase_sets);
     // >= min_hap_full_read_count reads for each hap && >= min_hap_read_count reads (including not full-cover, but >= full-cover length) for each hap
     int min_hap_full_read_count = opt->min_hap_full_reads, min_hap_read_count = opt->min_hap_reads;
     int min_no_hap_full_read_count = opt->min_dp; // opt->min_no_hap_full_reads;

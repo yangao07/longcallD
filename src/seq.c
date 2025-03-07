@@ -238,8 +238,9 @@ void read_ref_reg_seq1(faidx_t *fai, ref_reg_seq_t *r, const char *rname, hts_po
     if (beg >= end) _err_error_exit("Invalid region: %s:%d-%d\n", rname, beg, end);
     int len;
     int ref_seq_len = faidx_seq_len(fai, rname);
+    int flank_len = 50000; // XXX use dynamimc flank length based on read length, needed for digar_from_ref_seq
     // hts_pos_t _beg = MAX_OF_TWO(0, beg-1000), _end = end+1000;
-    int _beg = MAX_OF_TWO(1000, beg)-1000, _end = MIN_OF_TWO(ref_seq_len-1000, end)+1000;
+    int _beg = MAX_OF_TWO(flank_len, beg)-flank_len, _end = MIN_OF_TWO(ref_seq_len-flank_len, end)+flank_len;
     if (_beg >= _end || _beg >= ref_seq_len) _err_error_exit("Invalid region: %s:%d-%d\n", rname, beg, end);
     // fprintf(stderr, "rname: %s, beg: %" PRId64 ", end: %" PRId64 ", _beg: %d, _end: %d\n", rname, beg, end, _beg, _end);
     char *seq = faidx_fetch_seq(fai, rname, _beg, _end, &len);

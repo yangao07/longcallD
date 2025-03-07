@@ -32,61 +32,63 @@ man ./longcallD.1
   - [Table of Contents](#table-of-contents)
   - [Introduction](#introduction)
   - [Installation](#installation)
-    - [Pre-built binary executable file for Linux or MacOS (recommended)](#pre-built-binary-executable-file-for-linux-or-macos-recommended)
-    - [Building longcallD from source files](#building-longcalld-from-source-files)
-  - [General Usage](#general-usage)
-    - [Variant calling from HiFi/ONT long reads](#variant-calling-from-hifiont-long-reads)
-    - [Variant calling and phasing long reads](#variant-calling-and-phasing-long-reads)
+    - [Pre-built executables (recommended)](#pre-built-executables-recommended)
+    - [Build from source](#build-from-source)
+  - [Usage](#usage)
+    - [Variant calling with HiFi/Nanopore long reads](#variant-calling-with-hifinanopore-long-reads)
+    - [Region-specific variant calling](#region-specific-variant-calling)
+    - [Variant calling and output phased long reads](#variant-calling-and-output-phased-long-reads)
     - [Variant calling from remote files](#variant-calling-from-remote-files)
   - [Contact](#contact)
 
+
 ## Introduction
-LongcallD is a local-haplotagging-based small and structural variant (SV) caller using long reads.
-It works with both PacBio HiFi and Oxford Nanopore genomic long reads. LongcallD first uses SNPs
-and small indels to phase long reads into two haplotypes, then call SVs from
-phased long reads.
+LongcallD is a **local-haplotagging-based variant caller** designed for detecting small variants and structural variants (SVs)
+using long-read sequencing data. It supports both **PacBio HiFi** and **Oxford Nanopore** reads.
 
-LongcallD outputs phased variant calls in VCF file, containing SNPs, small indels, and large SVs. For SVs, it currently only outputs insertions and deletions.
-
+LongcallD phases long reads into haplotypes using SNPs and small indels before calling SVs. It outputs phased variant calls in VCF format, including SNPs, small indels, and large SVs (currently only supporting insertions and deletions).
 ## Installation
 
-### Pre-built binary executable file for Linux or MacOS (recommended)
-For Linux:
+### Pre-built executables (recommended)
+**For Linux:**
 ```
 wget https://github.com/yangao07/longcallD/releases/download/v0.0.1/longcallD-v0.0.1_x64-linux.tar.gz
 tar -zxvf longcallD-v0.0.1_x64-linux.tar.gz
 ```
-For MacOS:
+**For macOS:**
 ```
 wget https://github.com/yangao07/longcallD/releases/download/v0.0.1/longcallD-v0.0.1_arm64-macos.tar.gz
 tar -zxvf longcallD-v0.0.1_arm64-macos.tar.gz
 ```
 
-### Building longcallD from source files
-You can also build longcallD from source files in Linux or MacOS.
-Make sure you have gcc/clang and zlib installed before compiling.
-It is recommended to download the [latest release](https://github.com/yangao07/longcallD/releases).
+### Build from source
+To compile longcallD from source, ensure you have **GCC/clang(9.0+)** and **zlib** installed. 
+It is recommended to use the [latest release](https://github.com/yangao07/longcallD/releases).
 ```
 wget https://github.com/yangao07/longcallD/releases/download/v0.0.1/abPOA-v0.0.1.tar.gz
 tar -zxvf longcallD-v0.0.1.tar.gz
 cd longcallD-v0.0.1; make
 ```
 
-## General Usage
-LongcallD takes a reference genome FASTA (can be gzip'd) and a long-read BAM as input
-and outputs phased variant calls in a VCF file.
-LongcallD seamlessly works with variant calling region(s), in the same way as `samtools view`.
-### Variant calling from HiFi/ONT long reads
+## Usage
+LongcallD requires a **reference genome (FASTA)** and a **long-read SAM/BAM/CRAM** file as inputs. It outputs **phased variant calls in VCF format**.
+### Variant calling with HiFi/Nanopore long reads
 ```
-longcallD call -t16 ref.fa hifi.bam > hifi.vcf         # for PacBio HiFi reads, --hifi is default
+longcallD call -t16 ref.fa hifi.bam > hifi.vcf         # default for PacBio HiFi reads (--hifi)
 longcallD call -t16 ref.fa ont.bam --ont > ont.vcf     # for ONT reads
-longcallD call -t16 ref.fa hifi.bam chr11:10,229,956-10,256,221 > hifi_reg.vcf   # variant calling in a region
-longcallD call -t16 ref.fa hifi.bam chr11:10,229,956-10,256,221 chr12:10,576,356-10,583,438 > hifi_regs.vcf  # variant calling in multiple regions
 ```
-### Variant calling and phasing long reads
+
+### Region-specific variant calling
+LongcallD supports region-based variant calling, similar to `samtools view`.
 ```
-longcallD call -t16 ref.fa hifi.bam --hifi -b hifi_phased.bam > hifi.vcf  # output phased HiFi reads, with BAM tag HP & PS
-longcallD call -t16 ref.fa ont.bam --ont -b ont_phased.bam > ont.vcf      # output phased ONT reads, with BAM tag HP & PS 
+longcallD call -t16 ref.fa hifi.bam chr11:10,229,956-10,256,221 > hifi_reg.vcf
+longcallD call -t16 ref.fa hifi.bam chr11:10,229,956-10,256,221 chr12:10,576,356-10,583,438 > hifi_regs.vcf
+```
+
+### Variant calling and output phased long reads
+```
+longcallD call -t16 ref.fa hifi.bam --hifi -b hifi_phased.bam > hifi.vcf  # output phased HiFi reads (BAM tag: HP & PS)
+longcallD call -t16 ref.fa ont.bam --ont -b ont_phased.bam > ont.vcf      # output phased ONT reads (BAM tag: HP & PS)
 ```
 ### Variant calling from remote files
 ```
@@ -96,6 +98,9 @@ longcallD call -t16 $ref $bam chr11:10,229,956-10,256,221 chr12:10,576,356-10,58
 ```
 
 ## Contact
-Yan Gao yangao@ds.dfci.harvard.edu
 
-Heng Li hli@jimmy.harvard.edu
+For any questions or support, please contact:
+
+* Yan Gao yangao@ds.dfci.harvard.edu
+
+* Heng Li hli@jimmy.harvard.edu

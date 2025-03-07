@@ -515,6 +515,7 @@ int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct 
         int var_size = 0;
         for (int i = cr_q_start; i <= cr_q_end; ++i) var_size += q->counts[i];
         var_size = var_size > (noisy_end - noisy_start + 1) ? var_size : (noisy_end - noisy_start + 1);
+        // fprintf(stderr, "var_size: %d, noisy_start: %ld, noisy_end: %ld\n", var_size, noisy_start, noisy_end);
         cr_add(digar->noisy_regs, "cr", noisy_start-1, noisy_end, var_size);
     }
     cr_index(digar->noisy_regs);
@@ -702,6 +703,8 @@ int collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct cal
     if (noisy_start != -1) {
         int var_size = 0;
         for (int i = cr_q_start; i <= cr_q_end; ++i) var_size += q->counts[i];
+        var_size = var_size > (noisy_end - noisy_start + 1) ? var_size : (noisy_end - noisy_start + 1);
+        // fprintf(stderr, "var_size: %d, noisy_start: %ld, noisy_end: %ld\n", var_size, noisy_start, noisy_end);
         cr_add(digar->noisy_regs, "cr", noisy_start-1, noisy_end, var_size);
     }
     cr_index(digar->noisy_regs);
@@ -713,11 +716,12 @@ int collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct cal
         skip = 1;
     } else {
         for (int i = 0; i < digar->noisy_regs->n_r; ++i) {
+            if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "NoisyRead %s %s:%d-%d %d\n", bam_get_qname(read), chunk->tname, cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i), cr_label(digar->noisy_regs, i));
             if (is_overlap_reg(cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i), reg_beg, reg_end))
                 cr_add(chunk_noisy_regs, "cr", cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i), cr_label(digar->noisy_regs, i));
         }
         if (LONGCALLD_VERBOSE >= 2) {
-            fprintf(stderr, "DIGAR1: %s\n", bam_get_qname(read));
+            fprintf(stderr, "DIGAR2: %s\n", bam_get_qname(read));
             print_digar(digar, stderr);
             if (digar->noisy_regs->n_r > 0) fprintf(stderr, "Noisy-%s\n", bam_get_qname(read));
             for (int i = 0; i < digar->noisy_regs->n_r; ++i) {
@@ -731,7 +735,6 @@ int collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct cal
 
 // XXX TODO make it consistent with collect_digar_from_eqx_cigar
 int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct call_var_pl_t *pl, const struct call_var_opt_t *opt, digar_t *digar) {
-    return 0;
     char *ref_seq = chunk->ref_seq; hts_pos_t ref_beg = chunk->ref_beg, ref_end = chunk->ref_end;
     hts_pos_t reg_beg = chunk->reg_beg, reg_end = chunk->reg_end; cgranges_t *chunk_noisy_regs = chunk->chunk_noisy_regs;
     hts_pos_t pos = read->core.pos+1, qi = 0;
@@ -757,7 +760,13 @@ int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct ca
             int eq_len = 0;
             for (int j = 0; j < len; ++j) {
                 // Get the reference base
-                if (pos <= ref_beg || pos > ref_end) _err_error_exit("Read exceed reference region sequence: %s", bam_get_qname(read));
+                if (pos <= ref_beg || pos > ref_end) {
+                    if (LONGCALLD_VERBOSE >= 1) {
+                        fprintf(stderr, "pos: %ld (%ld-%ld)\t", pos, ref_beg, ref_end);
+                        fprintf(stderr, "Read exceed reference region sequence: %s", bam_get_qname(read));
+                    }
+                    pos++; qi++; continue;
+                }
                 char ref_base = ref_seq[pos-ref_beg];
                 // char ref_base = get_ref_base_from_cr(ref_seq, chunk_cr, pos);
                 // Get the read base
@@ -851,6 +860,8 @@ int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct ca
     if (noisy_start != -1) {
         int var_size = 0;
         for (int i = cr_q_start; i <= cr_q_end; ++i) var_size += q->counts[i];
+        var_size = var_size > (noisy_end - noisy_start + 1) ? var_size : (noisy_end - noisy_start + 1);
+        // fprintf(stderr, "var_size: %d, noisy_start: %ld, noisy_end: %ld\n", var_size, noisy_start, noisy_end);
         cr_add(digar->noisy_regs, "cr", noisy_start-1, noisy_end, var_size);
     }
     cr_index(digar->noisy_regs);
@@ -861,12 +872,17 @@ int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct ca
         skip = 1;
     } else {
         for (int i = 0; i < digar->noisy_regs->n_r; ++i) {
+            if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "NoisyRead %s %s:%d-%d %d\n", bam_get_qname(read), chunk->tname, cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i), cr_label(digar->noisy_regs, i));
             if (is_overlap_reg(cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i), reg_beg, reg_end))
-                cr_add(chunk_noisy_regs, "cr", cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i), 1);
+                cr_add(chunk_noisy_regs, "cr", cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i), cr_label(digar->noisy_regs, i));
         }
         if (LONGCALLD_VERBOSE >= 2) {
             fprintf(stderr, "DIGAR3: %s\n", bam_get_qname(read));
             print_digar(digar, stderr);
+            if (digar->noisy_regs->n_r > 0) fprintf(stderr, "Noisy-%s\n", bam_get_qname(read));
+            for (int i = 0; i < digar->noisy_regs->n_r; ++i) {
+                fprintf(stderr, "Noisy: %s:%d-%d\n", chunk->tname, cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i));
+            }
         }
     }
     free(_digars); free_xid_queue(q);

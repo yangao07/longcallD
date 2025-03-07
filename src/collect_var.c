@@ -2024,6 +2024,7 @@ void pre_process_noisy_regs(bam_chunk_t *chunk, call_var_opt_t *opt) {
     int n_skipped = 0;
     for (int i = 0; i < noisy_regs->n_r; ++i) {
         int n_noisy_reg_reads = noisy_reg_to_noisy_reads[i];
+        // fprintf(stderr, "NoisyRegion: %s:%d-%d %d noisy: %d, total: %d\n", chunk->tname, cr_start(noisy_regs, i), cr_end(noisy_regs, i), cr_end(noisy_regs, i)-cr_start(noisy_regs, i)+1, n_noisy_reg_reads, noisy_reg_to_total_n_reads[i]);
         if (n_noisy_reg_reads < min_noisy_reg_reads // || noisy_reg_to_total_n_reads[i] > max_noisy_reg_reads
             || (float)n_noisy_reg_reads/noisy_reg_to_total_n_reads[i] < min_noisy_reg_ratio) {
             skip_noisy_reg[i] = 1;

@@ -520,7 +520,7 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "    -r  --ref-idx    STR  .fai index file for reference genome FASTA file, detect automaticaly if not provided [NULL]\n");
     // fprintf(stderr, "    -b --out-bam     STR  output phased BAM file [NULL]\n");
     fprintf(stderr, "    -n --sample-name STR  sample name. 'RG/SM' in BAM header will be used if not provided [NULL]\n");
-    fprintf(stderr, "                          BAM file name will be used if not provided and not 'RG/SM' in BAM header [NULL]\n");
+    fprintf(stderr, "                          BAM file name will be used if not provided and no 'RG/SM' in BAM header\n");
     fprintf(stderr, "    -o --out-vcf     STR  output phased VCF file [stdout]\n");
     fprintf(stderr, "    -H --no-vcf-header    do NOT output VCF header\n");
     fprintf(stderr, "       --amb-base         output variant with ambiguous base [False]\n");
