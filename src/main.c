@@ -15,7 +15,7 @@ char *CMD;
 
 static int usage(void) {//main usage
     fprintf(stderr, "\n");
-    fprintf(stderr, "Program: %s%s\n", PROG, DESCRIP);
+    fprintf(stderr, "Program: %s: %s\n", PROG, DESCRIP);
     fprintf(stderr, "Version: %s\tContact: %s\n\n", VERSION, CONTACT); 
 
     fprintf(stderr, "Usage:   %s <command> [options]\n\n", PROG);
