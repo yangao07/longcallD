@@ -32,7 +32,7 @@ man ./longcallD.1
   - [Table of Contents](#table-of-contents)
   - [Introduction](#introduction)
   - [Installation](#installation)
-    - [Pre-built binary executable file for Linux/Unix or MacOS (recommended)](#pre-built-binary-executable-file-for-linuxunix-or-macos-recommended)
+    - [Pre-built binary executable file for Linux or MacOS (recommended)](#pre-built-binary-executable-file-for-linux-or-macos-recommended)
     - [Building longcallD from source files](#building-longcalld-from-source-files)
   - [General Usage](#general-usage)
     - [Variant calling from HiFi/ONT long reads](#variant-calling-from-hifiont-long-reads)
@@ -50,21 +50,21 @@ LongcallD outputs phased variant calls in VCF file, containing SNPs, small indel
 
 ## Installation
 
-### Pre-built binary executable file for Linux/Unix or MacOS (recommended)
-For linux:
+### Pre-built binary executable file for Linux or MacOS (recommended)
+For Linux:
 ```
 wget https://github.com/yangao07/longcallD/releases/download/v0.0.1/longcallD-v0.0.1_x64-linux.tar.gz
 tar -zxvf longcallD-v0.0.1_x64-linux.tar.gz
 ```
-For macos:
+For MacOS:
 ```
 wget https://github.com/yangao07/longcallD/releases/download/v0.0.1/longcallD-v0.0.1_arm64-macos.tar.gz
 tar -zxvf longcallD-v0.0.1_arm64-macos.tar.gz
 ```
 
 ### Building longcallD from source files
-You can also build longcallD from source files. 
-Make sure you have gcc (>=6.4.0) and zlib installed before compiling.
+You can also build longcallD from source files in Linux or MacOS.
+Make sure you have gcc/clang and zlib installed before compiling.
 It is recommended to download the [latest release](https://github.com/yangao07/longcallD/releases).
 ```
 wget https://github.com/yangao07/longcallD/releases/download/v0.0.1/abPOA-v0.0.1.tar.gz
