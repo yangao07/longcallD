@@ -12,7 +12,7 @@
 
 * Pre-release v0.0.1
 
-## <a name="started"></a>Getting Started
+## Getting Started
 ```sh
 git clone --recursive https://github.com/yangao07/longcallD
 cd longcallD && make
@@ -26,6 +26,19 @@ man ./longcallD.1
 ``` -->
 
 ## Table of Contents
+- [LongcallD: local-haplotagging-based small and structural variant calling](#longcalld-local-haplotagging-based-small-and-structural-variant-calling)
+  - [Updates (v0.0.1)](#updates-v001)
+  - [Getting Started](#getting-started)
+  - [Table of Contents](#table-of-contents)
+  - [Introduction](#introduction)
+  - [Installation](#installation)
+    - [Pre-built binary executable file for Linux/Unix or MacOS (recommended)](#pre-built-binary-executable-file-for-linuxunix-or-macos-recommended)
+    - [Building longcallD from source files](#building-longcalld-from-source-files)
+  - [General Usage](#general-usage)
+    - [Variant calling from HiFi/ONT long reads](#variant-calling-from-hifiont-long-reads)
+    - [Variant calling and phasing long reads](#variant-calling-and-phasing-long-reads)
+    - [Variant calling from remote files](#variant-calling-from-remote-files)
+  - [Contact](#contact)
 
 ## Introduction
 LongcallD is a local-haplotagging-based small and structural variant (SV) caller using long reads.
@@ -59,16 +72,27 @@ tar -zxvf longcallD-v0.0.1.tar.gz
 cd longcallD-v0.0.1; make
 ```
 
-## General usage
+## General Usage
+LongcallD takes a reference genome FASTA (can be gzip'd) and a long-read BAM as input
+and outputs phased variant calls in a VCF file.
+LongcallD seamlessly works with variant calling region(s), in the same way as `samtools view`.
 ### Variant calling from HiFi/ONT long reads
 ```
-longcallD call -t16 ref.fa hifi.bam --hifi > hifi.vcf  # for PacBio HiFi reads
+longcallD call -t16 ref.fa hifi.bam > hifi.vcf         # for PacBio HiFi reads, --hifi is default
 longcallD call -t16 ref.fa ont.bam --ont > ont.vcf     # for ONT reads
+longcallD call -t16 ref.fa hifi.bam chr11:10,229,956-10,256,221 > hifi_reg.vcf   # variant calling in a region
+longcallD call -t16 ref.fa hifi.bam chr11:10,229,956-10,256,221 chr12:10,576,356-10,583,438 > hifi_regs.vcf  # variant calling in a multiple regions
 ```
 ### Variant calling and phasing long reads
 ```
 longcallD call -t16 ref.fa hifi.bam --hifi -b hifi_phased.bam > hifi.vcf  # output phased HiFi reads, with BAM tag HP & PS
 longcallD call -t16 ref.fa ont.bam --ont -b ont_phased.bam > ont.vcf      # output phased ONT reads, with BAM tag HP & PS 
+```
+### Variant calling from remote files
+```
+ref=https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/references/GRCh38/GRCh38_GIABv3_no_alt_analysis_set_maskedGRC_decoys_MAP2K3_KMT2C_KCNJ18.fasta.gz
+bam=https://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/data/AshkenazimTrio/HG002_NA24385_son/PacBio_HiFi-Revio_20231031/HG002_PacBio-HiFi-Revio_20231031_48x_GRCh38-GIABv3.bam
+longcallD call -t16 $ref $bam chr11:10,229,956-10,256,221 chr12:10,576,356-10,583,438 > hifi_regs.vcf
 ```
 
 ## Contact
