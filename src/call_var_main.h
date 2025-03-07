@@ -41,7 +41,7 @@
 
 #define LONGCALLD_MIN_HAP_FULL_READS 1 // >= 1full read supporting each haplotype
 #define LONGCALLD_MIN_HAP_READS 2 // >= 3 reads supporting each haplotype, including partial/clipped reads, call consensus from >= 3 reads
-#define LONGCALLD_MIN_NO_HAP_FULL_READS 10 // >10 total full reads in noisy region
+// #define LONGCALLD_MIN_NO_HAP_FULL_READS 10 // >10 total full reads in noisy region
 #define LONGCALLD_MIN_READ_TO_HAP_CONS_SIM 0.9 // for reads with >= 90% equal bases, assign haplotype
 // for sdust
 #define LONGCALLD_SDUST_T 5
@@ -105,7 +105,7 @@ typedef struct call_var_opt_t {
     // filters for noisy region, i.e., coverage/ratio
     int max_noisy_reg_reads, max_noisy_reg_len, min_noisy_reg_reads; 
     double max_var_ratio_per_read, max_noisy_frac_per_read, min_noisy_reg_ratio;
-    int min_hap_full_reads, min_hap_reads, min_no_hap_full_reads;
+    int min_hap_full_reads, min_hap_reads; //, min_no_hap_full_reads;
     // alignment
     int match, mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2;
     int gap_aln; // default: 1: left (minimap2, abpoa), 2: right (wfa2)

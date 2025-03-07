@@ -180,7 +180,7 @@ call_var_opt_t *call_var_init_para(void) {
     opt->max_noisy_frac_per_read = LONGCALLD_MAX_NOISY_FRAC_PER_READ;
     opt->min_hap_full_reads = LONGCALLD_MIN_HAP_FULL_READS;
     opt->min_hap_reads = LONGCALLD_MIN_HAP_READS;
-    opt->min_no_hap_full_reads = LONGCALLD_MIN_NO_HAP_FULL_READS;
+    // opt->min_no_hap_full_reads = LONGCALLD_MIN_NO_HAP_FULL_READS;
 
     opt->min_somatic_af = LONGCALLD_MIN_SOMATIC_AF;
     opt->min_af = LONGCALLD_MIN_CAND_AF;
@@ -546,8 +546,8 @@ static void call_var_usage(void) {//main usage
     // fprintf(stderr, "                          end-clipping region with more than -c bases will be considered as noisy clipping region\n");
     // fprintf(stderr, "    -F --clip-flank  INT  flanking mask window size for noisy clipping region [%d]\n", LONGCALLD_NOISY_END_CLIP_WIN);
     // fprintf(stderr, "\n");
-    fprintf(stderr, "    -p --hap-read    INT  when haplotype is available, min. number of full-spanning reads for each haplotype in noisy region to call a variant [%d]\n", LONGCALLD_MIN_HAP_FULL_READS);
-    fprintf(stderr, "    -f --full-read   INT  when haplotype is not available, min. number of full-spanning reads in noisy region to call a variant [%d]\n", LONGCALLD_MIN_NO_HAP_FULL_READS);
+    // fprintf(stderr, "    -p --hap-read    INT  when haplotype is available, min. number of full-spanning reads for each haplotype in noisy region to call a variant [%d]\n", LONGCALLD_MIN_HAP_FULL_READS);
+    // fprintf(stderr, "    -f --full-read   INT  when haplotype is not available, min. number of full-spanning reads in noisy region to call a variant [%d]\n", LONGCALLD_MIN_NO_HAP_FULL_READS);
 
     // fprintf(stderr, "    -N --no-re-aln        disable read re-alignment\n");
     // fprintf(stderr, "\n");
@@ -585,10 +585,9 @@ int call_var_main(int argc, char *argv[]) {
             case 'x': opt->noisy_reg_max_xgaps = atoi(optarg); break;
             case 'w': opt->noisy_reg_slide_win = atoi(optarg); break;
             case 'p': opt->min_hap_full_reads = atoi(optarg); break;
-            case 'f': opt->min_no_hap_full_reads = atoi(optarg); break;
+            // case 'f': opt->min_no_hap_full_reads = atoi(optarg); break;
             case 'j': opt->min_noisy_reg_ratio = atof(optarg); break;
             case 'L': opt->max_noisy_reg_len = atoi(optarg); break;
-            // case 'f': opt->dens_reg_flank_win = atoi(optarg); break;
             // case 'c': opt->end_clip_reg = atoi(optarg); break;
             // case 'F': opt->end_clip_reg_flank_win = atoi(optarg); break;
             case 'g': if (strcmp(optarg, "right") == 0 || strcmp(optarg, "r") == 0) opt->gap_aln = LONGCALLD_GAP_RIGHT_ALN;

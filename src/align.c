@@ -1308,7 +1308,7 @@ int collect_noisy_reg_aln_strs(const call_var_opt_t *opt, bam_chunk_t *chunk, ht
     sort_by_full_cover_and_length(n_noisy_reg_reads, noisy_reads, lens, seqs, strands, fully_covers, names, haps, phase_sets);
     // >= min_hap_full_read_count reads for each hap && >= min_hap_read_count reads (including not full-cover, but >= full-cover length) for each hap
     int min_hap_full_read_count = opt->min_hap_full_reads, min_hap_read_count = opt->min_hap_reads;
-    int min_no_hap_full_read_count = opt->min_no_hap_full_reads;
+    int min_no_hap_full_read_count = opt->min_dp; // opt->min_no_hap_full_reads;
     hts_pos_t ps_with_both_haps = collect_phase_set_with_both_haps(n_noisy_reg_reads, haps, lens, phase_sets, fully_covers, min_hap_full_read_count, min_hap_read_count);
     int n_full_reads = 0;
     for (int i = 0; i < n_noisy_reg_reads; ++i) if (fully_covers[i] == 3) n_full_reads++;
