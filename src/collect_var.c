@@ -1885,13 +1885,13 @@ int collect_noisy_vars1(bam_chunk_t *chunk, const call_var_opt_t *opt, int noisy
     hts_pos_t active_reg_beg = chunk->reg_beg, active_reg_end = chunk->reg_end;
     int max_noisy_reg_len = opt->max_noisy_reg_len, max_noisy_reg_reads = opt->max_noisy_reg_reads;
     if (noisy_reg_end - noisy_reg_beg + 1 > max_noisy_reg_len) {
-        if (LONGCALLD_VERBOSE >= 0) fprintf(stderr, "Skipped long region: %s:%ld-%ld %ld (>%d)\n", chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end-noisy_reg_beg+1, max_noisy_reg_len);
+        if (LONGCALLD_VERBOSE >= 1) fprintf(stderr, "Skipped long region: %s:%ld-%ld %ld (>%d)\n", chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end-noisy_reg_beg+1, max_noisy_reg_len);
         free(ref_seq);
         return 0;
     }
     int *noisy_reads; int n_noisy_reads = collect_noisy_reg_reads1(chunk, noisy_reg_beg, noisy_reg_end, noisy_reg_i, &noisy_reads);
     if (n_noisy_reads > max_noisy_reg_reads) {
-        if (LONGCALLD_VERBOSE >= 0) fprintf(stderr, "Skipped deep region: %s:%ld-%ld %ld %d reads\n", chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end-noisy_reg_beg+1, n_noisy_reads);
+        if (LONGCALLD_VERBOSE >= 1) fprintf(stderr, "Skipped deep region: %s:%ld-%ld %ld %d reads\n", chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end-noisy_reg_beg+1, n_noisy_reads);
         free(noisy_reads); free(ref_seq);
         return 0;
     }
@@ -2027,7 +2027,7 @@ void pre_process_noisy_regs(bam_chunk_t *chunk, call_var_opt_t *opt) {
         if (n_noisy_reg_reads < min_noisy_reg_reads // || noisy_reg_to_total_n_reads[i] > max_noisy_reg_reads
             || (float)n_noisy_reg_reads/noisy_reg_to_total_n_reads[i] < min_noisy_reg_ratio) {
             skip_noisy_reg[i] = 1;
-            if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "Skipped region: %s:%d-%d %d noisy: %d, total: %d\n", chunk->tname, cr_start(noisy_regs, i), cr_end(noisy_regs, i), cr_end(noisy_regs, i)-cr_start(noisy_regs, i)+1, n_noisy_reg_reads, noisy_reg_to_total_n_reads[i]);
+            if (LONGCALLD_VERBOSE >= 1) fprintf(stderr, "Skipped region: %s:%d-%d %d noisy: %d, total: %d\n", chunk->tname, cr_start(noisy_regs, i), cr_end(noisy_regs, i), cr_end(noisy_regs, i)-cr_start(noisy_regs, i)+1, n_noisy_reg_reads, noisy_reg_to_total_n_reads[i]);
             n_skipped++;
         }
     }
