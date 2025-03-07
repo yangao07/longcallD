@@ -17,9 +17,9 @@
 git clone --recursive https://github.com/yangao07/longcallD
 cd longcallD && make
 # PacBio HiFi reads
-./bin/longcallD ref.fa hifi.bam --hifi > hifi.vcf
+./bin/longcallD call ref.fa hifi.bam --hifi > hifi.vcf
 # Oxford Nanopore reads
-./bin/longcallD ref.fa ont.bam --ont > ont.vcf
+./bin/longcallD call ref.fa ont.bam --ont > ont.vcf
 ```
 <!-- # man page for detailed command line options
 man ./longcallD.1
