@@ -65,7 +65,7 @@ tar -zxvf longcallD-v0.0.1_arm64-macos.tar.gz
 To compile longcallD from source, ensure you have **GCC/clang(9.0+)** and **zlib** installed. 
 It is recommended to use the [latest release](https://github.com/yangao07/longcallD/releases).
 ```
-wget https://github.com/yangao07/longcallD/releases/download/v0.0.1/abPOA-v0.0.1.tar.gz
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.1/longcallD-v0.0.1.tar.gz
 tar -zxvf longcallD-v0.0.1.tar.gz
 cd longcallD-v0.0.1; make
 ```
