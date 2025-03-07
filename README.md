@@ -81,7 +81,7 @@ LongcallD seamlessly works with variant calling region(s), in the same way as `s
 longcallD call -t16 ref.fa hifi.bam > hifi.vcf         # for PacBio HiFi reads, --hifi is default
 longcallD call -t16 ref.fa ont.bam --ont > ont.vcf     # for ONT reads
 longcallD call -t16 ref.fa hifi.bam chr11:10,229,956-10,256,221 > hifi_reg.vcf   # variant calling in a region
-longcallD call -t16 ref.fa hifi.bam chr11:10,229,956-10,256,221 chr12:10,576,356-10,583,438 > hifi_regs.vcf  # variant calling in a multiple regions
+longcallD call -t16 ref.fa hifi.bam chr11:10,229,956-10,256,221 chr12:10,576,356-10,583,438 > hifi_regs.vcf  # variant calling in multiple regions
 ```
 ### Variant calling and phasing long reads
 ```
