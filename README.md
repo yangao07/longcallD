@@ -1,4 +1,4 @@
-# LongcallD: local-haplotagging-based small and structural variant calling
+<!-- # LongcallD: local-haplotagging-based small and structural variant calling -->
 
 [![Latest Release](https://img.shields.io/github/release/yangao07/longcallD.svg?label=Release)](https://github.com/yangao07/longcallD/releases/latest)
 [![C/C++ CI](https://github.com/yangao07/longcallD/actions/workflows/linux-CI.yml/badge.svg)](https://github.com/yangao07/longcallD/actions/workflows/linux-CI.yml)
@@ -17,29 +17,28 @@
 git clone --recursive https://github.com/yangao07/longcallD
 cd longcallD && make
 # PacBio HiFi reads
-./bin/longcallD call ref.fa hifi.bam --hifi > hifi.vcf
+./bin/longcallD call ./test_data/chr11_2M.fa ./test_data/HG002_chr11_hifi_test.bam --hifi > HG002_hifi_test.vcf
 # Oxford Nanopore reads
-./bin/longcallD call ref.fa ont.bam --ont > ont.vcf
+./bin/longcallD call ./test_data/chr11_2M.fa ./test_data/HG002_chr11_ont_test.bam --ont > HG002_ont_test.vcf
 ```
 <!-- # man page for detailed command line options
 man ./longcallD.1
 ``` -->
 
 ## Table of Contents
-- [LongcallD: local-haplotagging-based small and structural variant calling](#longcalld-local-haplotagging-based-small-and-structural-variant-calling)
-  - [Updates (v0.0.1)](#updates-v001)
-  - [Getting Started](#getting-started)
-  - [Table of Contents](#table-of-contents)
-  - [Introduction](#introduction)
-  - [Installation](#installation)
-    - [Pre-built executables (recommended)](#pre-built-executables-recommended)
-    - [Build from source](#build-from-source)
-  - [Usage](#usage)
-    - [Variant calling with HiFi/Nanopore long reads](#variant-calling-with-hifinanopore-long-reads)
-    - [Region-specific variant calling](#region-specific-variant-calling)
-    - [Variant calling and output phased long reads](#variant-calling-and-output-phased-long-reads)
-    - [Variant calling from remote files](#variant-calling-from-remote-files)
-  - [Contact](#contact)
+- [Updates (v0.0.1)](#updates-v001)
+- [Getting Started](#getting-started)
+- [Table of Contents](#table-of-contents)
+- [Introduction](#introduction)
+- [Installation](#installation)
+  - [Pre-built executables (recommended)](#pre-built-executables-recommended)
+  - [Build from source](#build-from-source)
+- [Usage](#usage)
+  - [Variant calling with HiFi/Nanopore long reads](#variant-calling-with-hifinanopore-long-reads)
+  - [Region-specific variant calling](#region-specific-variant-calling)
+  - [Variant calling and output phased long reads](#variant-calling-and-output-phased-long-reads)
+  - [Variant calling from remote files](#variant-calling-from-remote-files)
+- [Contact](#contact)
 
 
 ## Introduction
