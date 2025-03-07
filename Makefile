@@ -12,9 +12,6 @@ else # clang
 	CXXFLAGS = -std=c++11 -stdlib=libc++
 endif
 
-ifneq ($(portable),)
-	STATIC_GCC = -static-libgcc# -static-libstdc++
-endif
 
 # add -fno-tree-vectorize to avoid certain vectorization errors in O3 optimization
 # right now, we are using -O3 for the best performance, and no vectorization errors were found
@@ -40,6 +37,9 @@ INCLUDE     = -I $(HTSLIB_DIR) -I $(EDLIB_INC_DIR) -I $(ABPOA_INC_DIR) -I $(WFA2
 ifeq ($(UNAME_S),Linux) # Linux
 	LIB += -lcrypto
 #	LIB += /homes2/yangao/software/miniconda3/envs/bcftools/lib/libcrypto.so
+	ifneq ($(portable),)
+		LIB += -static-libgcc -static-libstdc++
+	endif
 endif
 
 # Try linking against libdeflate

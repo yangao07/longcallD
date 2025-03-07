@@ -515,6 +515,8 @@ static void call_var_usage(void) {//main usage
 
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "  Intput and output:\n");
+    fprintf(stderr, "    --hifi                Input is HiFi reads [Default]\n");
+    fprintf(stderr, "    --ont                 Input is ONT reads [False]\n");
     fprintf(stderr, "    -r  --ref-idx    STR  .fai index file for reference genome FASTA file, detect automaticaly if not provided [NULL]\n");
     // fprintf(stderr, "    -b --out-bam     STR  output phased BAM file [NULL]\n");
     fprintf(stderr, "    -n --sample-name STR  sample name. 'RG/SM' in BAM header will be used if not provided [NULL]\n");
