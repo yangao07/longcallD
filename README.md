@@ -8,9 +8,11 @@
 <!-- [![BioConda Install](https://img.shields.io/conda/dn/bioconda/longcallD.svg?style=flag&label=BioConda%20install)](https://anaconda.org/bioconda/longcallD) -->
 <!-- [![Published in Bioinformatics](https://img.shields.io/badge/Published%20in-Bioinformatics-blue.svg)](https://dx.doi.org/10.1093/bioinformatics/btaa963) -->
 <!-- [![GitHub Issues](https://img.shields.io/github/issues/yangao07/longcallD.svg?label=Issues)](https://github.com/yangao07/longcallD/issues) -->
-## Updates (v0.0.1)
+## Updates (v0.0.2)
 
-* Pre-release v0.0.1
+* Pre-release
+* Add -M/--min-mapq
+* Fix check_eqx_cigar
 
 ## Getting Started
 ```sh
@@ -26,7 +28,7 @@ man ./longcallD.1
 ``` -->
 
 ## Table of Contents
-- [Updates (v0.0.1)](#updates-v001)
+- [Updates (v0.0.2)](#updates-v002)
 - [Getting Started](#getting-started)
 - [Table of Contents](#table-of-contents)
 - [Introduction](#introduction)
@@ -51,22 +53,22 @@ LongcallD phases long reads into haplotypes using SNPs and small indels before c
 ### Pre-built executables (recommended)
 **For Linux:**
 ```
-wget https://github.com/yangao07/longcallD/releases/download/v0.0.1/longcallD-v0.0.1_x64-linux.tar.gz
-tar -zxvf longcallD-v0.0.1_x64-linux.tar.gz
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.2/longcallD-v0.0.2_x64-linux.tar.gz
+tar -zxvf longcallD-v0.0.2_x64-linux.tar.gz
 ```
 **For macOS:**
 ```
-wget https://github.com/yangao07/longcallD/releases/download/v0.0.1/longcallD-v0.0.1_arm64-macos.tar.gz
-tar -zxvf longcallD-v0.0.1_arm64-macos.tar.gz
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.2/longcallD-v0.0.2_arm64-macos.tar.gz
+tar -zxvf longcallD-v0.0.2_arm64-macos.tar.gz
 ```
 
 ### Build from source
 To compile longcallD from source, ensure you have **GCC/clang(9.0+)** and **zlib** installed. 
 It is recommended to use the [latest release](https://github.com/yangao07/longcallD/releases).
 ```
-wget https://github.com/yangao07/longcallD/releases/download/v0.0.1/longcallD-v0.0.1.tar.gz
-tar -zxvf longcallD-v0.0.1.tar.gz
-cd longcallD-v0.0.1; make
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.2/longcallD-v0.0.2.tar.gz
+tar -zxvf longcallD-v0.0.2.tar.gz
+cd longcallD-v0.0.2; make
 ```
 
 ## Usage
