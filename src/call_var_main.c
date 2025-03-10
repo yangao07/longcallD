@@ -39,9 +39,11 @@ const struct option call_var_opt [] = {
     // { "out-bam", 1, NULL, 'b' },
     { "sample-name", 1, NULL, 'n'},
 
-    { "min-depth", 1, NULL, 'c' },
-    { "alt-depth", 1, NULL, 'd' },
+    { "min-cov", 1, NULL, 'c' },
+    { "alt-cov", 1, NULL, 'd' },
     { "alt-ratio", 1, NULL, 'a' },
+    { "min-mapq", 1, NULL, 'M'}, // map quality
+    { "min-bq", 1, NULL, 'B'}, // base quality
     // { "max-ploidy", 1, NULL, 'p' },
 
     { "max-xgap", 1, NULL, 'x' },
@@ -524,7 +526,7 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "    -o --out-vcf     STR  output phased VCF file [stdout]\n");
     fprintf(stderr, "    -H --no-vcf-header    do NOT output VCF header\n");
     fprintf(stderr, "       --amb-base         output variant with ambiguous base [False]\n");
-    // fprintf(stderr, "    -b --out-bam     STR  output phased BAM file [NULL]\n");
+    fprintf(stderr, "    -b --out-bam     STR  output phased BAM file [NULL]\n");
     // fprintf(stderr, "    -g --gap-aln     STR  put gap on the \'left\' or \'right\' side in alignment [left/l]\n");
     // fprintf(stderr, "                          \'left\':  ATTTG\n");
     // fprintf(stderr, "                                   | |||\n");
@@ -537,6 +539,8 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "    -c --min-cov     INT  min. total read coverage for candidate variant [%d]\n", LONGCALLD_MIN_CAND_DP);
     fprintf(stderr, "    -d --alt-cov     INT  min. alt. read coverage for candidate variant [%d]\n", LONGCALLD_MIN_ALT_DP);
     fprintf(stderr, "    -a --alt-ratio FLOAT  min. alt. read ratio for candidate variant [%.2f]\n", LONGCALLD_MIN_CAND_AF);
+    fprintf(stderr, "    -M --min-mq      INT  min. mapping quality for long-read alignment to be used [%d]\n", LONGCALLD_MIN_CAND_MQ);
+    // fprintf(stderr, "    -B --min-bq      INT  filter out base with base quality < -B/--min-bq [%d]\n", LONGCALLD_MIN_CAND_BQ);
     // fprintf(stderr, "    -p --max-ploidy  INT  max. ploidy [%d]\n", LONGCALLD_DEF_PLOID);
     fprintf(stderr, "  Variant calling in noisy regions:\n");
     fprintf(stderr, "    -x --max-xgap    INT  max. number of allowed substitutions/gap-bases in a sliding window(-w/--win-size) [%d]\n", LONGCALLD_NOISY_REG_MAX_XGAPS);
@@ -568,7 +572,7 @@ int call_var_main(int argc, char *argv[]) {
     // _err_cmd("%s\n", CMD);
     int c, op_idx; call_var_opt_t *opt = call_var_init_para();
     double realtime0 = realtime();
-    while ((c = getopt_long(argc, argv, "r:o:Hb:c:d:a:n:x:w:j:L:f:p:g:Nt:hvV:", call_var_opt, &op_idx)) >= 0) {
+    while ((c = getopt_long(argc, argv, "r:o:Hb:c:d:M:B:a:n:x:w:j:L:f:p:g:Nt:hvV:", call_var_opt, &op_idx)) >= 0) {
         switch(c) {
             case 'r': opt->ref_fa_fai_fn = strdup(optarg); break;
             // case 'b': cgp->var_block_size = atoi(optarg); break;
@@ -583,6 +587,8 @@ int call_var_main(int argc, char *argv[]) {
             case 'c': opt->min_dp = atoi(optarg); break;
             case 'd': opt->min_alt_dp = atoi(optarg); break;
             case 'a': opt->min_af = atof(optarg); break;
+            case 'M': opt->min_mq = atoi(optarg); break;
+            case 'B': opt->min_bq = atoi(optarg); break;
             case 'n': opt->sample_name = strdup(optarg); break;
             case 'x': opt->noisy_reg_max_xgaps = atoi(optarg); break;
             case 'w': opt->noisy_reg_slide_win = atoi(optarg); break;

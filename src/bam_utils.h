@@ -67,7 +67,7 @@ typedef struct bam_chunk_t {
     cgranges_t *reg_cr, *low_comp_cr; hts_pos_t reg_beg, reg_end; // [reg_beg, reg_end]
     // hts_pos_t active_reg_beg, active_reg_end; // [active_reg_beg, active_reg_end]: only variants within this region will be considered
                                               // variants spaning this region will be re-processed during stitching
-    uint8_t bam_has_eqx_cigar, bam_has_md_tag;
+    // uint8_t bam_has_eqx_cigar, bam_has_md_tag;
     int n_reads, m_reads;
     int n_up_ovlp_reads; // number of reads overlapping with upstream bam chunk
                          // for each chunk, only output [n_up_ovlp_reads, n_reads]'s reads
@@ -124,6 +124,8 @@ int get_aux_int_from_bam(bam1_t *b, const char *tag);
 char *get_aux_str_from_bam(bam1_t *b, const char *tag);
 void print_digar1(digar1_t *digar, int n_digar, FILE *fp);
 void print_digar(digar_t *digar, FILE *fp);
+int has_equal_X_in_bam_cigar(bam1_t *read);
+int has_MD_in_bam(bam1_t *b);
 int collect_reg_digars_var_seqs(bam_chunk_t *chunk, int read_i, hts_pos_t reg_beg, hts_pos_t reg_end, digar1_t *reg_digars, uint8_t **reg_var_seqs, int *fully_cover);
 void check_eqx_cigar_MD_tag(samFile *in_bam, bam_hdr_t *header, uint8_t *has_eqx, uint8_t *has_MD);
 int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct call_var_pl_t *pl, const struct call_var_opt_t *opt, digar_t *digar);

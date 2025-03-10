@@ -756,12 +756,12 @@ int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct ca
     for (int i = 0; i < n_cigar; ++i) {
         int op = bam_cigar_op(cigar[i]);
         int len = bam_cigar_oplen(cigar[i]);
-        if (op == BAM_CMATCH ) {
+        if (op == BAM_CMATCH || op == BAM_CDIFF || op == BAM_CEQUAL) {
             int eq_len = 0;
             for (int j = 0; j < len; ++j) {
                 // Get the reference base
                 if (pos <= ref_beg || pos > ref_end) {
-                    if (LONGCALLD_VERBOSE >= 1) {
+                    if (LONGCALLD_VERBOSE >= 2) {
                         fprintf(stderr, "pos: %ld (%ld-%ld)\t", pos, ref_beg, ref_end);
                         fprintf(stderr, "Read exceed reference region sequence: %s", bam_get_qname(read));
                     }
@@ -850,9 +850,9 @@ int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct ca
             }
         } else if (op == BAM_CREF_SKIP) {
             pos += len;
-        } else if (op == BAM_CEQUAL || op == BAM_CDIFF) {
-            _err_error_exit("CIGAR operation '=/X' is not expected: %s\n", bam_get_qname(read));
-        }
+        } // else if (op == BAM_CEQUAL || op == BAM_CDIFF) {
+            // _err_error_exit("CIGAR operation '=/X' is not expected: %s\n", bam_get_qname(read));
+        // }
     }
     for (int i = 0, j = 0; i < _n_digar; ++i) {
         push_digar1(digar, _digars[i]);
@@ -1202,7 +1202,7 @@ int collect_bam_chunk(call_var_pl_t *pl, bam_chunk_t *chunks, int chunk_i) {
         chunk->tid = reg_tid; chunk->tname = header->target_name[reg_tid];
         get_bam_chunk_reg_cr(pl->ref_reg_seq->reg_cr, chunk, active_reg_beg, active_reg_end);
         get_bam_chunk_reg_ref_seq(pl->fai, pl->ref_reg_seq, chunk);
-        chunk->bam_has_eqx_cigar = has_eqx_cigar; chunk->bam_has_md_tag = has_MD;
+        // chunk->bam_has_eqx_cigar = has_eqx_cigar; chunk->bam_has_md_tag = has_MD;
         // for the next chunk
         pl->cur_active_reg_beg = next_active_reg_beg;
         pl->n_last_chunk_reads = _n_last_chunk_reads;

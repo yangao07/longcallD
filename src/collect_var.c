@@ -526,9 +526,11 @@ void collect_digars_from_bam(bam_chunk_t *chunk, const struct call_var_pl_t *pl)
             continue;
         }
         int ret;
-        if (chunk->bam_has_eqx_cigar) { // 1) look for Xs in cigar if =/X in cigar
+        // if (chunk->bam_has_eqx_cigar) { // 1) look for Xs in cigar if =/X in cigar
+        if (has_equal_X_in_bam_cigar(read)) {
             ret = collect_digar_from_eqx_cigar(chunk, read, pl, opt, chunk->digars+i);
-        } else if (chunk->bam_has_md_tag) { // 2) look for mismatches in MD tag
+        // } else if (chunk->bam_has_md_tag) { // 2) look for mismatches in MD tag
+        } else if (has_MD_in_bam(read)) {
             ret = collect_digar_from_MD_tag(chunk, read, pl, opt, chunk->digars+i);
         // XXX TODO use cs tag
         } else { // 3) no =/X in cigar and no MD tag, compare bases with ref_seq
