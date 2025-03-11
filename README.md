@@ -1,6 +1,6 @@
 <!-- # LongcallD: local-haplotagging-based small and structural variant calling -->
 
-[![Latest Release](https://img.shields.io/github/release/yangao07/longcallD.svg?label=Release)](https://github.com/yangao07/longcallD/releases/latest)
+<!-- [![Latest Release](https://img.shields.io/github/release/yangao07/longcallD.svg?label=Release)](https://github.com/yangao07/longcallD/releases/latest) -->
 [![C/C++ CI](https://github.com/yangao07/longcallD/actions/workflows/linux-CI.yml/badge.svg)](https://github.com/yangao07/longcallD/actions/workflows/linux-CI.yml)
 [![C/C++ CI](https://github.com/yangao07/longcallD/actions/workflows/macos-CI.yml/badge.svg)](https://github.com/yangao07/longcallD/actions/workflows/macos-CI.yml)
 [![License](https://img.shields.io/badge/License-MIT-black.svg)](https://github.com/yangao07/longcallD/blob/main/LICENSE)
@@ -8,27 +8,35 @@
 <!-- [![BioConda Install](https://img.shields.io/conda/dn/bioconda/longcallD.svg?style=flag&label=BioConda%20install)](https://anaconda.org/bioconda/longcallD) -->
 <!-- [![Published in Bioinformatics](https://img.shields.io/badge/Published%20in-Bioinformatics-blue.svg)](https://dx.doi.org/10.1093/bioinformatics/btaa963) -->
 <!-- [![GitHub Issues](https://img.shields.io/github/issues/yangao07/longcallD.svg?label=Issues)](https://github.com/yangao07/longcallD/issues) -->
-## Updates (v0.0.2)
+## Updates (pre-release v0.0.2)
 
-* Pre-release
 * Add -M/--min-mapq
 * Fix check_eqx_cigar
 
 ## Getting Started
 ```sh
-git clone --recursive https://github.com/yangao07/longcallD
-cd longcallD && make
+# git clone --recursive https://github.com/yangao07/longcallD
+# cd longcallD && make
+
+# Download pre-built executables and test data (recommended)
+# Linux
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.2/longcallD-v0.0.2_x64-linux.tar.gz
+tar -zxvf longcallD-v0.0.2_x64-linux.tar.gz && cd longcallD-v0.0.2_x64-linux
+# MacOS
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.2/longcallD-v0.0.2_arm64-macos.tar.gz
+tar -zxvf longcallD-v0.0.2_arm64-macos.tar.gz && cd longcallD-v0.0.2_arm64-macos
+
 # PacBio HiFi reads
-./bin/longcallD call ./test_data/chr11_2M.fa ./test_data/HG002_chr11_hifi_test.bam --hifi > HG002_hifi_test.vcf
+./longcallD call ./test_data/chr11_2M.fa ./test_data/HG002_chr11_hifi_test.bam --hifi > HG002_hifi_test.vcf
 # Oxford Nanopore reads
-./bin/longcallD call ./test_data/chr11_2M.fa ./test_data/HG002_chr11_ont_test.bam --ont > HG002_ont_test.vcf
+./longcallD call ./test_data/chr11_2M.fa ./test_data/HG002_chr11_ont_test.bam --ont > HG002_ont_test.vcf
 ```
 <!-- # man page for detailed command line options
 man ./longcallD.1
 ``` -->
 
 ## Table of Contents
-- [Updates (v0.0.2)](#updates-v002)
+- [Updates (pre-release v0.0.2)](#updates-pre-release-v002)
 - [Getting Started](#getting-started)
 - [Table of Contents](#table-of-contents)
 - [Introduction](#introduction)

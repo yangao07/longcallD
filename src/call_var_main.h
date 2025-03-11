@@ -18,8 +18,8 @@
 #define LONGCALLD_MIN_CAND_DP 5 // total depth < 5: skipped
 #define LONGCALLD_MIN_ALT_DP 2 // max alt depth < 2: skipped
 #define LONGCALLD_MIN_SOMATIC_AF 0.05 // AF < 0.05: filtered out, 0.05~0.25: candidate somatic
-#define LONGCALLD_MIN_CAND_AF 0.20 // AF < 0.25: not germline het.
-#define LONGCALLD_MAX_CAND_AF 0.80 // AF > 0.75: not germline het.
+#define LONGCALLD_MIN_CAND_AF 0.20 // AF < 0.20: not germline het.
+#define LONGCALLD_MAX_CAND_AF 0.80 // AF > 0.80: not germline het.
 #define LONGCALLD_DEF_PLOID 2 // diploid
 #define LONGCALLD_REF_ALLELE 0
 #define LONGCALLD_ALT_ALLELE1 1
