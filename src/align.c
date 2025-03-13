@@ -357,6 +357,7 @@ void wfa_trim_aln_str(int full_cover, aln_str_t *aln_str, int tlen, int qlen) {
             }
             if (target_end != -1 && query_end != -1) break;
         }
+        if (query_end == -1) query_end = target_end;
         assert(query_end <= target_end);
         aln_str->aln_len = target_end+1;
         aln_str->target_beg = 0; aln_str->target_end = target_end;
@@ -379,6 +380,7 @@ void wfa_trim_aln_str(int full_cover, aln_str_t *aln_str, int tlen, int qlen) {
             }
             if (target_start != -1 && query_start != -1) break;
         }
+        if (query_start == -1) query_start = target_start; // no = operation
         assert(query_start >= target_start);
         aln_str->aln_len = aln_str->aln_len - target_start;
         if (target_start != 0) {
@@ -627,73 +629,6 @@ int abpoa_partial_aln_msa_cons(const call_var_opt_t *opt, abpoa_t *ab, int wb, i
         }
     }
     abpoa_free_para(abpt); if (needs_free_ab) abpoa_free(ab);
-    return n_cons;
- }
-
-// reads are sorted by full-cover and length before calling abPOA
-// use reads with full_cover == 3 as backbone for poa
-// skip reads with full_cover == 0
-int abpoa_partial_aln(const call_var_opt_t *opt, int n_reads, uint8_t **read_seqs, int *read_lens, int *read_full_cover, char **names, int max_n_cons, int *cons_lens, uint8_t **cons_seqs) {
-    abpoa_t *ab = abpoa_init();
-    abpoa_para_t *abpt = abpoa_init_para();
-    // abpt->wb = -1;
-    abpt->out_msa = 0;
-    // abp->cons_algrm = ABPOA_MF;
-    abpt->inc_path_score = 1;
-    abpt->max_n_cons = max_n_cons;
-    // msa
-    abpt->out_cons = 1;
-    abpt->match = opt->match; abpt->mismatch = opt->mismatch;
-    abpt->gap_open1 = opt->gap_open1; abpt->gap_ext1 = opt->gap_ext1;
-    abpt->gap_open2 = opt->gap_open2; abpt->gap_ext2 = opt->gap_ext2;
-    if (LONGCALLD_VERBOSE >= 2) abpt->out_msa = 1;
-    abpoa_post_set_para(abpt);
-    ab->abs->n_seq = n_reads;
-    for (int i = 0; i < n_reads; ++i) {
-        if (LONGCALLD_VERBOSE >= 2) {
-            fprintf(stderr, ">%s %d %d\n", names[i], read_lens[i], read_full_cover[i]);
-            for (int j = 0; j < read_lens[i]; ++j) {
-                fprintf(stderr, "%c", "ACGTN"[read_seqs[i][j]]);
-            } fprintf(stderr, "\n");
-        }
-        abpoa_res_t res;
-        res.graph_cigar = 0, res.n_cigar = 0;
-        int exc_beg = 0, exc_end = 1, seq_beg_cut = 0, seq_end_cut = 0;
-        if (i != 0) {
-            int ref_beg, ref_end, read_beg, read_end, beg_id, end_id;
-            if (collect_partial_aln_beg_end(opt->gap_aln, opt->match, opt->mismatch, opt->gap_open1, opt->gap_ext1, opt->gap_open2, opt->gap_ext2,
-                                            read_seqs[0], read_lens[0], read_full_cover[0], read_seqs[i], read_lens[i], read_full_cover[i], &ref_beg, &ref_end, &read_beg, &read_end) == 0) {
-                if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "Skipped in POA: %s\n", names[i]);
-                continue;
-            }
-            beg_id = ref_beg+1, end_id = ref_end+1;
-            seq_beg_cut = read_beg - 1, seq_end_cut = read_lens[i] - read_end;
-            abpoa_subgraph_nodes(ab, abpt, beg_id, end_id, &exc_beg, &exc_end);
-        }
-        if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "ExcBeg: %d, ExcEnd: %d, SeqBegCut: %d, SeqEndCut: %d\n", exc_beg, exc_end, seq_beg_cut, seq_end_cut);
-        abpoa_align_sequence_to_subgraph(ab, abpt, exc_beg, exc_end, read_seqs[i]+seq_beg_cut, read_lens[i]-seq_beg_cut-seq_end_cut, &res);
-        abpoa_add_subgraph_alignment(ab, abpt, exc_beg, exc_end, read_seqs[i]+seq_beg_cut, NULL, read_lens[i]-seq_beg_cut-seq_end_cut, NULL, res, i, n_reads, 0);
-        if (res.n_cigar) free(res.graph_cigar);
-    }
-    if (LONGCALLD_VERBOSE >= 2) abpoa_output(ab, abpt, stderr);
-    else abpoa_output(ab, abpt, NULL);
-    abpoa_cons_t *abc = ab->abc;
-    
-    int n_cons = 0;
-    if (abc->n_cons > 0) {
-        for (int i = 0; i < abc->n_cons; ++i) {
-            cons_lens[i] = abc->cons_len[i];
-            cons_seqs[i] = (uint8_t*)malloc(abc->cons_len[i] * sizeof(uint8_t));
-            for (int j = 0; j < abc->cons_len[i]; ++j) {
-                cons_seqs[i][j] = abc->cons_base[i][j];
-            }
-            if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "ConsLen: %d\n", abc->cons_len[i]);
-        }
-        n_cons = abc->n_cons;
-    } else {
-        fprintf(stderr, "Unable to call consensus: %s\n", names[0]);
-    }
-    abpoa_free(ab); abpoa_free_para(abpt);
     return n_cons;
  }
 
@@ -1254,6 +1189,7 @@ int collect_noisy_read_info(bam_chunk_t *chunk, hts_pos_t reg_beg, hts_pos_t reg
         int reg_read_beg = 0, reg_read_end = bam_cigar2qlen(chunk->reads[read_i]->core.n_cigar, bam_get_cigar(chunk->reads[read_i]))-1;
         (*read_names)[i] = bam_get_qname(chunk->reads[read_i]);
         (*strands)[i] = bam_is_rev(chunk->reads[read_i]);
+        int beg_is_del = 0, end_is_del = 0;
         for (int i = 0; i < n_digar; ++i) {
             hts_pos_t digar_beg = digars[i].pos, digar_end;
             int op = digars[i].type, len = digars[i].len, qi = digars[i].qi;
@@ -1266,6 +1202,7 @@ int collect_noisy_read_info(bam_chunk_t *chunk, hts_pos_t reg_beg, hts_pos_t reg
                 if (op == BAM_CDEL) {
                     reg_digar_beg = reg_beg;
                     reg_read_beg = qi;
+                    beg_is_del = 1;
                 } else {
                     reg_digar_beg = reg_beg;
                     reg_read_beg = qi + (reg_beg - digar_beg);
@@ -1275,16 +1212,25 @@ int collect_noisy_read_info(bam_chunk_t *chunk, hts_pos_t reg_beg, hts_pos_t reg
                 if (op == BAM_CDEL) {
                     reg_digar_end = reg_end;
                     reg_read_end = qi-1;
+                    end_is_del = 1;
                 } else {
                     reg_digar_end = reg_end;
                     reg_read_end = qi + (reg_end - digar_beg);
                 }
             }
         }
-        if (reg_digar_beg == reg_beg && reg_digar_end == reg_end) (*fully_covers)[i] = 3;
-        else if (reg_digar_beg == reg_beg) (*fully_covers)[i] = 1;
-        else if (reg_digar_end == reg_end) (*fully_covers)[i] = 2;
-        else (*fully_covers)[i] = 0;
+        if (reg_digar_beg == reg_beg && reg_digar_end == reg_end) {
+            if (beg_is_del == 0 && end_is_del == 0) (*fully_covers)[i] = 3;
+            else if (beg_is_del == 0 && end_is_del == 1) (*fully_covers)[i] = 1;
+            else if (beg_is_del == 1 && end_is_del == 0) (*fully_covers)[i] = 2;
+            else (*fully_covers)[i] = 0;
+        } else if (reg_digar_beg == reg_beg) {
+            if (beg_is_del) (*fully_covers)[i] = 0;
+            else (*fully_covers)[i] = 1;
+        } else if (reg_digar_end == reg_end) {
+            if (end_is_del) (*fully_covers)[i] = 0;
+            else (*fully_covers)[i] = 2;
+        } else (*fully_covers)[i] = 0;
         // if (2*(reg_read_end-reg_read_beg+1) < (reg_end-reg_beg+1)) return 0;
         (*read_seqs)[i] = (uint8_t*)malloc((reg_read_end - reg_read_beg + 1) * sizeof(uint8_t));
         (*read_quals)[i] = (uint8_t*)malloc((reg_read_end - reg_read_beg + 1) * sizeof(uint8_t));

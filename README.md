@@ -8,10 +8,9 @@
 <!-- [![BioConda Install](https://img.shields.io/conda/dn/bioconda/longcallD.svg?style=flag&label=BioConda%20install)](https://anaconda.org/bioconda/longcallD) -->
 <!-- [![Published in Bioinformatics](https://img.shields.io/badge/Published%20in-Bioinformatics-blue.svg)](https://dx.doi.org/10.1093/bioinformatics/btaa963) -->
 <!-- [![GitHub Issues](https://img.shields.io/github/issues/yangao07/longcallD.svg?label=Issues)](https://github.com/yangao07/longcallD/issues) -->
-## Updates (pre-release v0.0.2)
+## Updates (pre-release v0.0.3)
 
-* Add -M/--min-mapq
-* Fix check_eqx_cigar
+* Fix a couple of corner cases
 
 ## Getting Started
 ```sh

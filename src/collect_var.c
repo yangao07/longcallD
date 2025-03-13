@@ -199,7 +199,7 @@ int var_is_repeat_region(char *ref_seq, hts_pos_t ref_beg, hts_pos_t ref_end, ca
         int del_len = ref_len;
         len = del_len * 3; // see if del seq is 3-fold repeat
         if (pos < ref_beg || pos+del_len+len >= ref_end) {
-            fprintf(stderr, "DelLen: %d, RefLen: %d, Pos: %" PRId64 ", RefBeg: %" PRId64 ", RefEnd: %" PRId64 "\n", del_len, ref_len, pos, ref_beg, ref_end);
+            // fprintf(stderr, "DelLen: %d, RefLen: %d, Pos: %" PRId64 ", RefBeg: %" PRId64 ", RefEnd: %" PRId64 "\n", del_len, ref_len, pos, ref_beg, ref_end);
             return 0;
         }
         ref_bseq = get_bseq(ref_seq+pos-ref_beg, len);
@@ -213,7 +213,7 @@ int var_is_repeat_region(char *ref_seq, hts_pos_t ref_beg, hts_pos_t ref_end, ca
         int ins_len = var->alt_len;
         len = ins_len * 3; // see if ins seq is 3-fold repeat
         if (pos < ref_beg || pos+len >= ref_end) {
-            fprintf(stderr, "InsLen: %d, RefLen: %d, Pos: %" PRId64 ", RefBeg: %" PRId64 ", RefEnd: %" PRId64 "\n", ins_len, ref_len, pos, ref_beg, ref_end);
+            // fprintf(stderr, "InsLen: %d, RefLen: %d, Pos: %" PRId64 ", RefBeg: %" PRId64 ", RefEnd: %" PRId64 "\n", ins_len, ref_len, pos, ref_beg, ref_end);
             return 0;
         }
         ref_bseq = get_bseq(ref_seq+pos-ref_beg, len);
