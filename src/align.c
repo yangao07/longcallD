@@ -1171,7 +1171,7 @@ int wfa_collect_noisy_aln_str_with_ps_hap(const call_var_opt_t *opt, int n_reads
     return n_cons;
 }
 
-int collect_noisy_read_info(bam_chunk_t *chunk, hts_pos_t reg_beg, hts_pos_t reg_end, int noisy_reg_i, int n_noisy_reg_reads, int *noisy_reg_reads, int **read_lens,
+int collect_noisy_read_info(const call_var_opt_t *opt, bam_chunk_t *chunk, hts_pos_t reg_beg, hts_pos_t reg_end, int noisy_reg_i, int n_noisy_reg_reads, int *noisy_reg_reads, int **read_lens,
                             uint8_t ***read_seqs, uint8_t **strands, uint8_t ***read_quals, char ***read_names, int **fully_covers, int **read_haps, hts_pos_t **phase_sets) {
     *read_lens = (int*)calloc(n_noisy_reg_reads, sizeof(int));
     *read_seqs = (uint8_t**)malloc(n_noisy_reg_reads * sizeof(uint8_t*));
@@ -1202,7 +1202,7 @@ int collect_noisy_read_info(bam_chunk_t *chunk, hts_pos_t reg_beg, hts_pos_t reg
                 if (op == BAM_CDEL) {
                     reg_digar_beg = reg_beg;
                     reg_read_beg = qi;
-                    beg_is_del = 1;
+                    if (len > opt->noisy_reg_flank_len) beg_is_del = 1;
                 } else {
                     reg_digar_beg = reg_beg;
                     reg_read_beg = qi + (reg_beg - digar_beg);
@@ -1212,7 +1212,7 @@ int collect_noisy_read_info(bam_chunk_t *chunk, hts_pos_t reg_beg, hts_pos_t reg
                 if (op == BAM_CDEL) {
                     reg_digar_end = reg_end;
                     reg_read_end = qi-1;
-                    end_is_del = 1;
+                    if (len > opt->noisy_reg_flank_len) end_is_del = 1;
                 } else {
                     reg_digar_end = reg_end;
                     reg_read_end = qi + (reg_end - digar_beg);
@@ -1252,7 +1252,7 @@ int collect_noisy_reg_aln_strs(const call_var_opt_t *opt, bam_chunk_t *chunk, ht
     if (n_noisy_reg_reads <= 0) return 0;
     // fully_cover: 0 -> none, 1 -> left, 2 -> right, 3 -> both
     char **names = NULL; uint8_t **seqs = NULL; uint8_t *strands=NULL; int *fully_covers = NULL, *lens = NULL, *haps = NULL; hts_pos_t *phase_sets = NULL; uint8_t **base_quals = NULL;
-    collect_noisy_read_info(chunk, noisy_reg_beg, noisy_reg_end, noisy_reg_i, n_noisy_reg_reads, noisy_reads, &lens, &seqs, &strands, &base_quals, &names, &fully_covers, &haps, &phase_sets);
+    collect_noisy_read_info(opt, chunk, noisy_reg_beg, noisy_reg_end, noisy_reg_i, n_noisy_reg_reads, noisy_reads, &lens, &seqs, &strands, &base_quals, &names, &fully_covers, &haps, &phase_sets);
 
     sort_by_full_cover_and_length(n_noisy_reg_reads, noisy_reads, lens, seqs, base_quals, strands, fully_covers, names, haps, phase_sets);
     // >= min_hap_full_read_count reads for each hap && >= min_hap_read_count reads (including not full-cover, but >= full-cover length) for each hap
