@@ -19,11 +19,11 @@
 
 # Download pre-built executables and test data (recommended)
 # Linux
-wget https://github.com/yangao07/longcallD/releases/download/v0.0.2/longcallD-v0.0.2_x64-linux.tar.gz
-tar -zxvf longcallD-v0.0.2_x64-linux.tar.gz && cd longcallD-v0.0.2_x64-linux
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.3/longcallD-v0.0.3_x64-linux.tar.gz
+tar -zxvf longcallD-v0.0.3_x64-linux.tar.gz && cd longcallD-v0.0.3_x64-linux
 # MacOS
-wget https://github.com/yangao07/longcallD/releases/download/v0.0.2/longcallD-v0.0.2_arm64-macos.tar.gz
-tar -zxvf longcallD-v0.0.2_arm64-macos.tar.gz && cd longcallD-v0.0.2_arm64-macos
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.3/longcallD-v0.0.3_arm64-macos.tar.gz
+tar -zxvf longcallD-v0.0.3_arm64-macos.tar.gz && cd longcallD-v0.0.3_arm64-macos
 
 # PacBio HiFi reads
 ./longcallD call ./test_data/chr11_2M.fa ./test_data/HG002_chr11_hifi_test.bam --hifi > HG002_hifi_test.vcf
@@ -35,7 +35,7 @@ man ./longcallD.1
 ``` -->
 
 ## Table of Contents
-- [Updates (pre-release v0.0.2)](#updates-pre-release-v002)
+- [Updates (pre-release v0.0.3)](#updates-pre-release-v003)
 - [Getting Started](#getting-started)
 - [Table of Contents](#table-of-contents)
 - [Introduction](#introduction)
@@ -60,22 +60,22 @@ LongcallD phases long reads into haplotypes using SNPs and small indels before c
 ### Pre-built executables (recommended)
 **For Linux:**
 ```
-wget https://github.com/yangao07/longcallD/releases/download/v0.0.2/longcallD-v0.0.2_x64-linux.tar.gz
-tar -zxvf longcallD-v0.0.2_x64-linux.tar.gz
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.3/longcallD-v0.0.3_x64-linux.tar.gz
+tar -zxvf longcallD-v0.0.3_x64-linux.tar.gz
 ```
 **For macOS:**
 ```
-wget https://github.com/yangao07/longcallD/releases/download/v0.0.2/longcallD-v0.0.2_arm64-macos.tar.gz
-tar -zxvf longcallD-v0.0.2_arm64-macos.tar.gz
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.3/longcallD-v0.0.3_arm64-macos.tar.gz
+tar -zxvf longcallD-v0.0.3_arm64-macos.tar.gz
 ```
 
 ### Build from source
 To compile longcallD from source, ensure you have **GCC/clang(9.0+)** and **zlib** installed. 
 It is recommended to use the [latest release](https://github.com/yangao07/longcallD/releases).
 ```
-wget https://github.com/yangao07/longcallD/releases/download/v0.0.2/longcallD-v0.0.2.tar.gz
-tar -zxvf longcallD-v0.0.2.tar.gz
-cd longcallD-v0.0.2; make
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.3/longcallD-v0.0.3.tar.gz
+tar -zxvf longcallD-v0.0.3.tar.gz
+cd longcallD-v0.0.3; make
 ```
 
 ## Usage
