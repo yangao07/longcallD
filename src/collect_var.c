@@ -804,12 +804,14 @@ int make_variants(const call_var_opt_t *opt, bam_chunk_t *chunk, var_t **_var) {
             chunk->var_i_to_cate[cand_i] != LONGCALLD_CAND_HOM_VAR &&
             chunk->var_i_to_cate[cand_i] != LONGCALLD_NOISY_CAND_HET_VAR &&
             chunk->var_i_to_cate[cand_i] != LONGCALLD_NOISY_CAND_HOM_VAR) continue;
-        if (var->vars[i].type == BAM_CDEL || var->vars[i].type == BAM_CINS) {
+        if (cand_vars[cand_i].var_type == BAM_CDEL || cand_vars[cand_i].var_type == BAM_CINS) {
             var->vars[i].pos = cand_vars[cand_i].pos-1;
-            var->vars[i].ref_len += 1;
-        } else var->vars[i].pos = cand_vars[cand_i].pos;
+            var->vars[i].ref_len = cand_vars[cand_i].ref_len+1;
+        } else {
+            var->vars[i].pos = cand_vars[cand_i].pos;
+            var->vars[i].ref_len = cand_vars[cand_i].ref_len;
+        }
         if (var->vars[i].pos < active_reg_beg || var->vars[i].pos > active_reg_end) continue;
-        // XXX 
         hom_alle = cand_vars[cand_i].hap_to_cons_alle[hom_idx];
         hap1_alle = cand_vars[cand_i].hap_to_cons_alle[hap1_idx];
         hap2_alle = cand_vars[cand_i].hap_to_cons_alle[hap2_idx];
@@ -824,7 +826,6 @@ int make_variants(const call_var_opt_t *opt, bam_chunk_t *chunk, var_t **_var) {
 
         var->vars[i].type = cand_vars[cand_i].var_type;
         var->vars[i].PS = cand_vars[cand_i].phase_set;
-        var->vars[i].ref_len = cand_vars[cand_i].ref_len;
         var->vars[i].ref_bases = get_bseq(ref_seq+var->vars[i].pos-ref_beg, var->vars[i].ref_len);
         if (is_hom) {
             var->vars[i].alt_len = (int*)malloc(1 * sizeof(int));
