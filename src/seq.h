@@ -8,7 +8,7 @@
 #include "cgranges.h"
 #include "htslib/hts.h"
 #include "htslib/faidx.h"
-KSEQ_INIT(gzFile, gzread)
+// KSEQ_INIT(gzFile, gzread)
 
 extern unsigned char nst_nt4_table[256];
 extern unsigned char com_nst_nt4_table[256];

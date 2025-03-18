@@ -357,6 +357,7 @@ void wfa_trim_aln_str(int full_cover, aln_str_t *aln_str, int tlen, int qlen) {
             }
             if (target_end != -1 && query_end != -1) break;
         }
+        if (query_end == -1) query_end = target_end; // no = operation, query_end is the last position
         assert(query_end <= target_end);
         aln_str->aln_len = target_end+1;
         aln_str->target_beg = 0; aln_str->target_end = target_end;
@@ -379,6 +380,7 @@ void wfa_trim_aln_str(int full_cover, aln_str_t *aln_str, int tlen, int qlen) {
             }
             if (target_start != -1 && query_start != -1) break;
         }
+        if (query_start == -1) query_start = target_start; // no = operation, query_start is the first position
         assert(query_start >= target_start);
         aln_str->aln_len = aln_str->aln_len - target_start;
         if (target_start != 0) {
@@ -405,7 +407,7 @@ int wfa_collect_aln_str(const call_var_opt_t *opt, uint8_t *target, int tlen, ui
     aln_str->target_aln = 0; aln_str->query_aln = 0; aln_str->aln_len = 0;
     int gap_aln = opt->gap_aln, a = opt->match, b = opt->mismatch, q = opt->gap_open1, e = opt->gap_ext1, q2 = opt->gap_open2, e2 = opt->gap_ext2;
     if (full_cover == 3) {
-        wfa_end2end_aln(target, tlen, query, qlen, opt->gap_aln, a, b, q, e, q2, e2,
+        wfa_end2end_aln(target, tlen, query, qlen, gap_aln, a, b, q, e, q2, e2,
                         NULL, NULL, &aln_str->target_aln, &aln_str->query_aln, &aln_str->aln_len);
         aln_str->target_beg = 0; aln_str->target_end = aln_str->aln_len-1;
         aln_str->query_beg = 0; aln_str->query_end = aln_str->aln_len-1;
@@ -428,8 +430,9 @@ int wfa_collect_aln_str(const call_var_opt_t *opt, uint8_t *target, int tlen, ui
 
 int end2end_aln(const call_var_opt_t *opt, char *tseq, int tlen, uint8_t *qseq, int qlen, uint32_t **cigar_buf) {
     if (qlen <= 0 || tlen <= 0) return 0;
-    int min_len = MIN_OF_TWO(tlen, qlen), max_len = MAX_OF_TWO(tlen, qlen);
-    int delta_len = MAX_OF_TWO(1, max_len - min_len);
+    // int min_len = MIN_OF_TWO(tlen, qlen)
+    int max_len = MAX_OF_TWO(tlen, qlen);
+    // int delta_len = MAX_OF_TWO(1, max_len - min_len);
 
     uint8_t *tseq2 = (uint8_t*)malloc(max_len);
     for (int i = 0; i < tlen; ++i) tseq2[i] = nst_nt4_table[(uint8_t)tseq[i]];
@@ -612,7 +615,7 @@ int abpoa_partial_aln_msa_cons(const call_var_opt_t *opt, abpoa_t *ab, int wb, i
             }
             n_cons = abc->n_cons;
         } else {
-            fprintf(stderr, "Unable to call consensus: %s\n", names[0]);
+            if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "Unable to call consensus: %s\n", names[0]);
         }
     }
 
@@ -627,73 +630,6 @@ int abpoa_partial_aln_msa_cons(const call_var_opt_t *opt, abpoa_t *ab, int wb, i
         }
     }
     abpoa_free_para(abpt); if (needs_free_ab) abpoa_free(ab);
-    return n_cons;
- }
-
-// reads are sorted by full-cover and length before calling abPOA
-// use reads with full_cover == 3 as backbone for poa
-// skip reads with full_cover == 0
-int abpoa_partial_aln(const call_var_opt_t *opt, int n_reads, uint8_t **read_seqs, int *read_lens, int *read_full_cover, char **names, int max_n_cons, int *cons_lens, uint8_t **cons_seqs) {
-    abpoa_t *ab = abpoa_init();
-    abpoa_para_t *abpt = abpoa_init_para();
-    // abpt->wb = -1;
-    abpt->out_msa = 0;
-    // abp->cons_algrm = ABPOA_MF;
-    abpt->inc_path_score = 1;
-    abpt->max_n_cons = max_n_cons;
-    // msa
-    abpt->out_cons = 1;
-    abpt->match = opt->match; abpt->mismatch = opt->mismatch;
-    abpt->gap_open1 = opt->gap_open1; abpt->gap_ext1 = opt->gap_ext1;
-    abpt->gap_open2 = opt->gap_open2; abpt->gap_ext2 = opt->gap_ext2;
-    if (LONGCALLD_VERBOSE >= 2) abpt->out_msa = 1;
-    abpoa_post_set_para(abpt);
-    ab->abs->n_seq = n_reads;
-    for (int i = 0; i < n_reads; ++i) {
-        if (LONGCALLD_VERBOSE >= 2) {
-            fprintf(stderr, ">%s %d %d\n", names[i], read_lens[i], read_full_cover[i]);
-            for (int j = 0; j < read_lens[i]; ++j) {
-                fprintf(stderr, "%c", "ACGTN"[read_seqs[i][j]]);
-            } fprintf(stderr, "\n");
-        }
-        abpoa_res_t res;
-        res.graph_cigar = 0, res.n_cigar = 0;
-        int exc_beg = 0, exc_end = 1, seq_beg_cut = 0, seq_end_cut = 0;
-        if (i != 0) {
-            int ref_beg, ref_end, read_beg, read_end, beg_id, end_id;
-            if (collect_partial_aln_beg_end(opt->gap_aln, opt->match, opt->mismatch, opt->gap_open1, opt->gap_ext1, opt->gap_open2, opt->gap_ext2,
-                                            read_seqs[0], read_lens[0], read_full_cover[0], read_seqs[i], read_lens[i], read_full_cover[i], &ref_beg, &ref_end, &read_beg, &read_end) == 0) {
-                if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "Skipped in POA: %s\n", names[i]);
-                continue;
-            }
-            beg_id = ref_beg+1, end_id = ref_end+1;
-            seq_beg_cut = read_beg - 1, seq_end_cut = read_lens[i] - read_end;
-            abpoa_subgraph_nodes(ab, abpt, beg_id, end_id, &exc_beg, &exc_end);
-        }
-        if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "ExcBeg: %d, ExcEnd: %d, SeqBegCut: %d, SeqEndCut: %d\n", exc_beg, exc_end, seq_beg_cut, seq_end_cut);
-        abpoa_align_sequence_to_subgraph(ab, abpt, exc_beg, exc_end, read_seqs[i]+seq_beg_cut, read_lens[i]-seq_beg_cut-seq_end_cut, &res);
-        abpoa_add_subgraph_alignment(ab, abpt, exc_beg, exc_end, read_seqs[i]+seq_beg_cut, NULL, read_lens[i]-seq_beg_cut-seq_end_cut, NULL, res, i, n_reads, 0);
-        if (res.n_cigar) free(res.graph_cigar);
-    }
-    if (LONGCALLD_VERBOSE >= 2) abpoa_output(ab, abpt, stderr);
-    else abpoa_output(ab, abpt, NULL);
-    abpoa_cons_t *abc = ab->abc;
-    
-    int n_cons = 0;
-    if (abc->n_cons > 0) {
-        for (int i = 0; i < abc->n_cons; ++i) {
-            cons_lens[i] = abc->cons_len[i];
-            cons_seqs[i] = (uint8_t*)malloc(abc->cons_len[i] * sizeof(uint8_t));
-            for (int j = 0; j < abc->cons_len[i]; ++j) {
-                cons_seqs[i][j] = abc->cons_base[i][j];
-            }
-            if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "ConsLen: %d\n", abc->cons_len[i]);
-        }
-        n_cons = abc->n_cons;
-    } else {
-        fprintf(stderr, "Unable to call consensus: %s\n", names[0]);
-    }
-    abpoa_free(ab); abpoa_free_para(abpt);
     return n_cons;
  }
 
@@ -907,7 +843,7 @@ int wfa_collect_noisy_aln_str_no_ps_hap(const call_var_opt_t *opt, int n_reads, 
     int n_cons = 0;
     if (n_full_reads == 0) goto collect_noisy_msa_cons_no_ps_hap_end;
 
-    int hp_flank_start, hp_flank_end, hp_len;
+    // int hp_flank_start, hp_flank_end, hp_len;
     // if (opt->is_ont) {  //opt->ont_hp_profile != NULL) {
         // XXX two cons
     // if (opt->is_ont && cons_is_homopolymer(ref_seq, ref_seq_len, opt->noisy_reg_flank_len, &hp_flank_start, &hp_flank_end, &hp_len)) { // for ont & homopolymer, do Bayesian inference instead of consensus calling
@@ -1007,7 +943,7 @@ hts_pos_t collect_phase_set_with_both_haps(int n_reads, int *read_haps, int *rea
         }
     }
     hts_pos_t max_ps = -1; int max_ps_i = -1; 
-    int max_ps_full_read_count1 = -1, max_ps_full_read_count2 = -1, max_ps_all_read_count1 = -1, max_ps_all_read_count2 = -1;
+    int max_ps_full_read_count1 = -1, max_ps_full_read_count2 = -1;
     for (int i = 0; i < n_uniq_phase_sets; ++i) {
         int phase_set_full_read_count1 = phase_set_to_hap_full_read_count[i][0] < phase_set_to_hap_full_read_count[i][1] ? phase_set_to_hap_full_read_count[i][0] : phase_set_to_hap_full_read_count[i][1];
         int phase_set_full_read_count2 = phase_set_to_hap_full_read_count[i][0] > phase_set_to_hap_full_read_count[i][1] ? phase_set_to_hap_full_read_count[i][0] : phase_set_to_hap_full_read_count[i][1];
@@ -1221,7 +1157,6 @@ int wfa_collect_noisy_aln_str_with_ps_hap(const call_var_opt_t *opt, int n_reads
                 if (lens[i] <= 0 || phase_sets[i] != ps || haps[i] != hap) continue;
                 if (use_non_full == 0 && fully_covers[i] != 3) continue;
                 // cons vs read
-                int read_beg, read_end;
                 wfa_collect_aln_str(opt, cons_seqs[hap-1], cons_lens[hap-1], seqs[i], lens[i], fully_covers[i], LONGCALLD_CONS_READ_ALN_STR(clu_aln_str, n_ps_hap_reads));
                 n_ps_hap_reads++;
             }
@@ -1236,7 +1171,7 @@ int wfa_collect_noisy_aln_str_with_ps_hap(const call_var_opt_t *opt, int n_reads
     return n_cons;
 }
 
-int collect_noisy_read_info(bam_chunk_t *chunk, hts_pos_t reg_beg, hts_pos_t reg_end, int noisy_reg_i, int n_noisy_reg_reads, int *noisy_reg_reads, int **read_lens,
+int collect_noisy_read_info(const call_var_opt_t *opt, bam_chunk_t *chunk, hts_pos_t reg_beg, hts_pos_t reg_end, int noisy_reg_i, int n_noisy_reg_reads, int *noisy_reg_reads, int **read_lens,
                             uint8_t ***read_seqs, uint8_t **strands, uint8_t ***read_quals, char ***read_names, int **fully_covers, int **read_haps, hts_pos_t **phase_sets) {
     *read_lens = (int*)calloc(n_noisy_reg_reads, sizeof(int));
     *read_seqs = (uint8_t**)malloc(n_noisy_reg_reads * sizeof(uint8_t*));
@@ -1251,9 +1186,11 @@ int collect_noisy_read_info(bam_chunk_t *chunk, hts_pos_t reg_beg, hts_pos_t reg
         int read_i = noisy_reg_reads[i];
         digar_t *read_digars = chunk->digars+read_i; int n_digar = read_digars->n_digar; digar1_t *digars = read_digars->digars;
         hts_pos_t reg_digar_beg = -1, reg_digar_end = -1;
-        int reg_read_beg = 0, reg_read_end = bam_cigar2qlen(chunk->reads[read_i]->core.n_cigar, bam_get_cigar(chunk->reads[read_i]))-1;
-        (*read_names)[i] = bam_get_qname(chunk->reads[read_i]);
-        (*strands)[i] = bam_is_rev(chunk->reads[read_i]);
+        int reg_read_beg = 0, reg_read_end = digar2qlen(read_digars)-1;
+        if (LONGCALLD_VERBOSE >= 2) (*read_names)[i] = bam_get_qname(chunk->reads[read_i]);
+        else (*read_names)[i] = NULL;
+        (*strands)[i] = read_digars->is_rev;
+        int beg_is_del = 0, end_is_del = 0;
         for (int i = 0; i < n_digar; ++i) {
             hts_pos_t digar_beg = digars[i].pos, digar_end;
             int op = digars[i].type, len = digars[i].len, qi = digars[i].qi;
@@ -1266,6 +1203,7 @@ int collect_noisy_read_info(bam_chunk_t *chunk, hts_pos_t reg_beg, hts_pos_t reg
                 if (op == BAM_CDEL) {
                     reg_digar_beg = reg_beg;
                     reg_read_beg = qi;
+                    if (len > opt->noisy_reg_flank_len) beg_is_del = 1;
                 } else {
                     reg_digar_beg = reg_beg;
                     reg_read_beg = qi + (reg_beg - digar_beg);
@@ -1275,16 +1213,25 @@ int collect_noisy_read_info(bam_chunk_t *chunk, hts_pos_t reg_beg, hts_pos_t reg
                 if (op == BAM_CDEL) {
                     reg_digar_end = reg_end;
                     reg_read_end = qi-1;
+                    if (len > opt->noisy_reg_flank_len) end_is_del = 1;
                 } else {
                     reg_digar_end = reg_end;
                     reg_read_end = qi + (reg_end - digar_beg);
                 }
             }
         }
-        if (reg_digar_beg == reg_beg && reg_digar_end == reg_end) (*fully_covers)[i] = 3;
-        else if (reg_digar_beg == reg_beg) (*fully_covers)[i] = 1;
-        else if (reg_digar_end == reg_end) (*fully_covers)[i] = 2;
-        else (*fully_covers)[i] = 0;
+        if (reg_digar_beg == reg_beg && reg_digar_end == reg_end) {
+            if (beg_is_del == 0 && end_is_del == 0) (*fully_covers)[i] = 3;
+            else if (beg_is_del == 0 && end_is_del == 1) (*fully_covers)[i] = 1;
+            else if (beg_is_del == 1 && end_is_del == 0) (*fully_covers)[i] = 2;
+            else (*fully_covers)[i] = 0;
+        } else if (reg_digar_beg == reg_beg) {
+            if (beg_is_del) (*fully_covers)[i] = 0;
+            else (*fully_covers)[i] = 1;
+        } else if (reg_digar_end == reg_end) {
+            if (end_is_del) (*fully_covers)[i] = 0;
+            else (*fully_covers)[i] = 2;
+        } else (*fully_covers)[i] = 0;
         // if (2*(reg_read_end-reg_read_beg+1) < (reg_end-reg_beg+1)) return 0;
         (*read_seqs)[i] = (uint8_t*)malloc((reg_read_end - reg_read_beg + 1) * sizeof(uint8_t));
         (*read_quals)[i] = (uint8_t*)malloc((reg_read_end - reg_read_beg + 1) * sizeof(uint8_t));
@@ -1294,7 +1241,7 @@ int collect_noisy_read_info(bam_chunk_t *chunk, hts_pos_t reg_beg, hts_pos_t reg
         }
         (*read_lens)[i] = reg_read_end - reg_read_beg + 1;
         (*read_haps)[i] = chunk->haps[read_i];
-        (*phase_sets)[i] = chunk->PS[read_i];
+        (*phase_sets)[i] = chunk->phase_sets[read_i];
     }
     return 0;
 }
@@ -1306,7 +1253,7 @@ int collect_noisy_reg_aln_strs(const call_var_opt_t *opt, bam_chunk_t *chunk, ht
     if (n_noisy_reg_reads <= 0) return 0;
     // fully_cover: 0 -> none, 1 -> left, 2 -> right, 3 -> both
     char **names = NULL; uint8_t **seqs = NULL; uint8_t *strands=NULL; int *fully_covers = NULL, *lens = NULL, *haps = NULL; hts_pos_t *phase_sets = NULL; uint8_t **base_quals = NULL;
-    collect_noisy_read_info(chunk, noisy_reg_beg, noisy_reg_end, noisy_reg_i, n_noisy_reg_reads, noisy_reads, &lens, &seqs, &strands, &base_quals, &names, &fully_covers, &haps, &phase_sets);
+    collect_noisy_read_info(opt, chunk, noisy_reg_beg, noisy_reg_end, noisy_reg_i, n_noisy_reg_reads, noisy_reads, &lens, &seqs, &strands, &base_quals, &names, &fully_covers, &haps, &phase_sets);
 
     sort_by_full_cover_and_length(n_noisy_reg_reads, noisy_reads, lens, seqs, base_quals, strands, fully_covers, names, haps, phase_sets);
     // >= min_hap_full_read_count reads for each hap && >= min_hap_read_count reads (including not full-cover, but >= full-cover length) for each hap
