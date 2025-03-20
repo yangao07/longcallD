@@ -8,6 +8,9 @@
 
 #define LONGCALLD_BAM_CHUNK_READ_COUNT 4000
 #define LONGCALLD_BAM_CHUNK_REG_SIZE 500000 // 0.5M/1M
+// region-based BAM_CHUNK: no split for a single chromosome
+//                         multi regions may be merged into a single chunk if n_regs < 64
+// #define LONGCALLD_BAM_MIN_REG_CHUNK_PER_RUN 64 // n_threads * 4
 
 
 #define BAM_RECORD_LOW_QUAL 0x1
@@ -37,69 +40,72 @@ typedef struct digar1_t {
                          //              etc.
 typedef struct {
     hts_pos_t beg, end; // [beg, end]
+    uint8_t is_rev;
     int n_digar, m_digar;
     digar1_t *digars;
     // read-wise noisy region: active region for re-alignment
-    uint8_t has_long_clip; // XXX long clip in the read, need to re-align see if there is a long ins/del, if not, probabely wrong mapping, skip this read
     cgranges_t *noisy_regs; // merge low_qual digar1_t if they are next to each other
-    const uint8_t *bseq, *qual;
+    uint8_t *bseq, *qual; // copy from bam1_t
 } digar_t; // detailed CIGAR for each read
 
-// coordinate system: ACGT: 1234
-//   samtools view/longCallD call: 1-based, [beg, end]: [1,4]
-//   bam_chunk beg/end, ref_beg/ref_end: 1-based, [beg, end]:[1,4]
-//   ref_reg_seq_t: 1-based, [beg, end]: [1,4]
-//   cgranges: 0-based, (beg, end]: (0, 4]
-// a chunk of BAM reads, and auxiliary information for variant calling/phasing
-// the very basic working unit where variants are called and haplotypes are assigned
 typedef struct bam_chunk_t {
     // input
-    int tid; char *tname;
+    // tid = pl->reg_chunks[reg_chunk_i].reg_tids[reg_i] 
+    // reg_beg = pl->reg_chunks[reg_chunk_i].reg_begs[reg_i]
+    // reg_end = pl->reg_chunks[reg_chunk_i].reg_ends[reg_i]
+    int reg_chunk_i, reg_i, tid; hts_pos_t reg_beg, reg_end;
+    char *tname;
     // ref_seq: 
-    //   reference sequence for this chunk, size: ref_end-ref_beg
+    //   reference sequence for this chunk, size: ref_end-ref_beg+1
     //   if reg_reg_cr contain >1 regions, ref_seq will be concatenated, including additonal gaps between regions
-    char *ref_seq; uint8_t need_free_ref_seq; hts_pos_t ref_beg, ref_end; // [ref_beg, ref_end]
+    char *ref_seq; hts_pos_t ref_beg, ref_end, whole_ref_len; // [ref_beg, ref_end]
     // reg_cr: 
     //   reference region for this chunk. usually just 1 region, but could be multiple regions when regions are small, or reads are long
     //   only variants within regions will be considered, variants outside will be skipped
     //   for variants across boundaries/spaning multiple regions, they will be processed during stitching
-    //   ref_beg <= reg_beg < reg_end <= ref_end, ref_seq may include additional flanking regions (1kb)
-    cgranges_t *reg_cr, *low_comp_cr; hts_pos_t reg_beg, reg_end; // [reg_beg, reg_end]
-    // hts_pos_t active_reg_beg, active_reg_end; // [active_reg_beg, active_reg_end]: only variants within this region will be considered
-                                              // variants spaning this region will be re-processed during stitching
-    // uint8_t bam_has_eqx_cigar, bam_has_md_tag;
+    //   ref_beg <= reg_beg < reg_end <= ref_end, ref_seq may include additional flanking regions (50kb)
+    // should always be 1 region XXX
+    cgranges_t *low_comp_cr;
     int n_reads, m_reads;
-    int n_up_ovlp_reads; // number of reads overlapping with upstream bam chunk
-                         // for each chunk, only output [n_up_ovlp_reads, n_reads]'s reads
-    int *up_ovlp_read_i; // read_i in upstream bam chunk; size: n_up_ovlp_reads
-    bam1_t **reads; 
+    int n_up_ovlp_reads, n_down_ovlp_reads; // number of reads overlapping with up/downstream bam chunk
+    int *up_ovlp_read_i, *down_ovlp_read_i;
+    bam1_t **reads;
     // intermidiate
-    uint8_t *is_ovlp; // size: m_reads, is_ovlp: overlap with other chunks
-    uint8_t *is_skipped; // size: m_reads, is_skipped: wrong mapping, low qual, etc.
-    digar_t *digars;
-
+    digar_t *digars; uint8_t *is_skipped; // size: m_reads, is_skipped: wrong mapping, low qual, etc.
     // variant-related
-    int n_cand_vars; cand_var_t *cand_vars; 
-    int *var_i_to_cate; // size: n_cand_vars; HET/HOM/SOMATIC
-    // XXX noisy region: 
-    //  1) too many XIDs in non-repeat regions 
-    //  2) higher depth than nearby normal regions
-    //  3) normal reads with similar depth exist
+    int n_cand_vars; cand_var_t *cand_vars; int *var_i_to_cate; // size: n_cand_vars; HET/HOM/SOMATIC
+    read_var_profile_t *read_var_profile; cgranges_t *read_var_cr;
+    // noisy regions
+    // right now: not work with cooridinate > 2G (pow(2,31)), use noisy_reg_beg-reg_beg+1 instead for coordinates > 2G
     cgranges_t *chunk_noisy_regs; // merged noisy regions for all reads
     int **noisy_reg_to_reads, *noisy_reg_to_n_reads; // size: chunk->chunk_noisy_regs->n_r
-
-    read_var_profile_t *read_var_profile; cgranges_t *read_var_cr;
     // output
-    uint8_t flip_hap; // XXX flip haplotype for this chunk, chromosome-wise global parameter, flip_hap ^= pre_flip
-                      // so all the haplotypes need to be output sequentially to keep consistency
-    int *haps; hts_pos_t *PS; // size: m_reads
-} bam_chunk_t;
+    uint8_t flip_hap; // flip haplotype for this chunk, chromosome-wise global parameter
+    hts_pos_t flip_pre_PS, flip_cur_PS; // so all the haplotypes need to be output sequentially to keep consistency
+    // read-wise
+    int *haps; hts_pos_t *phase_sets; // size: m_reads 
+} bam_chunk_t; // reg-based bam_chunk_t
 
 struct call_var_pl_t;
 struct call_var_opt_t;
 struct cand_var_t;
 struct var_site_t;
 struct read_var_profile_t;
+struct call_var_io_aux_t;
+
+static inline int digar2qlen(digar_t *digar) {
+    if (digar->n_digar == 0) return 0;
+    int qlen = digar->digars[digar->n_digar-1].qi;
+    if (digar->digars[digar->n_digar-1].type == BAM_CEQUAL ||
+        digar->digars[digar->n_digar-1].type == BAM_CMATCH ||
+        digar->digars[digar->n_digar-1].type == BAM_CDIFF ||
+        digar->digars[digar->n_digar-1].type == BAM_CINS ||
+        digar->digars[digar->n_digar-1].type == BAM_CSOFT_CLIP ||
+        digar->digars[digar->n_digar-1].type == BAM_CHARD_CLIP) {
+        qlen += digar->digars[digar->n_digar-1].len;
+    }
+    return qlen;
+}
 
 static inline int is_in_noisy_reg(hts_pos_t pos, cgranges_t *noisy_regs) {
     int64_t ovlp_n, *ovlp_b = 0, max_b = 0;
@@ -127,19 +133,19 @@ void print_digar(digar_t *digar, FILE *fp);
 int has_equal_X_in_bam_cigar(bam1_t *read);
 int has_MD_in_bam(bam1_t *b);
 int collect_reg_digars_var_seqs(bam_chunk_t *chunk, int read_i, hts_pos_t reg_beg, hts_pos_t reg_end, digar1_t *reg_digars, uint8_t **reg_var_seqs, int *fully_cover);
-void check_eqx_cigar_MD_tag(samFile *in_bam, bam_hdr_t *header, uint8_t *has_eqx, uint8_t *has_MD);
-int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct call_var_pl_t *pl, const struct call_var_opt_t *opt, digar_t *digar);
-int collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct call_var_pl_t *pl, const struct call_var_opt_t *opt, digar_t *digar);
-int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct call_var_pl_t *pl, const struct call_var_opt_t *opt, digar_t *digar);
-int update_cand_vars_from_digar(digar_t *digar, bam1_t *read, int n_var_sites, struct var_site_t *var_sites, int start_i, struct cand_var_t *cand_vars);
+int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar);
+int collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar);
+int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar);
+int update_cand_vars_from_digar(const struct call_var_opt_t *opt, bam_chunk_t *chunk, digar_t *digar, int n_var_sites, struct var_site_t *var_sites, int start_i, struct cand_var_t *cand_vars);
 void update_read_var_profile_with_allele(int var_i, int allele_i, read_var_profile_t *read_var_profile);
-int update_read_var_profile_from_digar(digar_t *digar, bam1_t *read, int n_cand_vars, struct cand_var_t *cand_vars, int start_var_i, struct read_var_profile_t *read_var_profile);
+int update_read_var_profile_from_digar(const struct call_var_opt_t *opt, bam_chunk_t *chunk, digar_t *digar, int n_cand_vars, struct cand_var_t *cand_vars, int start_var_i, struct read_var_profile_t *read_var_profile);
 
-int collect_bam_chunk(struct call_var_pl_t *pl, bam_chunk_t *chunk, int chunk_i);
-void copy_bam_chunk0(bam_chunk_t *from_chunk, bam_chunk_t *to_chunk);
-void bam_chunk_free(bam_chunk_t *chunk);
-void bam_ovlp_chunk_free(bam_chunk_t *chunk);
-void bam_chunks_free(bam_chunk_t *chunks, int n_chunks);
+int collect_ref_seq_bam_main(const struct call_var_pl_t *pl, struct call_var_io_aux_t *io_aux, int reg_chunk_i, int reg_i, bam_chunk_t *chunks);
+int write_read_to_bam(bam_chunk_t *chunk, const struct call_var_opt_t *opt);
+void bam_chunk_mid_free(bam_chunk_t *chunk);
+void bam_chunks_mid_free(bam_chunk_t *chunks, int n_chunks);
+void bam_chunk_post_free(bam_chunk_t *chunk);
+void bam_chunks_post_free(bam_chunk_t *chunks, int n_chunks);
 struct read_var_profile_t *init_read_var_profile(int n_reads, int n_total_vars);
 struct read_var_profile_t *init_read_var_profile_with_ids(int n_reads, int *read_ids, int n_total_vars);
 void free_read_var_profile(struct read_var_profile_t *p, int n_reads);

@@ -357,7 +357,7 @@ void wfa_trim_aln_str(int full_cover, aln_str_t *aln_str, int tlen, int qlen) {
             }
             if (target_end != -1 && query_end != -1) break;
         }
-        if (query_end == -1) query_end = target_end;
+        if (query_end == -1) query_end = target_end; // no = operation, query_end is the last position
         assert(query_end <= target_end);
         aln_str->aln_len = target_end+1;
         aln_str->target_beg = 0; aln_str->target_end = target_end;
@@ -380,7 +380,7 @@ void wfa_trim_aln_str(int full_cover, aln_str_t *aln_str, int tlen, int qlen) {
             }
             if (target_start != -1 && query_start != -1) break;
         }
-        if (query_start == -1) query_start = target_start; // no = operation
+        if (query_start == -1) query_start = target_start; // no = operation, query_start is the first position
         assert(query_start >= target_start);
         aln_str->aln_len = aln_str->aln_len - target_start;
         if (target_start != 0) {
@@ -407,7 +407,7 @@ int wfa_collect_aln_str(const call_var_opt_t *opt, uint8_t *target, int tlen, ui
     aln_str->target_aln = 0; aln_str->query_aln = 0; aln_str->aln_len = 0;
     int gap_aln = opt->gap_aln, a = opt->match, b = opt->mismatch, q = opt->gap_open1, e = opt->gap_ext1, q2 = opt->gap_open2, e2 = opt->gap_ext2;
     if (full_cover == 3) {
-        wfa_end2end_aln(target, tlen, query, qlen, opt->gap_aln, a, b, q, e, q2, e2,
+        wfa_end2end_aln(target, tlen, query, qlen, gap_aln, a, b, q, e, q2, e2,
                         NULL, NULL, &aln_str->target_aln, &aln_str->query_aln, &aln_str->aln_len);
         aln_str->target_beg = 0; aln_str->target_end = aln_str->aln_len-1;
         aln_str->query_beg = 0; aln_str->query_end = aln_str->aln_len-1;
@@ -430,8 +430,9 @@ int wfa_collect_aln_str(const call_var_opt_t *opt, uint8_t *target, int tlen, ui
 
 int end2end_aln(const call_var_opt_t *opt, char *tseq, int tlen, uint8_t *qseq, int qlen, uint32_t **cigar_buf) {
     if (qlen <= 0 || tlen <= 0) return 0;
-    int min_len = MIN_OF_TWO(tlen, qlen), max_len = MAX_OF_TWO(tlen, qlen);
-    int delta_len = MAX_OF_TWO(1, max_len - min_len);
+    // int min_len = MIN_OF_TWO(tlen, qlen)
+    int max_len = MAX_OF_TWO(tlen, qlen);
+    // int delta_len = MAX_OF_TWO(1, max_len - min_len);
 
     uint8_t *tseq2 = (uint8_t*)malloc(max_len);
     for (int i = 0; i < tlen; ++i) tseq2[i] = nst_nt4_table[(uint8_t)tseq[i]];
@@ -614,7 +615,7 @@ int abpoa_partial_aln_msa_cons(const call_var_opt_t *opt, abpoa_t *ab, int wb, i
             }
             n_cons = abc->n_cons;
         } else {
-            fprintf(stderr, "Unable to call consensus: %s\n", names[0]);
+            if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "Unable to call consensus: %s\n", names[0]);
         }
     }
 
@@ -753,7 +754,7 @@ void sort_by_full_cover_and_length(int n_reads, int *read_ids, int *read_lens, u
     }
 }
 
-int add_phase_set(hts_pos_t ps, hts_pos_t *uniq_phase_sets, int *n_uniq_phase_sets) {
+static int add_phase_set(hts_pos_t ps, hts_pos_t *uniq_phase_sets, int *n_uniq_phase_sets) {
     int i;
     for (i = 0; i < *n_uniq_phase_sets; ++i) {
         if (uniq_phase_sets[i] == ps) return i;
@@ -842,7 +843,7 @@ int wfa_collect_noisy_aln_str_no_ps_hap(const call_var_opt_t *opt, int n_reads, 
     int n_cons = 0;
     if (n_full_reads == 0) goto collect_noisy_msa_cons_no_ps_hap_end;
 
-    int hp_flank_start, hp_flank_end, hp_len;
+    // int hp_flank_start, hp_flank_end, hp_len;
     // if (opt->is_ont) {  //opt->ont_hp_profile != NULL) {
         // XXX two cons
     // if (opt->is_ont && cons_is_homopolymer(ref_seq, ref_seq_len, opt->noisy_reg_flank_len, &hp_flank_start, &hp_flank_end, &hp_len)) { // for ont & homopolymer, do Bayesian inference instead of consensus calling
@@ -942,7 +943,7 @@ hts_pos_t collect_phase_set_with_both_haps(int n_reads, int *read_haps, int *rea
         }
     }
     hts_pos_t max_ps = -1; int max_ps_i = -1; 
-    int max_ps_full_read_count1 = -1, max_ps_full_read_count2 = -1, max_ps_all_read_count1 = -1, max_ps_all_read_count2 = -1;
+    int max_ps_full_read_count1 = -1, max_ps_full_read_count2 = -1;
     for (int i = 0; i < n_uniq_phase_sets; ++i) {
         int phase_set_full_read_count1 = phase_set_to_hap_full_read_count[i][0] < phase_set_to_hap_full_read_count[i][1] ? phase_set_to_hap_full_read_count[i][0] : phase_set_to_hap_full_read_count[i][1];
         int phase_set_full_read_count2 = phase_set_to_hap_full_read_count[i][0] > phase_set_to_hap_full_read_count[i][1] ? phase_set_to_hap_full_read_count[i][0] : phase_set_to_hap_full_read_count[i][1];
@@ -1156,7 +1157,6 @@ int wfa_collect_noisy_aln_str_with_ps_hap(const call_var_opt_t *opt, int n_reads
                 if (lens[i] <= 0 || phase_sets[i] != ps || haps[i] != hap) continue;
                 if (use_non_full == 0 && fully_covers[i] != 3) continue;
                 // cons vs read
-                int read_beg, read_end;
                 wfa_collect_aln_str(opt, cons_seqs[hap-1], cons_lens[hap-1], seqs[i], lens[i], fully_covers[i], LONGCALLD_CONS_READ_ALN_STR(clu_aln_str, n_ps_hap_reads));
                 n_ps_hap_reads++;
             }
@@ -1186,9 +1186,10 @@ int collect_noisy_read_info(const call_var_opt_t *opt, bam_chunk_t *chunk, hts_p
         int read_i = noisy_reg_reads[i];
         digar_t *read_digars = chunk->digars+read_i; int n_digar = read_digars->n_digar; digar1_t *digars = read_digars->digars;
         hts_pos_t reg_digar_beg = -1, reg_digar_end = -1;
-        int reg_read_beg = 0, reg_read_end = bam_cigar2qlen(chunk->reads[read_i]->core.n_cigar, bam_get_cigar(chunk->reads[read_i]))-1;
-        (*read_names)[i] = bam_get_qname(chunk->reads[read_i]);
-        (*strands)[i] = bam_is_rev(chunk->reads[read_i]);
+        int reg_read_beg = 0, reg_read_end = digar2qlen(read_digars)-1;
+        if (LONGCALLD_VERBOSE >= 2) (*read_names)[i] = bam_get_qname(chunk->reads[read_i]);
+        else (*read_names)[i] = NULL;
+        (*strands)[i] = read_digars->is_rev;
         int beg_is_del = 0, end_is_del = 0;
         for (int i = 0; i < n_digar; ++i) {
             hts_pos_t digar_beg = digars[i].pos, digar_end;
@@ -1240,7 +1241,7 @@ int collect_noisy_read_info(const call_var_opt_t *opt, bam_chunk_t *chunk, hts_p
         }
         (*read_lens)[i] = reg_read_end - reg_read_beg + 1;
         (*read_haps)[i] = chunk->haps[read_i];
-        (*phase_sets)[i] = chunk->PS[read_i];
+        (*phase_sets)[i] = chunk->phase_sets[read_i];
     }
     return 0;
 }

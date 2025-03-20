@@ -45,6 +45,10 @@ ifeq ($(UNAME_S),Linux) # Linux
 		LIB += -static-libgcc -static-libstdc++
 		ifneq ($(opt_lib),)
 			LIB = $(HTSLIB) $(ABPOA_LIB) $(WFA2_LIB) -static-libgcc -static-libstdc++ -L${opt_lib} -lm -lz -lpthread -llzma -lbz2 -lcurl -lssl -lcrypto -lssh2 -ldeflate -lzstd 
+		else
+			ifneq ($(OPT_LIB),)
+				LIB = $(HTSLIB) $(ABPOA_LIB) $(WFA2_LIB) -static-libgcc -static-libstdc++ -L${OPT_LIB} -lm -lz -lpthread -llzma -lbz2 -lcurl -lssl -lcrypto -lssh2 -ldeflate -lzstd 
+			endif
 		endif
 	endif
 endif

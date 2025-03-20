@@ -14,7 +14,7 @@
 #define LONGCALLD_CLEAN_HET_INDEL    0x008 // "I"
 #define LONGCALLD_REP_HET_VAR        0x010 // "R"
 #define LONGCALLD_NOISY_REG_VAR      0x020 // "X"
-#define LONGCALLD_CAND_SOMA_VAR      0x040 // "S"
+#define LONGCALLD_CAND_SOMATIC_VAR   0x040 // "S"
 #define LONGCALLD_CAND_HOM_VAR       0x080 // "H"
 #define LONGCALLD_NOISY_CAND_HET_VAR 0x100 // "e"
 #define LONGCALLD_NOISY_CAND_HOM_VAR 0x200 // "h"
@@ -90,7 +90,8 @@ int comp_ovlp_var_site(var_site_t *var1, var_site_t *var2, int *is_ovlp);
 var_site_t make_var_site_from_digar(int tid, struct digar1_t *digar);
 var_site_t make_var_site_from_cand_var(struct cand_var_t *cand_var);
 void collect_var_main(const struct call_var_pl_t *pl, struct bam_chunk_t *bam_chunk);
-void stitch_var_main(struct call_var_step_t *step, struct bam_chunk_t *bam_chunk, struct var_t *var, long ii);
+void make_var_main(struct call_var_step_t *step, struct bam_chunk_t *chunk, struct var_t *var, long ii);
+void stitch_var_main(struct call_var_step_t *step, struct bam_chunk_t *bam_chunk);
 void free_cand_vars(struct cand_var_t *cand_vars, int m);
 
 #ifdef __cplusplus

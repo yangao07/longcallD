@@ -28,7 +28,13 @@ const struct option call_var_opt [] = {
     { "amb-base", 0, NULL, 0},
     { "hifi", 0, NULL, 0},
     { "ont", 0, NULL, 0},
-    { "ont-hp-prof", 1, NULL, 0},
+    { "region-file", 1, NULL, 0},
+    { "regions-file", 1, NULL, 0},
+    { "autosome", 0, NULL, 0},
+    { "autosome-XY", 0, NULL, 0},
+    { "somatic-snp", 0, NULL, 0},
+    { "methylation", 0, NULL, 0},
+    // { "ont-hp-prof", 1, NULL, 0},
 
     // short options
     { "ref-idx", 1, NULL, 'r' },
@@ -154,15 +160,16 @@ call_var_opt_t *call_var_init_para(void) {
     call_var_opt_t *opt = (call_var_opt_t*)_err_malloc(sizeof(call_var_opt_t));
 
     opt->sample_name = NULL;
-    opt->ref_fa_fn = NULL; opt->ref_fa_fai_fn = NULL;
+    opt->ref_fa_fn = NULL; opt->ref_fa_fai_fn = NULL; opt->reg_bed_fn = NULL;
 
     opt->is_pb_hifi = 0; opt->is_ont = 0;
+    opt->only_autosome = 0; opt->only_autosome_XY = 0;
 
-    opt->region_list = NULL; opt->region_is_file = 0;
-
+    // opt->region_list = NULL; opt->region_is_file = 0;
     opt->max_ploid = LONGCALLD_DEF_PLOID;
     opt->min_mq = LONGCALLD_MIN_CAND_MQ;
     opt->min_bq = LONGCALLD_MIN_CAND_BQ;
+    opt->min_somatic_bq = LONGCALLD_MIN_CAND_SOMATIC_BQ;
     opt->min_dp = LONGCALLD_MIN_CAND_DP;
     opt->min_alt_dp = LONGCALLD_MIN_ALT_DP;
 
@@ -184,9 +191,9 @@ call_var_opt_t *call_var_init_para(void) {
     opt->min_hap_reads = LONGCALLD_MIN_HAP_READS;
     // opt->min_no_hap_full_reads = LONGCALLD_MIN_NO_HAP_FULL_READS;
 
-    opt->min_somatic_af = LONGCALLD_MIN_SOMATIC_AF;
     opt->min_af = LONGCALLD_MIN_CAND_AF;
     opt->max_af = LONGCALLD_MAX_CAND_AF;
+    opt->min_somatic_hap_dp = LONGCALLD_MIN_SOMATIC_HAP_READS;
 
     opt->match = LONGCALLD_MATCH_SCORE;
     opt->mismatch = LONGCALLD_MISMATCH_SCORE;
@@ -204,7 +211,7 @@ call_var_opt_t *call_var_init_para(void) {
     opt->p_error = 0.001; opt->log_p = -3.0; opt->log_1p = log10(1-opt->p_error); opt->log_2 = 0.301023;
     opt->max_gq = 60; opt->max_qual = 60;
     opt->out_vcf = NULL; opt->no_vcf_header = 0; opt->out_amb_base = 0;
-    opt->out_bam = NULL; opt->no_bam_header = 0;
+    opt->out_bam = NULL; opt->out_somatic_snp = 0; opt->out_methylation = 0;
     // opt->verbose = 0;
     return opt;
 }
@@ -213,7 +220,7 @@ void call_var_free_para(call_var_opt_t *opt) {
     if (opt->ref_fa_fn) free(opt->ref_fa_fn);
     if (opt->in_bam_fn) free(opt->in_bam_fn);
     if (opt->sample_name) free(opt->sample_name);
-    if (opt->region_list) free(opt->region_list);
+    // if (opt->region_list) free(opt->region_list);
     if (opt->ont_hp_profile != NULL) {
         for (int i = 0; i < 4*4*4; ++i) {
             for (int j = 0; j < 50; ++j) {
@@ -230,19 +237,29 @@ void call_var_free_para(call_var_opt_t *opt) {
     free(opt);
 }
 
-void call_var_free_pl(call_var_pl_t pl) {
-    // if (pl.ref_seq) ref_seq_free(pl.ref_seq);
-    if (pl.ref_reg_seq) ref_reg_seq_free(pl.ref_reg_seq);
-    if (pl.fai) fai_destroy(pl.fai);
-    if (pl.bam) {
-        if (pl.iter) hts_itr_destroy(pl.iter);
-        if (pl.idx) hts_idx_destroy(pl.idx);
-        bam_hdr_destroy(pl.header);
-        sam_close(pl.bam); 
-        hts_tpool_destroy(pl.p);
+void reg_chunks_free(reg_chunks_t *reg_chunks, int m_reg_chunks) {
+    for (int i = 0; i < m_reg_chunks; ++i) {
+        if (reg_chunks[i].reg_tids) free(reg_chunks[i].reg_tids);
+        if (reg_chunks[i].reg_begs) free(reg_chunks[i].reg_begs);
+        if (reg_chunks[i].reg_ends) free(reg_chunks[i].reg_ends);
     }
-    bam_ovlp_chunk_free(pl.last_chunk); free(pl.last_chunk);
-    if (pl.last_chunk_read_i != NULL) free(pl.last_chunk_read_i);
+    free(reg_chunks);
+}
+
+void call_var_io_aux_free(call_var_io_aux_t *aux, int n) {
+    for (int i = 0; i < n; ++i) {
+        if (aux[i].fai) fai_destroy(aux[i].fai);
+        if (aux[i].bam) {
+            if (aux[i].idx) hts_idx_destroy(aux[i].idx);
+            bam_hdr_destroy(aux[i].header);
+            sam_close(aux[i].bam); 
+        }
+    }
+    free(aux);
+}
+void call_var_free_pl(call_var_pl_t pl) {
+    call_var_io_aux_free(pl.io_aux, pl.n_threads);
+    reg_chunks_free(pl.reg_chunks, pl.m_reg_chunks);
 }
 
 void var_free(var_t *v) {
@@ -269,116 +286,305 @@ void var1_free(var1_t *v) {
     }
 }
 
-void call_var_pl_open_ref_reg_fa0(const char *ref_fa_fn, call_var_pl_t *pl) {
-    if (ref_fa_fn) {
-        _err_info("Loading reference genome: %s\n", ref_fa_fn);
-        pl->ref_reg_seq = read_ref_reg_seq(ref_fa_fn);
-        if (pl->ref_reg_seq == NULL) _err_error_exit("Failed to read reference genome: %s\n", ref_fa_fn);
-        _err_info("Loading done: %s\n", ref_fa_fn);
-    } else {
-        _err_error_exit("No reference genome provided\n");
-    }
-}
-
-ref_reg_seq_t *call_var_pl_open_ref_reg_fa(const char *ref_fa_fn, faidx_t *fai, hts_itr_t *iter, bam_hdr_t *header) {
-    ref_reg_seq_t *ref_reg_seq = ref_reg_seq_init();
-    _err_info("Loading region(s) from reference genome: %s\n", ref_fa_fn);
-    for (int i = 0; i < iter->n_reg; ++i) {
-        for (int j = 0; j < iter->reg_list[i].count; ++j) { // ACGT:1234, (beg, end]:(0,4]
-            read_ref_reg_seq1(fai, ref_reg_seq, header->target_name[iter->reg_list[i].tid], iter->reg_list[i].intervals[j].beg, iter->reg_list[i].intervals[j].end);
-        }
-    }
-    cr_index(ref_reg_seq->reg_cr);
-    // _err_info("Loading regions done!\n");
-    return ref_reg_seq;
-} 
-
-// call variants for each chunk
-static void call_var_worker_for(void *_data, long ii, int tid) {
+static void collect_bam_call_var_worker_for(void *_data, long ii, int tid) {
     call_var_step_t *step = (call_var_step_t*)_data;
-    bam_chunk_t *c = step->chunks + ii; // var_t *v = step->vars + ii;
-    if (LONGCALLD_VERBOSE >= 1) fprintf(stderr, "[%s] tid: %d, chunk: %ld n_reads: %d\n", __func__, tid, ii, c->n_reads);
-    collect_var_main(step->pl, c);
+    bam_chunk_t *c = step->chunks + ii;
+    if (LONGCALLD_VERBOSE >= 1) fprintf(stderr, "[%s] thread-id: %d, chunk: %ld (%d)\n", __func__, tid, ii, step->n_chunks);
+    if (collect_ref_seq_bam_main(step->pl, step->pl->io_aux+tid, step->pl->reg_chunk_i, ii, c) > 0) {
+        collect_var_main(step->pl, c);
+    }
+    bam_chunk_mid_free(c);
 }
 
 // merge variants from two chunks
-static void stitch_var_worker_for(void *_data, long ii, int tid) {
+static void make_var_worker_for(void *_data, long ii, int tid) {
     call_var_step_t *step = (call_var_step_t*)_data;
     bam_chunk_t *c = step->chunks+ii; var_t *var = step->vars+ii;
-    if (LONGCALLD_VERBOSE >= 1) fprintf(stderr, "[%s] tid: %d, chunk: %ld (%d), n_reads: %d\n", __func__, tid, ii, step->n_chunks, c->n_reads);
-    stitch_var_main(step, c, var, ii);
+    if (LONGCALLD_VERBOSE >= 1) fprintf(stderr, "[%s] thread-id: %d, chunk: %ld (%d), n_reads: %d\n", __func__, tid, ii, step->n_chunks, c->n_reads);
+    make_var_main(step, c, var, ii);
 }
 
-static void call_var_pl_open_fa_bam(call_var_opt_t *opt, call_var_pl_t *pl, char **regions, int n_regions) {
-    // input BAM file
-    if (strcmp(opt->in_bam_fn, "-") == 0) _err_info("Opening BAM file from pipe/stdin\n");
-    else _err_info("Opening BAM file: %s\n", opt->in_bam_fn);
-    pl->bam = sam_open(opt->in_bam_fn, "r"); if (pl->bam == NULL) _err_error_exit("Failed to open alignment file \'%s\'\n", opt->in_bam_fn);
-    const htsFormat *fmt = hts_get_format(pl->bam); if (!fmt) _err_error_exit("Failed to get format of alignment file \'%s\'\n", opt->in_bam_fn);
-    // multi-threading
-    pl->p = hts_tpool_init(MAX_OF_TWO(1, pl->n_threads));
-    // pl->p = hts_tpool_init(3);
-    htsThreadPool thread_pool = {pl->p, 0};
-    if (hts_set_thread_pool(pl->bam, &thread_pool) != 0) _err_error_exit("Failed to set thread pool.\n");
-
-    pl->header = sam_hdr_read(pl->bam); if (pl->header == NULL) {
-        hts_tpool_destroy(pl->p); sam_close(pl->bam);
-        _err_error_exit("Failed to read BAM header \'%s\'\n", opt->in_bam_fn);
-    }
-    // init chunk
-    pl->last_chunk = calloc(1, sizeof(bam_chunk_t)); pl->last_chunk_read_i = NULL; pl->n_last_chunk_reads = 0; pl->cur_active_reg_beg = -1; pl->cur_active_reg_beg = -1;
-    // input reference fasta file
-    // pl->fai = fai_load(opt->ref_fa_fn);
-    pl->fai = fai_load3(opt->ref_fa_fn, opt->ref_fa_fai_fn, NULL, FAI_CREATE);
-    if (pl->fai == NULL) {
-        hts_tpool_destroy(pl->p); sam_hdr_destroy(pl->header); sam_close(pl->bam);
-        _err_error_exit("Failed to load/build reference fasta index: %s\n", opt->ref_fa_fn);
-    }
-    if (fmt->format == cram) {
-        if (hts_set_fai_filename(pl->bam, opt->ref_fa_fn) != 0) {
-            fai_destroy(pl->fai); hts_tpool_destroy(pl->p); sam_hdr_destroy(pl->header); sam_close(pl->bam);
-            _err_error_exit("Failed to set reference file for CRAM decoding: %s %s\n", opt->in_bam_fn, opt->ref_fa_fn);
+static void reg_chunks_realloc(call_var_pl_t *pl) {
+    if (pl->n_reg_chunks >= pl->m_reg_chunks) {
+        pl->m_reg_chunks *= 2;
+        pl->reg_chunks = (reg_chunks_t*)realloc(pl->reg_chunks, pl->m_reg_chunks * sizeof(reg_chunks_t));
+        for (int k = pl->n_reg_chunks; k < pl->m_reg_chunks; k++) {
+            pl->reg_chunks[k].n_regions = 0;
+            pl->reg_chunks[k].m_regions = 512;
+            pl->reg_chunks[k].reg_tids = (int*)malloc(pl->reg_chunks[k].m_regions * sizeof(int));
+            pl->reg_chunks[k].reg_begs = (hts_pos_t*)malloc(pl->reg_chunks[k].m_regions * sizeof(hts_pos_t));
+            pl->reg_chunks[k].reg_ends = (hts_pos_t*)malloc(pl->reg_chunks[k].m_regions * sizeof(hts_pos_t));
         }
     }
-    // collect sample name (SM) from BAM header
-    if (opt->sample_name == NULL) opt->sample_name = extract_sample_name_from_bam_header(pl->header); // extract sample names from BAM header
-    if (opt->sample_name == NULL) opt->sample_name = strdup(opt->in_bam_fn);
-    pl->use_iter = 0;
-    if (n_regions > 0) {
-        if (strcmp(opt->in_bam_fn, "-") == 0) _err_error_exit("When provided with region(s), input BAM file cannot be pipe/stdin(-).\n");
-        pl->idx = sam_index_load(pl->bam, opt->in_bam_fn);
-        if (pl->idx == NULL) { // attempt to create index if not exist
-            _err_warning("BAM index not found for \'%s\', creating now ...\n", opt->in_bam_fn);
-            if (sam_index_build(opt->in_bam_fn, 0) < 0) {
-                bam_hdr_destroy(pl->header);
-                sam_close(pl->bam);
-                _err_error_exit("Failed to build BAM index \'%s\'\n", opt->in_bam_fn);
-            } else {
-                pl->idx = sam_index_load(pl->bam, opt->in_bam_fn);
-                if (pl->idx == NULL) {
-                    bam_hdr_destroy(pl->header);
-                    sam_close(pl->bam);
-                    _err_error_exit("Failed to load BAM index \'%s\'\n", opt->in_bam_fn);
-                }
+}
+
+// Enum for chromosome types
+typedef enum {
+    AUTOSOME,        // Chromosomes 1-22
+    SEX_CHROMOSOME,  // X or Y
+    OTHER            // Mitochondrial (MT/M) or unplaced/unusual chromosomes
+} ChromosomeType;
+
+ChromosomeType classify_chromosome(const char *chr) {
+    char chr_copy[1000];  // Buffer to hold the extracted chromosome name
+    strncpy(chr_copy, chr, sizeof(chr_copy) - 1);
+    chr_copy[sizeof(chr_copy) - 1] = '\0';
+
+    // Find first occurrence of ':', indicating a genomic region
+    char *colon_pos = strchr(chr_copy, ':');
+    if (colon_pos != NULL) {
+        *colon_pos = '\0';  // Truncate at ':'
+    }
+
+    // Remove "chr" prefix if present
+    if (strncmp(chr_copy, "chr", 3) == 0) {
+        memmove(chr_copy, chr_copy + 3, strlen(chr_copy) - 2);  // Shift left
+    }
+
+    // Check for sex chromosomes
+    if (strcmp(chr_copy, "X") == 0 || strcmp(chr_copy, "Y") == 0) {
+        return SEX_CHROMOSOME;
+    }
+
+    // Check for other chromosomes (e.g., Mitochondrial DNA)
+    if (strcmp(chr_copy, "MT") == 0 || strcmp(chr_copy, "M") == 0) {
+        return OTHER;
+    }
+
+    // Convert string to integer and check for autosome range
+    char *endptr;
+    long num = strtol(chr_copy, &endptr, 10);
+
+    // if (*endptr == '\0' && num >= 1 && num <= 22) {
+    if (*endptr == '\0' && num >= 1) {
+        return AUTOSOME;
+    }
+    return OTHER; // Anything else falls under "OTHER"
+}
+
+static void reg_chunks_region_realloc(reg_chunks_t *reg_chunks) {
+    if (reg_chunks->n_regions >= reg_chunks->m_regions) {
+        reg_chunks->m_regions *= 2;
+        reg_chunks->reg_tids = (int*)realloc(reg_chunks->reg_tids, reg_chunks->m_regions * sizeof(int));
+        reg_chunks->reg_begs = (hts_pos_t*)realloc(reg_chunks->reg_begs, reg_chunks->m_regions * sizeof(hts_pos_t));
+        reg_chunks->reg_ends = (hts_pos_t*)realloc(reg_chunks->reg_ends, reg_chunks->m_regions * sizeof(hts_pos_t));
+    }
+}
+
+static int skip_target_region(call_var_opt_t *opt, char *tname) {
+    ChromosomeType t = classify_chromosome(tname);
+    if (opt->only_autosome && t != AUTOSOME) return 1;
+    if (opt->only_autosome_XY && t != AUTOSOME && t != SEX_CHROMOSOME) return 1;
+    return 0;
+}
+
+static void collect_regions_from_region_list(call_var_opt_t *opt, call_var_pl_t *pl, hts_itr_t *iter, int n_regions, char **regions) {
+    int last_tid = -1; bam_hdr_t *hdr = pl->io_aux[0].header;
+    int min_reg_chunks_per_run = pl->min_reg_chunks_per_run, max_reg_len_per_chunk = pl->max_reg_len_per_chunk;
+    for (int i = 0; i < iter->n_reg; ++i) {
+        for (int j = 0; j < iter->reg_list[i].count; ++j) { // ACGT:1234, (beg, end]:(0,4]
+            int tid = iter->reg_list[i].tid; hts_pos_t chr_len = hdr->target_len[tid]; char *tname = hdr->target_name[tid];
+            if (skip_target_region(opt, tname)) continue;
+            // fprintf(stderr, "Region: %s:%" PRId64 "-%" PRId64 "\n", hdr->target_name[tid], iter->reg_list[i].intervals[j].beg, iter->reg_list[i].intervals[j].end);
+            if (last_tid != -1 && tid != last_tid && pl->reg_chunks[pl->n_reg_chunks].n_regions >= min_reg_chunks_per_run)
+                pl->n_reg_chunks++;
+            reg_chunks_realloc(pl);
+            hts_pos_t reg_beg = MAX_OF_TWO(1, iter->reg_list[i].intervals[j].beg + 1); // 0-base
+            hts_pos_t reg_end = MIN_OF_TWO(iter->reg_list[i].intervals[j].end, chr_len);
+            hts_pos_t n_regions = (reg_end - reg_beg + max_reg_len_per_chunk) / max_reg_len_per_chunk;
+            reg_chunks_t *reg_chunks = &pl->reg_chunks[pl->n_reg_chunks];
+            for (int reg_i = 0; reg_i < n_regions; ++ reg_i) {
+                hts_pos_t beg = (hts_pos_t) reg_i * max_reg_len_per_chunk + reg_beg;
+                hts_pos_t end = MIN_OF_TWO((hts_pos_t) (reg_i + 1) * max_reg_len_per_chunk + reg_beg-1, reg_end);
+                // add region
+                reg_chunks_region_realloc(reg_chunks);
+                reg_chunks->reg_tids[reg_chunks->n_regions] = tid;
+                reg_chunks->reg_begs[reg_chunks->n_regions] = beg; // [beg, end]
+                reg_chunks->reg_ends[reg_chunks->n_regions] = end;
+                reg_chunks->n_regions++;
             }
         }
-        pl->iter = sam_itr_regarray(pl->idx, pl->header, regions, n_regions);
-        if (pl->iter == NULL) {
+    }
+    if (pl->reg_chunks[pl->n_reg_chunks].n_regions > 0) pl->n_reg_chunks++;
+    hts_itr_destroy(iter);
+    // Print the region_chunks
+    if (LONGCALLD_VERBOSE >= 1) {
+        for (int i = 0; i < pl->n_reg_chunks; i++) {
+            fprintf(stderr, "Chunk %d:\n", i);
+            for (int j = 0; j < pl->reg_chunks[i].n_regions; j++) {
+                fprintf(stderr, "\tRegion %d %s:%ld-%ld\n", j, pl->io_aux[0].header->target_name[pl->reg_chunks[i].reg_tids[j]], pl->reg_chunks[i].reg_begs[j], pl->reg_chunks[i].reg_ends[j]);
+            }
+        }
+    }
+}
+
+static void collect_regions_from_bed_file(call_var_opt_t *opt, call_var_pl_t *pl) {
+    FILE *fp = fopen(opt->reg_bed_fn, "r");
+    if (fp == NULL) {
+        _err_error("Failed to open region bed file: %s\n", opt->reg_bed_fn);
+        return;
+    }
+    char line[1024]; int needs_sort = 0;
+    // collect regions
+    bam_hdr_t *hdr = pl->io_aux[0].header;
+    int n_regions = 0, m_regions = 1024;
+    char **regions = (char**)malloc(m_regions * sizeof(char*));
+    for (int i = 0; i < m_regions; ++i) regions[i] = (char*)malloc(1024);
+    while (fgets(line, sizeof(line), fp)) {
+        if (line[0] == '#') continue; // skip header/comment
+        // exclude \n in line if necessary
+        if (line[strlen(line)-1] == '\n') line[strlen(line)-1] = '\0';
+        char *token;
+        token = strtok(line, "\t");
+        if (token == NULL) continue;
+        char *tname = token; int tid = bam_name2id(hdr, tname);
+        if (tid == -1) {
+            _err_warning("Skip unknonw region: %s\n", line);
+            continue;
+        }
+        if (skip_target_region(opt, tname)) continue;
+        hts_pos_t beg = 1, end = hdr->target_len[tid];
+        token = strtok(NULL, "\t");
+        if (token != NULL) {
+            beg = atoi(token)+1;
+            token = strtok(NULL, "\t");
+            if (token != NULL) end = atoi(token);
+        }
+        if (beg > end || beg <= 0 || end <= 0) continue;
+        if (n_regions == m_regions) {
+            n_regions *= 2;
+            regions = (char**)realloc(regions, m_regions * sizeof(char*));
+            for (int i = n_regions; i < m_regions; ++i) regions[i] = (char*)malloc(1024);
+        }
+        sprintf(regions[n_regions], "%s:%ld-%ld", tname, beg, end);
+        n_regions++;
+    }
+    hts_idx_t *idx = pl->io_aux[0].idx;
+    hts_itr_t *iter = sam_itr_regarray(idx, hdr, regions, n_regions);
+    if (iter != NULL) collect_regions_from_region_list(opt, pl, iter, n_regions, regions);
+}
+
+static void collect_regions(call_var_pl_t *pl, call_var_opt_t *opt, int n_regions, char **regions) {
+    int min_reg_chunks_per_run = pl->min_reg_chunks_per_run;
+    int max_reg_len_per_chunk = pl->max_reg_len_per_chunk;
+    pl->n_reg_chunks = 0; pl->m_reg_chunks = 100;
+    pl->reg_chunks = (reg_chunks_t*)malloc(pl->m_reg_chunks * sizeof(reg_chunks_t));
+    for (int i = 0; i < pl->m_reg_chunks; i++) {
+        pl->reg_chunks[i].n_regions = 0;
+        pl->reg_chunks[i].m_regions = 512;
+        pl->reg_chunks[i].reg_tids = (int*)malloc(pl->reg_chunks[i].m_regions * sizeof(int));
+        pl->reg_chunks[i].reg_begs = (hts_pos_t*)malloc(pl->reg_chunks[i].m_regions * sizeof(hts_pos_t));
+        pl->reg_chunks[i].reg_ends = (hts_pos_t*)malloc(pl->reg_chunks[i].m_regions * sizeof(hts_pos_t));
+    }
+    // check if region(s) is provided
+    if (n_regions > 0) {
+        if (opt->reg_bed_fn != NULL) {
+            _err_error("Both region(s) and region bed file are provided. Only region(s) will be used.\n");
+        }
+        hts_idx_t *idx = pl->io_aux[0].idx; bam_hdr_t *hdr = pl->io_aux[0].header;
+        hts_itr_t *iter = sam_itr_regarray(idx, hdr, regions, n_regions);
+        if (iter == NULL) {
             _err_error("Failed to parse provided regions: ");
             for (int i = 0; i < n_regions; ++i) fprintf(stderr, "%s ", regions[i]);
             fprintf(stderr, "\n");
             _err_error("Will process the whole BAM file.\n");
-            call_var_pl_open_ref_reg_fa0(opt->ref_fa_fn, pl);
         } else {
-            pl->use_iter = 1;
-            // read reference fasta based on intervals
-            pl->ref_reg_seq = call_var_pl_open_ref_reg_fa(opt->ref_fa_fn, pl->fai, pl->iter, pl->header);
+            return collect_regions_from_region_list(opt, pl, iter, n_regions, regions);
         }
-    } else {
-        pl->iter = NULL;
-        // read whole reference fasta
-        call_var_pl_open_ref_reg_fa0(opt->ref_fa_fn, pl);
+    } else if (opt->reg_bed_fn != NULL) { // check if region bed file is provided
+        collect_regions_from_bed_file(opt, pl);
+        if (pl->n_reg_chunks == 0) {
+            _err_error("Failed to parse provided region bed file: %s\n", opt->reg_bed_fn);
+            _err_error("Will process the whole BAM file.\n");
+        } else return;
     }
+    // whole genome, plit chromosomes into region_chunks
+    // collect_regions_from_whole_genome(opt, pl, min_reg_chunks_per_run, max_reg_len_per_chunk);
+    for (int i = 0; i < pl->io_aux[0].header->n_targets; i++) {
+        reg_chunks_realloc(pl);
+        // all regions in a chromosome will be in one reg_chunk
+        char *tname = pl->io_aux[0].header->target_name[i];
+        if (skip_target_region(opt, tname)) continue;
+        int tid = i; hts_pos_t chr_len = pl->io_aux[0].header->target_len[i];
+        int n_regions_chr = (chr_len + max_reg_len_per_chunk - 1) / max_reg_len_per_chunk;
+        reg_chunks_t *reg_chunks = &pl->reg_chunks[pl->n_reg_chunks];
+        for (int reg_i = 0; reg_i < n_regions_chr; reg_i++) {
+            hts_pos_t beg = (hts_pos_t) reg_i * max_reg_len_per_chunk + 1;
+            hts_pos_t end = MIN_OF_TWO((hts_pos_t) (reg_i + 1) * max_reg_len_per_chunk, chr_len);
+            // add region
+            reg_chunks_region_realloc(reg_chunks);
+            reg_chunks->reg_tids[reg_chunks->n_regions] = tid;
+            reg_chunks->reg_begs[reg_chunks->n_regions] = beg;
+            reg_chunks->reg_ends[reg_chunks->n_regions] = end;
+            reg_chunks->n_regions++;
+        }
+        if (reg_chunks->n_regions >= min_reg_chunks_per_run) {
+            pl->n_reg_chunks++;
+        }
+    }
+    if (pl->reg_chunks[pl->n_reg_chunks].n_regions > 0) pl->n_reg_chunks++;
+
+    // Print the region_chunks
+    if (LONGCALLD_VERBOSE >= 2) {
+        for (int i = 0; i < pl->n_reg_chunks; i++) {
+            fprintf(stderr, "Chunk %d:\n", i);
+            for (int j = 0; j < pl->reg_chunks[i].n_regions; j++) {
+                fprintf(stderr, "\tRegion %d %s:%ld-%ld\n", j, pl->io_aux[0].header->target_name[pl->reg_chunks[i].reg_tids[j]], pl->reg_chunks[i].reg_begs[j], pl->reg_chunks[i].reg_ends[j]);
+            }
+        }
+    }
+}
+
+// only works with sorted index BAM/CRAM
+static void call_var_pl_open_fa_bam(call_var_opt_t *opt, call_var_pl_t *pl, char **regions, int n_regions) {
+    // input BAM file
+    if (strcmp(opt->in_bam_fn, "-") == 0) { _err_error_exit("Input from pipe/stdin is not supported\n"); }
+    else { _err_info("Opening BAM/CRAM file: %s\n", opt->in_bam_fn); }
+    pl->io_aux = (call_var_io_aux_t*)malloc(pl->n_threads * sizeof(call_var_io_aux_t));
+    // multi-threading
+    for (int i = 0; i < pl->n_threads; ++i){
+        pl->io_aux[i].bam = sam_open(opt->in_bam_fn, "r"); if (pl->io_aux[i].bam == NULL) _err_error_exit("Failed to open alignment file \'%s\'\n", opt->in_bam_fn);
+        const htsFormat *fmt = hts_get_format(pl->io_aux[i].bam); if (!fmt) _err_error_exit("Failed to get format of alignment file \'%s\'\n", opt->in_bam_fn);
+        if (fmt->format != bam && fmt->format != cram) {
+            sam_close(pl->io_aux[i].bam); _err_error_exit("Input file must be BAM or CRAM format.\n");
+        }
+        pl->io_aux[i].hts_fmt = fmt->format;
+        pl->io_aux[i].header = sam_hdr_read(pl->io_aux[i].bam);
+        if (pl->io_aux[i].header == NULL) {
+            sam_close(pl->io_aux[i].bam);
+            _err_error_exit("Failed to read header \'%s\'\n", opt->in_bam_fn);
+        }
+        pl->io_aux[i].fai = fai_load3(opt->ref_fa_fn, opt->ref_fa_fai_fn, NULL, FAI_CREATE);
+        if (pl->io_aux[i].fai == NULL) {
+            sam_hdr_destroy(pl->io_aux[i].header); sam_close(pl->io_aux[i].bam);
+            _err_error_exit("Failed to load/build reference fasta index: %s\n", opt->ref_fa_fn);
+        }
+        if (fmt->format == cram) {
+            if (hts_set_fai_filename(pl->io_aux[i].bam, opt->ref_fa_fn) != 0) {
+                fai_destroy(pl->io_aux[i].fai); sam_hdr_destroy(pl->io_aux[i].header); sam_close(pl->io_aux[i].bam);
+                _err_error_exit("Failed to set reference file for CRAM decoding: %s %s\n", opt->in_bam_fn, opt->ref_fa_fn);
+            }
+        }
+        pl->io_aux[i].idx = sam_index_load(pl->io_aux[i].bam, opt->in_bam_fn);
+        if (pl->io_aux[i].idx == NULL) { // attempt to create index if not exist
+            _err_warning("BAM index not found for \'%s\', creating now ...\n", opt->in_bam_fn);
+            if (sam_index_build(opt->in_bam_fn, 0) < 0) {
+                fai_destroy(pl->io_aux[i].fai); sam_hdr_destroy(pl->io_aux[i].header); sam_close(pl->io_aux[i].bam);
+                _err_error_exit("Failed to build BAM index \'%s\'\n", opt->in_bam_fn);
+            } else {
+                pl->io_aux[i].idx = sam_index_load(pl->io_aux[i].bam, opt->in_bam_fn);
+                if (pl->io_aux[i].idx == NULL) {
+                    fai_destroy(pl->io_aux[i].fai); sam_hdr_destroy(pl->io_aux[i].header); sam_close(pl->io_aux[i].bam);
+                    _err_error_exit("Failed to load BAM index \'%s\'\n", opt->in_bam_fn);
+                }
+            }
+        }
+    }
+    // collect sample name (SM) from BAM header
+    if (opt->sample_name == NULL) opt->sample_name = extract_sample_name_from_bam_header(pl->io_aux[0].header); // extract sample names from BAM header
+    if (opt->sample_name == NULL) opt->sample_name = strdup(opt->in_bam_fn);
+    // collect regions
+    collect_regions(pl, opt, n_regions, regions);
 }
 
 static void call_var_pl_write_bam_header(samFile *out_bam, bam_hdr_t *header) {
@@ -386,119 +592,49 @@ static void call_var_pl_write_bam_header(samFile *out_bam, bam_hdr_t *header) {
     if (sam_hdr_write(out_bam, header) < 0) _err_error_exit("Failed to write BAM header.\n");
 }
 
+// work with sorted SAM/BAM/CRAM
 static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_pipeline() callback
-    call_var_pl_t *p = (call_var_pl_t*)shared;
-    if (step == 0) { // step 0: read bam records into BAM chunks
-        if (LONGCALLD_VERBOSE >= 1) _err_info("Step 0: read BAM into chunks.\n");
-        call_var_step_t *s;
-        s = calloc(1, sizeof(call_var_step_t));
-        s->pl = p;
-        s->max_chunks = 4*p->opt->n_threads; s->chunks = calloc(s->max_chunks, sizeof(bam_chunk_t));
-        int r;
-        // for each round, collect s->max_chunks of reads
-        // TODO:
-        // XXX use the variant calling result of current round to guide the reg_beg of next round 
-        // adjacent rounds: try to overlap at least one high-quality variant
-        // XXX (maybe not necessary) if overlapping part is too large, enlarge the total chunk size for the next round
-        // if there is a variant gap, simply start with the first read of the next round
-        // this enables the phasing across multiple rounds
-        // XXX add a tmp_bam_chunk to store the last chunk of last round, stitch it with the first chunk of current round
-        while (!p->reach_bam_end) {
-            r = collect_bam_chunk(p, s->chunks, s->n_chunks);
-            if (s->chunks[s->n_chunks].n_reads == 0) break;
-            if (++s->n_chunks >= s->max_chunks) break;
-            if (r < 0) {
-                p->reach_bam_end = 1;
-                break;
-            }
-        }
+    call_var_pl_t *pl = (call_var_pl_t*)shared;
+    if (step == 0) { // step 0: read bam records into BAM chunks, call variants
+        if (pl->reg_chunk_i >= pl->n_reg_chunks) return 0;
+        if (LONGCALLD_VERBOSE >= 1) _err_info("Step 0: load BAM & call variants.\n");
+        call_var_step_t *s = calloc(1, sizeof(call_var_step_t));
+        s->pl = pl;
+        s->n_chunks = pl->reg_chunks[pl->reg_chunk_i].n_regions;
+        s->chunks = calloc(s->n_chunks, sizeof(bam_chunk_t));
         if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "n_chunks: %d\n", s->n_chunks);
-        // XXX merge chunks if too few reads
-        if (s->n_chunks > 0) {
-            // copy last chunk to the first chunk
-            if (p->n_last_chunk_reads > 0) {
-                bam_ovlp_chunk_free(p->last_chunk);
-                copy_bam_chunk0(s->chunks+s->n_chunks-1, p->last_chunk);
-            }
-            return s;
-        } else {
-            free(s->chunks); free(s);
-            return 0;
-        }
-    } else if (step == 1) { // step 1: work on the BAM chunks
-        if (LONGCALLD_VERBOSE >= 1) _err_info("Step 1: call variants.\n");
-        if (((call_var_step_t*)in)->n_chunks > 0) {
-            ((call_var_step_t*)in)->vars = calloc(((call_var_step_t*)in)->n_chunks, sizeof(var_t));
-            if (LONGCALLD_VERBOSE >= 2)
-                fprintf(stderr, "n_chunks: %d\n", ((call_var_step_t*)in)->n_chunks);
-            kt_for(p->n_threads, call_var_worker_for, in, ((call_var_step_t*)in)->n_chunks);
-        }
-        return in;
-    } else if (step == 2) { // step 2: stitch the results
+        kt_for(pl->n_threads, collect_bam_call_var_worker_for, s, s->n_chunks);
+        pl->reg_chunk_i++;
+        return s;
+    } else if (step == 1) { // step 1: stitch the results
                             //         merge variants from different chunks
                             //         1) merge overlapping variants
                             //         2) update phase set and haplotype (flip if needed)
-        if (LONGCALLD_VERBOSE >= 1) _err_info("Step 2: stitch variants.\n");
-        // XXX read BAM in kt_for, create iterater for each chunk
-        kt_for(p->n_threads, stitch_var_worker_for, in, ((call_var_step_t*)in)->n_chunks);
-        return in;
-    } else if (step == 3) { // step 3: write the buffer to output
-        if (LONGCALLD_VERBOSE >= 1) _err_info("Step 3: output variants.\n");
-        call_var_step_t *s = (call_var_step_t*)in;
-        for (int i = 0; i < s->n_chunks; ++i) {
-            // if (i != 0) continue;
-            bam_chunk_t *c = s->chunks + i;
-            for (int j = c->n_up_ovlp_reads; j < c->n_reads; ++j) {
-                // if (c->is_skipped[j]) continue;
-                // chrome, pos, qname, hap, rlen
-                // if (LONGCALLD_VERBOSE >= 2)
-                    // fprintf(stderr, "%d\t%s\t%ld\t%s\t%d\t%d\t%ld\n", j, c->tname, c->reads[j]->core.pos+1, bam_get_qname(c->reads[j]), c->reads[j]->core.flag, c->haps[j], bam_cigar2rlen(c->reads[j]->core.n_cigar, bam_get_cigar(c->reads[j])));
-                if (p->opt->out_bam != NULL) {
-                    // Add HP tag
-                    bam1_t *b = c->reads[j];
-                    // if (c->is_skipped[i] || c->haps[i] <= 0) continue;
-                    int hap = c->haps[j]; 
-                    if (hap != 0) {
-                        if (c->flip_hap) hap ^= 3;
-                        // check if HP tag exists
-                        uint8_t *hp = bam_aux_get(b, "HP");
-                        if (hp != NULL) {
-                            if (hap != bam_aux2i(hp)) {
-                                bam_aux_del(b, hp);
-                                bam_aux_append(b, "HP", 'i', 4, (uint8_t*)&(hap));
-                            }
-                        } else {
-                            bam_aux_append(b, "HP", 'i', 4, (uint8_t*)&(hap));
-                        }
-                    }
-                    hts_pos_t ps = c->PS[j];
-                    if (ps != -1) {
-                        // check if PS tag exists
-                        uint8_t *ps_tag = bam_aux_get(b, "PS");
-                        if (ps_tag != NULL) {
-                            if (ps != bam_aux2i(ps_tag)) {
-                                bam_aux_del(b, ps_tag);
-                                bam_aux_append(b, "PS", 'i', 4, (uint8_t *)&(ps));
-                            }
-                        } else {
-                            bam_aux_append(b, "PS", 'i', 4, (uint8_t *)&(ps));
-                        }
-                    }
-                    if (sam_write1(p->opt->out_bam, p->header, b) < 0)
-                        _err_error_exit("Failed to write BAM record.");
-                }
-            }
-            // fprintf(stdout, "beg: %ld, end: %ld\n", c->beg, c->end);
-            write_var_to_vcf(s->vars+i, p->opt, c->tname);
-            // bam_chunk_free(c); // free input
-            var_free(s->vars + i);  // free output
+        if (LONGCALLD_VERBOSE >= 1) _err_info("Step 2: stitch & make variants.\n");
+        if (((call_var_step_t*)in)->n_chunks > 0) {
+            ((call_var_step_t*)in)->vars = calloc(((call_var_step_t*)in)->n_chunks, sizeof(var_t));
+            stitch_var_main((call_var_step_t*)in, ((call_var_step_t*)in)->chunks);
+            kt_for(pl->n_threads, make_var_worker_for, in, ((call_var_step_t*)in)->n_chunks);
         }
         int64_t n_processed_reads = 0;
-        for (int i = 0; i < s->n_chunks; ++i) {
-            n_processed_reads += s->chunks[i].n_reads;
+        for (int i = 0; i < ((call_var_step_t*)in)->n_chunks; ++i) {
+            n_processed_reads += (((call_var_step_t*)in)->chunks[i].n_reads - ((call_var_step_t*)in)->chunks[i].n_up_ovlp_reads);
         }
-        _err_info("Processed %ld reads.\n", n_processed_reads);
-        bam_chunks_free(s->chunks, s->n_chunks); // free input
+        if (n_processed_reads > 0) _err_info("Processed %ld reads.\n", n_processed_reads);
+        return in;
+    } else if (step == 2) { // step 3: write the buffer to output
+        if (LONGCALLD_VERBOSE >= 1) _err_info("Step 3: output variants (& phased bam).\n");
+        call_var_step_t *s = (call_var_step_t*)in;
+        int n_out_vars = 0, n_out_reads = 0;
+        for (int i = 0; i < s->n_chunks; ++i) {
+            bam_chunk_t *c = s->chunks + i;
+            n_out_vars += write_var_to_vcf(s->vars+i, pl->opt, c->tname);
+            if (pl->opt->out_bam != NULL) n_out_reads += write_read_to_bam(c, pl->opt);
+            var_free(s->vars + i);  // free output
+        }
+        if (n_out_vars > 0) _err_info("Output %d variants to VCF.\n", n_out_vars);
+        if (n_out_reads > 0) _err_info("Output %d reads to BAM.\n", n_out_reads);
+        bam_chunks_post_free(s->chunks, s->n_chunks); // free input
         free(s->vars); free(s);
     }
     return 0;
@@ -509,24 +645,35 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "Program: %s (%s)\n", PROG, DESCRIP);
     fprintf(stderr, "Version: %s\tContact: %s\n\n", VERSION, CONTACT); 
 
-    fprintf(stderr, "Usage: %s call [options] <ref.fa> <input.sam/bam/cram> [region ...] > phased.vcf\n", PROG);
-    fprintf(stderr, "       Note: \'ref.fa\' should contain the same contig/chromosome names as \'input.sam/bam/cram\'\n");
-    fprintf(stderr, "             \'input.sam/bam/cram' should be sorted\n");
+    fprintf(stderr, "Usage: %s call [options] <ref.fa> <input.bam/cram> [region ...] > phased.vcf\n", PROG);
+    fprintf(stderr, "       Note: \'ref.fa\' should contain the same contig/chromosome names as \'input.bam/cram\'\n");
+    fprintf(stderr, "             \'input.bam/cram' should be sorted and indexed\n");
     // fprintf(stderr, "                  \'ref.fa\' is not needed if 1) BAM contains CIGARS with =/X, or 2) BAM contain MD tags\n");
     fprintf(stderr, "\n");
 
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "  Intput and output:\n");
-    fprintf(stderr, "    --hifi                Input is HiFi reads [Default]\n");
-    fprintf(stderr, "    --ont                 Input is ONT reads [False]\n");
-    fprintf(stderr, "    -r  --ref-idx    STR  .fai index file for reference genome FASTA file, detect automaticaly if not provided [NULL]\n");
+    fprintf(stderr, "    --hifi                HiFi reads [Default]\n");
+    fprintf(stderr, "    --ont                 ONT reads [False]\n");
+    fprintf(stderr, "    --region-file   FILE  region bed file [NULL]\n");
+    fprintf(stderr, "                          each line is a region, e.g., chr1         (whole chromosome)\n");
+    fprintf(stderr, "                                                       chr1 100     (chr1:100-END)\n");
+    fprintf(stderr, "                                                       chr1 100 200 (chr1:100-200)\n");
+    fprintf(stderr, "    --autosome            Only call variants on autosomes [False]\n");
+    fprintf(stderr, "                          e.g., human: chr{1-22} or 1-22\n");
+    fprintf(stderr, "    --autosome-XY         Only call variants on autosomes and sex chromosomes [False]\n");
+    fprintf(stderr, "                          e.g., human: chr{1-22,XY} or 1-22,XY\n");
+    fprintf(stderr, "    -r --ref-idx    FILE  .fai index file for reference genome FASTA file, detect automaticaly if not provided [NULL]\n");
     // fprintf(stderr, "    -b --out-bam     STR  output phased BAM file [NULL]\n");
     fprintf(stderr, "    -n --sample-name STR  sample name. 'RG/SM' in BAM header will be used if not provided [NULL]\n");
     fprintf(stderr, "                          BAM file name will be used if not provided and no 'RG/SM' in BAM header\n");
-    fprintf(stderr, "    -o --out-vcf     STR  output phased VCF file [stdout]\n");
-    fprintf(stderr, "    -H --no-vcf-header    do NOT output VCF header\n");
+    fprintf(stderr, "    -o --out-vcf    FILE  output phased VCF file [stdout]\n");
+    // fprintf(stderr, "       --somatic-snp    output somatic SNPs [False]\n");
+    // fprintf(stderr, "       --methylation    output methylation site information [False]\n");
+    // fprintf(stderr, "                          if present, MM/ML tags will be used to calculate methylation level\n");
+    fprintf(stderr, "    -H --no-vcf-header    do NOT output VCF header [False]\n");
     fprintf(stderr, "       --amb-base         output variant with ambiguous base [False]\n");
-    fprintf(stderr, "    -b --out-bam     STR  output phased BAM file [NULL]\n");
+    fprintf(stderr, "    -b --out-bam    FILE  output phased BAM file [NULL]\n");
     // fprintf(stderr, "    -g --gap-aln     STR  put gap on the \'left\' or \'right\' side in alignment [left/l]\n");
     // fprintf(stderr, "                          \'left\':  ATTTG\n");
     // fprintf(stderr, "                                   | |||\n");
@@ -581,7 +728,13 @@ int call_var_main(int argc, char *argv[]) {
             case 0: if (strcmp(call_var_opt[op_idx].name, "amb-base") == 0) opt->out_amb_base = 1; 
                     else if (strcmp(call_var_opt[op_idx].name, "hifi") == 0) set_hifi_opt(opt);
                     else if (strcmp(call_var_opt[op_idx].name, "ont") == 0) set_ont_opt(opt);
-                    else if (strcmp(call_var_opt[op_idx].name, "ont-hp-prof") == 0) set_ont_hp_prof(opt, optarg);
+                    // else if (strcmp(call_var_opt[op_idx].name, "ont-hp-prof") == 0) set_ont_hp_prof(opt, optarg);
+                    else if (strcmp(call_var_opt[op_idx].name, "region-file") == 0 || 
+                             strcmp(call_var_opt[op_idx].name, "regions-file") == 0) opt->reg_bed_fn = strdup(optarg);
+                    else if (strcmp(call_var_opt[op_idx].name, "autosome") == 0) opt->only_autosome = 1;
+                    else if (strcmp(call_var_opt[op_idx].name, "autosome-XY") == 0) opt->only_autosome_XY = 1;
+                    else if (strcmp(call_var_opt[op_idx].name, "somatic-snp") == 0) opt->out_somatic_snp = 1;
+                    else if (strcmp(call_var_opt[op_idx].name, "methylation") == 0) opt->out_methylation = 1;
                     break;
             case 'b': opt->out_bam = hts_open(optarg, "wb"); break;
             case 'c': opt->min_dp = atoi(optarg); break;
@@ -610,27 +763,20 @@ int call_var_main(int argc, char *argv[]) {
         }
     }
 
-    if (!isatty(STDIN_FILENO) && argc - optind == 1) { // bam file is piped, only ref.fa is provided, not working with region when bam is from pipe
-        opt->in_bam_fn = "-";
-        if (argc - optind < 1) {
-            _err_error("Reference FASTA is required.\n");
-            call_var_free_para(opt); call_var_usage();
-        } else {
-            opt->ref_fa_fn = argv[optind++];
-        }
+    if (argc - optind == 0) {
+        call_var_free_para(opt); call_var_usage();
+    } else if (argc - optind < 2) {
+        _err_error_exit("Reference genome FASTA and alignment BAM are required.\n");
     } else {
-        if (argc - optind < 2) {
-            _err_error("Reference genome FASTA and alignment BAM are required.\n");
-            call_var_free_para(opt); call_var_usage();
-        } else {
-            opt->ref_fa_fn = argv[optind++];
-            opt->in_bam_fn = argv[optind++];
-        }
+        opt->ref_fa_fn = argv[optind++];
+        opt->in_bam_fn = argv[optind++];
     }
+    // }
     // check if input is (short) URL
     opt->ref_fa_fn = retrieve_full_url(opt->ref_fa_fn); opt->in_bam_fn = retrieve_full_url(opt->in_bam_fn);
     // check if hifi and ont are both set
     if (opt->is_pb_hifi && opt->is_ont) _err_error_exit("Cannot set both --hifi and --ont\n");
+    if (opt->only_autosome && opt->only_autosome_XY) _err_error_exit("Cannot set both --autosome and --autosome-XY\n");
     // threads
     if (opt->n_threads <= 0) {
         opt->n_threads = 1; opt->pl_threads = 1;
@@ -643,16 +789,16 @@ int call_var_main(int argc, char *argv[]) {
     call_var_pl_t pl;
     memset(&pl, 0, sizeof(call_var_pl_t));
     pl.max_reg_len_per_chunk = LONGCALLD_BAM_CHUNK_REG_SIZE; // pl.max_reads_per_chunk = LONGCALLD_BAM_CHUNK_READ_COUNT; 
-    pl.n_threads = opt->n_threads;
+    pl.n_threads = opt->n_threads; pl.min_reg_chunks_per_run = opt->n_threads * 4;
     // open BAM file & reference genome
     call_var_pl_open_fa_bam(opt, &pl, argv+optind, argc-optind);
 
     // write VCF/BAM header
-    if (opt->out_bam != NULL) call_var_pl_write_bam_header(opt->out_bam, pl.header);
-    if (opt->out_vcf != NULL && opt->no_vcf_header == 0) write_vcf_header(pl.header, opt->out_vcf, opt->sample_name);
+    if (opt->out_bam != NULL) call_var_pl_write_bam_header(opt->out_bam, pl.io_aux[0].header);
+    if (opt->out_vcf != NULL && opt->no_vcf_header == 0) write_vcf_header(pl.io_aux[0].header, opt->out_vcf, opt->sample_name);
     // start to work !!!
     pl.opt = opt;
-    kt_pipeline(opt->pl_threads, call_var_worker_pipeline, &pl, 4);
+    kt_pipeline(opt->pl_threads, call_var_worker_pipeline, &pl, 3);
     if (opt->out_bam != NULL) hts_close(opt->out_bam);
     if (opt->out_vcf != NULL) fclose(opt->out_vcf);
     call_var_free_pl(pl); call_var_free_para(opt); 
