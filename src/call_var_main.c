@@ -660,9 +660,9 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "                                                       chr1 100     (chr1:100-END)\n");
     fprintf(stderr, "                                                       chr1 100 200 (chr1:100-200)\n");
     fprintf(stderr, "    --autosome            Only call variants on autosomes [False]\n");
-    fprintf(stderr, "                          e.g., human: chr1-22 or 1-22\n");
+    fprintf(stderr, "                          e.g., human: chr{1-22} or 1-22\n");
     fprintf(stderr, "    --autosome-XY         Only call variants on autosomes and sex chromosomes [False]\n");
-    fprintf(stderr, "                          e.g., human: chr1-22,chrXY or 1-22,XY\n");
+    fprintf(stderr, "                          e.g., human: chr{1-22,XY} or 1-22,XY\n");
     fprintf(stderr, "    -r --ref-idx    FILE  .fai index file for reference genome FASTA file, detect automaticaly if not provided [NULL]\n");
     // fprintf(stderr, "    -b --out-bam     STR  output phased BAM file [NULL]\n");
     fprintf(stderr, "    -n --sample-name STR  sample name. 'RG/SM' in BAM header will be used if not provided [NULL]\n");
