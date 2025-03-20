@@ -90,7 +90,7 @@ void free_noisy_cand_vars(cand_var_t *cand_vars, int m) {
     free(cand_vars);
 }
 
-int collect_cand_vars(bam_chunk_t *chunk, int n_var_sites, var_site_t *var_sites) {
+int collect_cand_vars(const call_var_opt_t *opt, bam_chunk_t *chunk, int n_var_sites, var_site_t *var_sites) {
     chunk->cand_vars = init_cand_vars_based_on_sites(n_var_sites, var_sites);
     chunk->n_cand_vars = n_var_sites;
     cand_var_t *cand_vars = chunk->cand_vars;
@@ -98,7 +98,7 @@ int collect_cand_vars(bam_chunk_t *chunk, int n_var_sites, var_site_t *var_sites
     int start_var_i = 0;
     for (int i = 0; i < chunk->n_reads; ++i) {
         if (chunk->is_skipped[i]) continue;
-        start_var_i = update_cand_vars_from_digar(chunk, chunk->digars+i, n_var_sites, var_sites, start_var_i, cand_vars);
+        start_var_i = update_cand_vars_from_digar(opt, chunk, chunk->digars+i, n_var_sites, var_sites, start_var_i, cand_vars);
     }
     if (LONGCALLD_VERBOSE >= 2) {
         for (int i = 0; i < n_var_sites; ++i) {
@@ -243,7 +243,7 @@ int var_is_repeat_region(char *ref_seq, hts_pos_t ref_beg, hts_pos_t ref_end, ca
 //   2) noisy-region germ+het/hom: high cov, min_af < AF < max_af - used for phasing
 //   4) somatic: high cov, AF < min_af - require full phasing info (alt_af < min_af)
 int classify_var_cate(const call_var_opt_t *opt, char *ref_seq, hts_pos_t ref_beg, hts_pos_t ref_end,
-                      cand_var_t *var, int min_dp_thres, int min_alt_dp_thres, double min_somatic_af_thres,
+                      cand_var_t *var, int min_dp_thres, int min_alt_dp_thres,
                       double min_af_thres, double max_af_thres, double min_noisy_reg_ratio) {
     // total depth < min_dp or total alt depth < min_alt_dp: (skip)
     if (var->total_cov + var->low_qual_cov < min_dp_thres) return LONGCALLD_LOW_COV_VAR;
@@ -371,13 +371,16 @@ int classify_cand_vars(bam_chunk_t *chunk, int n_var_sites, call_var_opt_t *opt)
     cgranges_t *low_comp_cr = chunk->low_comp_cr;
     chunk->var_i_to_cate = (int*)malloc(n_var_sites * sizeof(int));
     int min_dp = opt->min_dp, min_alt_dp = opt->min_alt_dp;
-    double min_somatic_af = opt->min_somatic_af, min_af = opt->min_af, max_af = opt->max_af, min_noisy_reg_ratio = opt->min_noisy_reg_ratio;
+    double min_af = opt->min_af, max_af = opt->max_af, min_noisy_reg_ratio = opt->min_noisy_reg_ratio;
     int var_cate = -1;
     for (int i = 0; i < n_var_sites; ++i) {
         cand_var_t *var = cand_vars+i;
-        var_cate = classify_var_cate(opt, ref_seq, ref_beg, ref_end, var, min_dp, min_alt_dp, min_somatic_af, min_af, max_af, min_noisy_reg_ratio);
+        var_cate = classify_var_cate(opt, ref_seq, ref_beg, ref_end, var, min_dp, min_alt_dp, min_af, max_af, min_noisy_reg_ratio);
         var_i_to_cate[i] = var_cate;
-        if (var_cate == LONGCALLD_LOW_COV_VAR) continue; // skipped
+        if (var_cate == LONGCALLD_LOW_COV_VAR) continue; 
+        // if (var_cate == LONGCALLD_LOW_AF_VAR && var->var_type == BAM_CDIFF) {
+            // fprintf(stderr, "LowFreqSNP: %s:%" PRId64 " %d-%c-%d %d vs %d\n", chunk->tname, cand_vars[i].pos, cand_vars[i].ref_len, BAM_CIGAR_STR[cand_vars[i].var_type], cand_vars[i].alt_len, cand_vars[i].alle_covs[0], cand_vars[i].alle_covs[1]);
+        // }
         if (opt->is_ont && var_cate == LONGCALLD_STRAND_BIAS_VAR) continue;
         if (var->var_type == BAM_CINS) cr_add(var_pos_cr, "cr", var->pos-1, var->pos, 1);
         else cr_add(var_pos_cr, "cr", var->pos-1, var->pos+var->ref_len-1, 1);
@@ -428,7 +431,10 @@ int classify_cand_vars(bam_chunk_t *chunk, int n_var_sites, call_var_opt_t *opt)
             }
             continue;
         }
-        if (var_cate == LONGCALLD_LOW_AF_VAR) var_i_to_cate[i] = LONGCALLD_LOW_COV_VAR;
+        if (var_cate == LONGCALLD_LOW_AF_VAR) { // only keep candidate somatic SNPs
+            if (var->var_type == BAM_CDIFF && opt->out_somatic_snp == 1) var_i_to_cate[i] = LONGCALLD_CAND_SOMATIC_VAR;
+            else var_i_to_cate[i] = LONGCALLD_LOW_COV_VAR; // skip
+        }
     }
     if (noisy_var_cr->n_r > 0) {
         cr_index(noisy_var_cr);
@@ -726,9 +732,10 @@ int merge_var_profile(bam_chunk_t *chunk, int n_reads_with_new_var, int n_new_va
     return new_var_i; // n_vars
 }
 
-read_var_profile_t *collect_read_var_profile(bam_chunk_t *chunk) {
+read_var_profile_t *collect_read_var_profile(const call_var_opt_t *opt, bam_chunk_t *chunk) {
     int n_cand_vars = chunk->n_cand_vars;
     cand_var_t *cand_vars = chunk->cand_vars;
+    int *var_i_to_cate = chunk->var_i_to_cate;
     read_var_profile_t *p = init_read_var_profile(chunk->n_reads, n_cand_vars);
     cgranges_t *read_var_cr = cr_init();
     // 3rd pass: collect read-wise SNP profiles
@@ -737,7 +744,7 @@ read_var_profile_t *collect_read_var_profile(bam_chunk_t *chunk) {
         if (chunk->is_skipped[i]) continue;
         // if (strcmp(test_read_name, bam_get_qname(read)) == 0)
             // fprintf(stderr, "Read: %s\n", bam_get_qname(read));
-        start_var_i = update_read_var_profile_from_digar(chunk, chunk->digars+i, n_cand_vars, cand_vars, start_var_i, p+i);
+        start_var_i = update_read_var_profile_from_digar(opt, chunk, chunk->digars+i, n_cand_vars, cand_vars, start_var_i, p+i);
         if (p[i].start_var_idx < 0 || p[i].end_var_idx < 0) continue;
         cr_add(read_var_cr, "cr", p[i].start_var_idx, p[i].end_var_idx+1, i);
         if (LONGCALLD_VERBOSE >= 2) {
@@ -745,7 +752,7 @@ read_var_profile_t *collect_read_var_profile(bam_chunk_t *chunk) {
                 bam1_t *read = chunk->reads[i];
                 fprintf(stderr, "Read: %s, start_var_i: %d, end_var_i: %d\n", bam_get_qname(read), p[i].start_var_idx, p[i].end_var_idx);
                 for (int j = 0; j <= p[i].end_var_idx-p[i].start_var_idx; ++j) {
-                    fprintf(stderr, "P\tVar: (%d) %" PRId64 "", j, cand_vars[j+p[i].start_var_idx].pos);
+                    fprintf(stderr, "P\tVar: (%d) %" PRId64 " %c", j, cand_vars[j+p[i].start_var_idx].pos, LONGCALLD_VAR_CATE_TYPE(var_i_to_cate[j+p[i].start_var_idx]));
                     fprintf(stderr, " %d-%c-%d, allele: %d\n", cand_vars[j+p[i].start_var_idx].ref_len, BAM_CIGAR_STR[cand_vars[j+p[i].start_var_idx].var_type], cand_vars[j+p[i].start_var_idx].alt_len, p[i].alleles[j]);
                 }
             }
@@ -798,12 +805,10 @@ int make_variants(const call_var_opt_t *opt, bam_chunk_t *chunk, var_t **_var) {
     int64_t ovlp_n, *ovlp_b = 0, max_b = 0;
     var->vars = (var1_t*)malloc(n_cand_vars * sizeof(var1_t));
     int i = 0, is_hom, hom_alt_is_set, hom_alle, hap1_alle, hap2_alle;
+    int target_var_cate = LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CAND_HOM_VAR | LONGCALLD_NOISY_CAND_HET_VAR | LONGCALLD_NOISY_CAND_HOM_VAR;
+    if (opt->out_somatic_snp == 1) target_var_cate |= LONGCALLD_CAND_SOMATIC_VAR;
     for (int cand_i = 0; cand_i < n_cand_vars; ++cand_i) {
-        if (chunk->var_i_to_cate[cand_i] != LONGCALLD_CLEAN_HET_SNP &&
-            chunk->var_i_to_cate[cand_i] != LONGCALLD_CLEAN_HET_INDEL &&
-            chunk->var_i_to_cate[cand_i] != LONGCALLD_CAND_HOM_VAR &&
-            chunk->var_i_to_cate[cand_i] != LONGCALLD_NOISY_CAND_HET_VAR &&
-            chunk->var_i_to_cate[cand_i] != LONGCALLD_NOISY_CAND_HOM_VAR) continue;
+        if ((chunk->var_i_to_cate[cand_i] & target_var_cate) == 0) continue;
         if (cand_vars[cand_i].var_type == BAM_CDEL || cand_vars[cand_i].var_type == BAM_CINS) {
             var->vars[i].pos = cand_vars[cand_i].pos-1;
             var->vars[i].ref_len = cand_vars[cand_i].ref_len+1;
@@ -825,6 +830,8 @@ int make_variants(const call_var_opt_t *opt, bam_chunk_t *chunk, var_t **_var) {
         if (hap2_alle == -1) hap2_alle = LONGCALLD_REF_ALLELE;
 
         var->vars[i].type = cand_vars[cand_i].var_type;
+        if (chunk->var_i_to_cate[cand_i] == LONGCALLD_CAND_SOMATIC_VAR) var->vars[i].is_somatic = 1;
+        else var->vars[i].is_somatic = 0;
         var->vars[i].PS = cand_vars[cand_i].phase_set;
         var->vars[i].ref_bases = get_bseq(ref_seq+var->vars[i].pos-ref_beg, var->vars[i].ref_len);
         if (is_hom) {
@@ -1012,9 +1019,9 @@ int make_cand_vars_from_baln0(const call_var_opt_t *opt, int tid, hts_pos_t nois
         }
         if (ref_msa_seq[i] != 5 && cons_msa_seq[i] != 5) { // DIFF
             // fprintf(stderr, "X ref_pos: %" PRId64 ", inc_var_beg: %" PRId64 ", inc_var_end: %" PRId64 "\n", ref_pos, inc_var_beg, inc_var_end);
-            if (ref_pos < inc_var_beg || ref_pos > inc_var_end) {
-                i ++; ref_pos++; continue;
-            }
+            // if (ref_pos < inc_var_beg || ref_pos > inc_var_end) {
+                // i ++; ref_pos++; continue;
+            // }
             memset((*cand_vars) + n_vars, 0, sizeof(cand_var_t));
             (*cand_vars)[n_vars].tid = tid; (*cand_vars)[n_vars].pos = ref_pos;
             (*cand_vars)[n_vars].var_type = BAM_CDIFF;
@@ -1031,9 +1038,9 @@ int make_cand_vars_from_baln0(const call_var_opt_t *opt, int tid, hts_pos_t nois
             int gap_len = 1;
             while (i+gap_len < msa_len && ref_msa_seq[i+gap_len] == 5 && cons_msa_seq[i+gap_len] != 5) gap_len++;
             // fprintf(stderr, "I ref_pos: %" PRId64 ", gap_len: %d, inc_var_beg: %" PRId64 ", inc_var_end: %" PRId64 "\n", ref_pos-1, gap_len, inc_var_beg, inc_var_end);
-            if (ref_pos-1 < inc_var_beg || ref_pos-1 > inc_var_end) {
-                i += gap_len; continue;
-            }
+            // if (ref_pos-1 < inc_var_beg || ref_pos-1 > inc_var_end) {
+                // i += gap_len; continue;
+            // }
             memset((*cand_vars) + n_vars, 0, sizeof(cand_var_t));
             (*cand_vars)[n_vars].tid = tid; (*cand_vars)[n_vars].pos = ref_pos;
             (*cand_vars)[n_vars].var_type = BAM_CINS;
@@ -1049,9 +1056,9 @@ int make_cand_vars_from_baln0(const call_var_opt_t *opt, int tid, hts_pos_t nois
             int gap_len = 1;
             while (i+gap_len < msa_len && ref_msa_seq[i+gap_len] != 5 && cons_msa_seq[i+gap_len] == 5) gap_len++;
             // fprintf(stderr, "D ref_pos: %" PRId64 ", gap_len: %d, inc_var_beg: %" PRId64 ", inc_var_end: %" PRId64 "\n", ref_pos, gap_len, inc_var_beg, inc_var_end);
-            if (ref_pos-1 < inc_var_beg || ref_pos-1 > inc_var_end) {
-                i += gap_len; ref_pos += gap_len; continue;
-            }
+            // if (ref_pos-1 < inc_var_beg || ref_pos-1 > inc_var_end) {
+                // i += gap_len; ref_pos += gap_len; continue;
+            // }
             memset((*cand_vars) + n_vars, 0, sizeof(cand_var_t));
             (*cand_vars)[n_vars].tid = tid; (*cand_vars)[n_vars].pos = ref_pos;
             (*cand_vars)[n_vars].var_type = BAM_CDEL;
@@ -1727,6 +1734,7 @@ void pre_process_noisy_regs(bam_chunk_t *chunk, call_var_opt_t *opt) {
 }
 
 void collect_var_main(const call_var_pl_t *pl, bam_chunk_t *chunk) {
+    call_var_opt_t *opt = pl->opt;
     // first round: easy-to-call SNPs (+indels)
     // 1. collect X/I/D sites from BAM
     collect_digars_from_bam(chunk, pl);
@@ -1739,30 +1747,29 @@ void collect_var_main(const call_var_pl_t *pl, bam_chunk_t *chunk) {
         // collect reference and alternative alleles for all var sites
         // all cand vars, including true/false germline/somatic variants
         // XXX for noisy/repeat regions, we need to carefully pick the candidate variants, based on supporting counts & re-alignments
-        collect_cand_vars(chunk, n_var_sites, var_sites); free(var_sites);
+        collect_cand_vars(opt, chunk, n_var_sites, var_sites); free(var_sites);
     }
 
     // pre-process noisy regions (>5 XIDs in 100 win), not including low-complexity regions
-    pre_process_noisy_regs(chunk, pl->opt);
+    pre_process_noisy_regs(chunk, opt);
 
     // 4. identify categories for cand vars, and update chunk_noisy_regs
     //    n_cand_vars & cand_vars: only include clean region vars
-    if (n_var_sites > 0) classify_cand_vars(chunk, n_var_sites, pl->opt);
+    if (n_var_sites > 0) classify_cand_vars(chunk, n_var_sites, opt);
 
     if (chunk->n_cand_vars == 0 && (chunk->chunk_noisy_regs == NULL || chunk->chunk_noisy_regs->n_r == 0))
         return; // no variant to be called
     if (chunk->n_cand_vars > 0) { // XXX what if only have homozygous vars
         // 5. collect clean region read-wise var profiles
-        chunk->read_var_profile = collect_read_var_profile(chunk);
+        chunk->read_var_profile = collect_read_var_profile(opt, chunk);
 
         // process candidate variants in the following order
         // within each round, use previously obtained phasing/haplotype information as intialization
-        //   1. LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL
-        //   2. LONGCALLD_REP_HET_VAR + LONGCALLD_DENSE_REG_VAR + ALL VARS IN NOISY_REG
-        //   3. LONGCALLD_CAND_HOM_VAR
-        //   4. LONGCALLD_CAND_SOMATIC_VAR
+        //   1. LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CAND_HOM_VAR
+        //   2. LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CAND_HOM_VAR | LONGCALLD_NOISY_CAND_HET_VAR | LONGCALLD_NOISY_CAND_HOM_VAR
+        //   3. LONGCALLD_CAND_SOMATIC_VAR
         // 6. co-phasing and variant calling using clean region SNPs + indels
-        assign_hap_based_on_het_vars_kmeans(chunk, LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CAND_HOM_VAR, pl->opt);
+        assign_hap_based_on_het_vars_kmeans(chunk, LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CAND_HOM_VAR, opt);
     }
     // 7. iteratively call variants in noisy regions and variant/read phasing
     if (chunk->chunk_noisy_regs != NULL && chunk->chunk_noisy_regs->n_r > 0) {
@@ -1789,11 +1796,14 @@ void collect_var_main(const call_var_pl_t *pl, bam_chunk_t *chunk) {
                 } // unable to resolve the region
             }
             if (new_var) {
-                assign_hap_based_on_het_vars_kmeans(chunk, LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CAND_HOM_VAR | LONGCALLD_NOISY_CAND_HET_VAR | LONGCALLD_NOISY_CAND_HOM_VAR, pl->opt);
+                assign_hap_based_on_het_vars_kmeans(chunk, LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CAND_HOM_VAR | LONGCALLD_NOISY_CAND_HET_VAR | LONGCALLD_NOISY_CAND_HOM_VAR, opt);
             }
             if (new_region_is_done == 0) break;
         }
         free(sorted_noisy_regs); free(noisy_reg_is_done);
+    }
+    if (opt->out_somatic_snp == 1) { // call somatic SNPs based on read_var_profile
+        assign_somatic_hap_based_on_phased_reads(chunk, LONGCALLD_CAND_SOMATIC_VAR, opt);
     }
 }
 

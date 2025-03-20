@@ -15,6 +15,7 @@
 
 #define LONGCALLD_MIN_CAND_MQ 30 // ignore reads with MAPQ < 30
 #define LONGCALLD_MIN_CAND_BQ 10 // ignore bases with BQ < 10
+#define LONGCALLD_MIN_CAND_SOMATIC_BQ 30 // ignor bases with BQ < 30
 #define LONGCALLD_MIN_CAND_DP 5 // total depth < 5: skipped
 #define LONGCALLD_MIN_ALT_DP 2 // max alt depth < 2: skipped
 #define LONGCALLD_MIN_SOMATIC_AF 0.05 // AF < 0.05: filtered out, 0.05~0.25: candidate somatic
@@ -43,6 +44,9 @@
 #define LONGCALLD_MIN_HAP_READS 2 // >= 3 reads supporting each haplotype, including partial/clipped reads, call consensus from >= 3 reads
 // #define LONGCALLD_MIN_NO_HAP_FULL_READS 10 // >10 total full reads in noisy region
 #define LONGCALLD_MIN_READ_TO_HAP_CONS_SIM 0.9 // for reads with >= 90% equal bases, assign haplotype
+// MOSAIC SNPs
+#define LONGCALLD_MIN_SOMATIC_HAP_READS 10 // >= 10 reads supporting each haplotype
+
 // for sdust
 #define LONGCALLD_SDUST_T 5
 #define LONGCALLD_SDUST_W 20
@@ -72,6 +76,7 @@ typedef struct {
     uint8_t type; // BAM_CINS/BAM_CDEL/BAM_CDIFF
     hts_pos_t pos, PS; // phase set
     uint8_t *ref_bases; int ref_len; // extra care needed for multi-allelic sites, e.g., GGTGT -> GGT,G
+    uint8_t is_somatic;
     int n_alt_allele; // alt allele: 1 or 2
     uint8_t **alt_bases; int *alt_len;
     int DP, AD[2]; uint8_t GT[2]; // DP/AD/GT
@@ -99,8 +104,8 @@ typedef struct call_var_opt_t {
     uint8_t only_autosome, only_autosome_XY;
     // char *region_list; uint8_t region_is_file; // for -R/--region/--region-file option
     // filters for variant calling
-    int max_ploid, min_mq, min_bq, min_dp, min_alt_dp;
-    double min_af, max_af, min_somatic_af;
+    int max_ploid, min_mq, min_bq, min_somatic_bq, min_dp, min_alt_dp, min_somatic_hap_dp;
+    double min_af, max_af;
     int noisy_reg_max_xgaps, noisy_reg_slide_win;
     int end_clip_reg, end_clip_reg_flank_win;
     int noisy_reg_flank_len; // noisy_reg_merge_win; // for re-alignment
@@ -122,7 +127,7 @@ typedef struct call_var_opt_t {
     htsFile *out_bam; // phased bam
     FILE *out_vcf; 
     double p_error, log_p, log_1p, log_2; int max_gq; int max_qual;
-    int8_t no_vcf_header, out_amb_base, no_mosaic_snp, no_methylation;
+    int8_t no_vcf_header, out_amb_base, out_somatic_snp, out_methylation;
 } call_var_opt_t;
 
 typedef struct {

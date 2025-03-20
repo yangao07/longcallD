@@ -31,6 +31,7 @@ void write_vcf_header(bam_hdr_t *hdr, FILE *out_vcf, char *sample_name) {
     fprintf(out_vcf, "##FILTER=<ID=NoCall,Description=\"Site has depth=0 resulting in no call\">\n");
 
     // INFO field
+    fprintf(out_vcf, "##INFO=<ID=SOMATIC,Number=0,Type=Flag,Description=\"Somatic/mosaic variant\">\n");
     // fprintf(out_vcf, "##INFO=<ID=DP,Number=1,Type=Integer,Description=\"Combined depth across samples\">\n");
     // fprintf(out_vcf, "##INFO=<ID=AD,Number=R,Type=Integer,Description=\"Total read depth for each allele\">\n");
     // fprintf(out_vcf, "##INFO=<ID=AF,Number=1,Type=Float,Description=\"Allele Frequency\">\n");
@@ -53,6 +54,7 @@ void write_vcf_header(bam_hdr_t *hdr, FILE *out_vcf, char *sample_name) {
 int write_var_to_vcf(var_t *vars, const struct call_var_opt_t *opt, char *chrom) {
     FILE *out_vcf = opt->out_vcf;
     int n_vars = vars->n;
+    int n_ouput_vars = 0;
     // fprintf(stdout, "n: %d\n", n_vars);
     int ret = 0;
     // XXX correct phase set if needed: set it as leftmost position within the same phase block
@@ -109,7 +111,9 @@ int write_var_to_vcf(var_t *vars, const struct call_var_opt_t *opt, char *chrom)
             }
         }
         // QUAL, FILTER, INFO
-        fprintf(out_vcf, "\t%d\tPASS\tEND=%" PRId64 "", var.QUAL, var.pos + var.ref_len - 1);
+        fprintf(out_vcf, "\t%d\tPASS\t", var.QUAL);
+        if (var.is_somatic) fprintf(out_vcf, "SOMATIC;");
+        fprintf(out_vcf, "END=%" PRId64 "", var.pos + var.ref_len - 1);
         if (is_sv) fprintf(out_vcf, ";%s;%s\t", SVTYPE, SVLEN);
         else fprintf(out_vcf, "\t");
         int is_hom = var.GT[0] == var.GT[1] ? 1 : 0;
@@ -121,6 +125,7 @@ int write_var_to_vcf(var_t *vars, const struct call_var_opt_t *opt, char *chrom)
         }
         if (is_hom) fprintf(out_vcf, ":%d\n", var.GQ);
         else fprintf(out_vcf, ":%d:%" PRId64 "\n", var.GQ, var.PS);
+        n_ouput_vars++;
     }
-    return ret;
+    return n_ouput_vars;
 }

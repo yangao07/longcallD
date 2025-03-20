@@ -754,7 +754,7 @@ void sort_by_full_cover_and_length(int n_reads, int *read_ids, int *read_lens, u
     }
 }
 
-int add_phase_set(hts_pos_t ps, hts_pos_t *uniq_phase_sets, int *n_uniq_phase_sets) {
+static int add_phase_set(hts_pos_t ps, hts_pos_t *uniq_phase_sets, int *n_uniq_phase_sets) {
     int i;
     for (i = 0; i < *n_uniq_phase_sets; ++i) {
         if (uniq_phase_sets[i] == ps) return i;

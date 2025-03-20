@@ -32,8 +32,8 @@ const struct option call_var_opt [] = {
     { "regions-file", 1, NULL, 0},
     { "autosome", 0, NULL, 0},
     { "autosome-XY", 0, NULL, 0},
-    { "no-mosaic-snp", 0, NULL, 0},
-    { "no-methylation", 0, NULL, 0},
+    { "somatic-snp", 0, NULL, 0},
+    { "methylation", 0, NULL, 0},
     // { "ont-hp-prof", 1, NULL, 0},
 
     // short options
@@ -169,6 +169,7 @@ call_var_opt_t *call_var_init_para(void) {
     opt->max_ploid = LONGCALLD_DEF_PLOID;
     opt->min_mq = LONGCALLD_MIN_CAND_MQ;
     opt->min_bq = LONGCALLD_MIN_CAND_BQ;
+    opt->min_somatic_bq = LONGCALLD_MIN_CAND_SOMATIC_BQ;
     opt->min_dp = LONGCALLD_MIN_CAND_DP;
     opt->min_alt_dp = LONGCALLD_MIN_ALT_DP;
 
@@ -190,9 +191,9 @@ call_var_opt_t *call_var_init_para(void) {
     opt->min_hap_reads = LONGCALLD_MIN_HAP_READS;
     // opt->min_no_hap_full_reads = LONGCALLD_MIN_NO_HAP_FULL_READS;
 
-    opt->min_somatic_af = LONGCALLD_MIN_SOMATIC_AF;
     opt->min_af = LONGCALLD_MIN_CAND_AF;
     opt->max_af = LONGCALLD_MAX_CAND_AF;
+    opt->min_somatic_hap_dp = LONGCALLD_MIN_SOMATIC_HAP_READS;
 
     opt->match = LONGCALLD_MATCH_SCORE;
     opt->mismatch = LONGCALLD_MISMATCH_SCORE;
@@ -210,7 +211,7 @@ call_var_opt_t *call_var_init_para(void) {
     opt->p_error = 0.001; opt->log_p = -3.0; opt->log_1p = log10(1-opt->p_error); opt->log_2 = 0.301023;
     opt->max_gq = 60; opt->max_qual = 60;
     opt->out_vcf = NULL; opt->no_vcf_header = 0; opt->out_amb_base = 0;
-    opt->out_bam = NULL; opt->no_mosaic_snp = 0; opt->no_methylation = 0;
+    opt->out_bam = NULL; opt->out_somatic_snp = 0; opt->out_methylation = 0;
     // opt->verbose = 0;
     return opt;
 }
@@ -551,7 +552,7 @@ static void call_var_pl_open_fa_bam(call_var_opt_t *opt, call_var_pl_t *pl, char
         pl->io_aux[i].header = sam_hdr_read(pl->io_aux[i].bam);
         if (pl->io_aux[i].header == NULL) {
             sam_close(pl->io_aux[i].bam);
-            _err_error_exit("Failed to read BAM header \'%s\'\n", opt->in_bam_fn);
+            _err_error_exit("Failed to read header \'%s\'\n", opt->in_bam_fn);
         }
         pl->io_aux[i].fai = fai_load3(opt->ref_fa_fn, opt->ref_fa_fai_fn, NULL, FAI_CREATE);
         if (pl->io_aux[i].fai == NULL) {
@@ -617,56 +618,22 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
         }
         int64_t n_processed_reads = 0;
         for (int i = 0; i < ((call_var_step_t*)in)->n_chunks; ++i) {
-            n_processed_reads += ((call_var_step_t*)in)->chunks[i].n_reads;
+            n_processed_reads += (((call_var_step_t*)in)->chunks[i].n_reads - ((call_var_step_t*)in)->chunks[i].n_up_ovlp_reads);
         }
         if (n_processed_reads > 0) _err_info("Processed %ld reads.\n", n_processed_reads);
         return in;
     } else if (step == 2) { // step 3: write the buffer to output
-        if (LONGCALLD_VERBOSE >= 1) _err_info("Step 3: output variants (& bam).\n");
+        if (LONGCALLD_VERBOSE >= 1) _err_info("Step 3: output variants (& phased bam).\n");
         call_var_step_t *s = (call_var_step_t*)in;
+        int n_out_vars = 0, n_out_reads = 0;
         for (int i = 0; i < s->n_chunks; ++i) {
-            // if (i != 0) continue;
             bam_chunk_t *c = s->chunks + i;
-            for (int j = c->n_up_ovlp_reads; j < c->n_reads; ++j) {
-                // if (pl->opt->out_bam != NULL) {
-                if (0) {
-                    // Add HP tag
-                    bam1_t *b = c->reads[j];
-                    // if (c->is_skipped[i] || c->haps[i] <= 0) continue;
-                    int hap = c->haps[j]; 
-                    if (hap != 0) {
-                        if (c->flip_hap) hap ^= 3;
-                        // check if HP tag exists
-                        uint8_t *hp = bam_aux_get(b, "HP");
-                        if (hp != NULL) {
-                            if (hap != bam_aux2i(hp)) {
-                                bam_aux_del(b, hp);
-                                bam_aux_append(b, "HP", 'i', 4, (uint8_t*)&(hap));
-                            }
-                        } else {
-                            bam_aux_append(b, "HP", 'i', 4, (uint8_t*)&(hap));
-                        }
-                    }
-                    hts_pos_t ps = c->phase_sets[j];
-                    if (ps != -1) {
-                        // check if PS tag exists
-                        uint8_t *ps_tag = bam_aux_get(b, "PS");
-                        if (ps_tag != NULL) {
-                            if (ps != bam_aux2i(ps_tag)) {
-                                bam_aux_del(b, ps_tag);
-                                bam_aux_append(b, "PS", 'i', 4, (uint8_t *)&(ps));
-                            }
-                        } else {
-                            bam_aux_append(b, "PS", 'i', 4, (uint8_t *)&(ps));
-                        }
-                    }
-                    if (sam_write1(pl->opt->out_bam, pl->io_aux[0].header, b) < 0)
-                        _err_error_exit("Failed to write BAM record.");
-                }
-            }
-            write_var_to_vcf(s->vars+i, pl->opt, c->tname);
+            n_out_vars += write_var_to_vcf(s->vars+i, pl->opt, c->tname);
+            if (pl->opt->out_bam != NULL) n_out_reads += write_read_to_bam(c, pl->opt);
             var_free(s->vars + i);  // free output
         }
+        if (n_out_vars > 0) _err_info("Output %d variants to VCF.\n", n_out_vars);
+        if (n_out_reads > 0) _err_info("Output %d reads to BAM.\n", n_out_reads);
         bam_chunks_post_free(s->chunks, s->n_chunks); // free input
         free(s->vars); free(s);
     }
@@ -701,8 +668,8 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "    -n --sample-name STR  sample name. 'RG/SM' in BAM header will be used if not provided [NULL]\n");
     fprintf(stderr, "                          BAM file name will be used if not provided and no 'RG/SM' in BAM header\n");
     fprintf(stderr, "    -o --out-vcf    FILE  output phased VCF file [stdout]\n");
-    // fprintf(stderr, "       --no-mosaic-snp    do NOT output mosaic SNPs [False]\n");
-    // fprintf(stderr, "       --no-methylation   do NOT output methylation site information [False]\n");
+    // fprintf(stderr, "       --somatic-snp    output somatic SNPs [False]\n");
+    // fprintf(stderr, "       --methylation    output methylation site information [False]\n");
     // fprintf(stderr, "                          if present, MM/ML tags will be used to calculate methylation level\n");
     fprintf(stderr, "    -H --no-vcf-header    do NOT output VCF header [False]\n");
     fprintf(stderr, "       --amb-base         output variant with ambiguous base [False]\n");
@@ -766,8 +733,8 @@ int call_var_main(int argc, char *argv[]) {
                              strcmp(call_var_opt[op_idx].name, "regions-file") == 0) opt->reg_bed_fn = strdup(optarg);
                     else if (strcmp(call_var_opt[op_idx].name, "autosome") == 0) opt->only_autosome = 1;
                     else if (strcmp(call_var_opt[op_idx].name, "autosome-XY") == 0) opt->only_autosome_XY = 1;
-                    else if (strcmp(call_var_opt[op_idx].name, "no-mosaic-snp") == 0) opt->no_mosaic_snp = 1;
-                    else if (strcmp(call_var_opt[op_idx].name, "no-methylation") == 0) opt->no_methylation = 1;
+                    else if (strcmp(call_var_opt[op_idx].name, "somatic-snp") == 0) opt->out_somatic_snp = 1;
+                    else if (strcmp(call_var_opt[op_idx].name, "methylation") == 0) opt->out_methylation = 1;
                     break;
             case 'b': opt->out_bam = hts_open(optarg, "wb"); break;
             case 'c': opt->min_dp = atoi(optarg); break;

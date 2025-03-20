@@ -1,7 +1,7 @@
 <!-- # LongcallD: local-haplotagging-based small and structural variant calling -->
 
 <!-- [![Latest Release](https://img.shields.io/github/release/yangao07/longcallD.svg?label=Release)](https://github.com/yangao07/longcallD/releases/latest) -->
-[![Github All Releases](https://img.shields.io/github/downloads/yangao07/longcallD/total.svg?label=Download)](https://github.com/yangao07/longcallD/releases)
+<!-- [![Github All Releases](https://img.shields.io/github/downloads/yangao07/longcallD/total.svg?label=Download)](https://github.com/yangao07/longcallD/releases) -->
 [![C/C++ CI](https://github.com/yangao07/longcallD/actions/workflows/linux-CI.yml/badge.svg)](https://github.com/yangao07/longcallD/actions/workflows/linux-CI.yml)
 [![C/C++ CI](https://github.com/yangao07/longcallD/actions/workflows/macos-CI.yml/badge.svg)](https://github.com/yangao07/longcallD/actions/workflows/macos-CI.yml)
 [![License](https://img.shields.io/badge/License-MIT-black.svg)](https://github.com/yangao07/longcallD/blob/main/LICENSE)
@@ -10,9 +10,10 @@
 <!-- [![GitHub Issues](https://img.shields.io/github/issues/yangao07/longcallD.svg?label=Issues)](https://github.com/yangao07/longcallD/issues) -->
 ## Updates (pre-release v0.0.4)
 
-* Use static regions for multi-threads computing
-* Extended phase sets
-* Fix a few edge cases
+* Use static regions for multi-thread computing
+* Extended phase set
+* Fixed HP/PS tags in output phased bam
+* Fixed a few edge cases
 
 ## Getting Started
 ```sh

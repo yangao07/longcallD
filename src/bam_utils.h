@@ -136,11 +136,12 @@ int collect_reg_digars_var_seqs(bam_chunk_t *chunk, int read_i, hts_pos_t reg_be
 int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar);
 int collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar);
 int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar);
-int update_cand_vars_from_digar(bam_chunk_t *chunk, digar_t *digar, int n_var_sites, struct var_site_t *var_sites, int start_i, struct cand_var_t *cand_vars);
+int update_cand_vars_from_digar(const struct call_var_opt_t *opt, bam_chunk_t *chunk, digar_t *digar, int n_var_sites, struct var_site_t *var_sites, int start_i, struct cand_var_t *cand_vars);
 void update_read_var_profile_with_allele(int var_i, int allele_i, read_var_profile_t *read_var_profile);
-int update_read_var_profile_from_digar(bam_chunk_t *chunk, digar_t *digar, int n_cand_vars, struct cand_var_t *cand_vars, int start_var_i, struct read_var_profile_t *read_var_profile);
+int update_read_var_profile_from_digar(const struct call_var_opt_t *opt, bam_chunk_t *chunk, digar_t *digar, int n_cand_vars, struct cand_var_t *cand_vars, int start_var_i, struct read_var_profile_t *read_var_profile);
 
 int collect_ref_seq_bam_main(const struct call_var_pl_t *pl, struct call_var_io_aux_t *io_aux, int reg_chunk_i, int reg_i, bam_chunk_t *chunks);
+int write_read_to_bam(bam_chunk_t *chunk, const struct call_var_opt_t *opt);
 void bam_chunk_mid_free(bam_chunk_t *chunk);
 void bam_chunks_mid_free(bam_chunk_t *chunks, int n_chunks);
 void bam_chunk_post_free(bam_chunk_t *chunk);

@@ -55,14 +55,29 @@ void var_init_hap_profile_cons_allele(cand_var_t *cand_vars, int *var_idx, int n
     }
 }
 
+void var_init_hap_profile_cons_allele1(cand_var_t *var) {
+    if (var->hap_to_alle_profile == NULL) {
+        var->hap_to_alle_profile = (int**)malloc((LONGCALLD_DEF_PLOID+1) * sizeof(int*));
+        for (int i = 0; i <= LONGCALLD_DEF_PLOID; ++i) var->hap_to_alle_profile[i] = (int*)calloc(var->n_uniq_alles, sizeof(int));
+        var->hap_to_cons_alle = (int*)malloc((LONGCALLD_DEF_PLOID+1) * sizeof(int));
+        var->hap_to_cons_alle[0] = get_var_max_cov_allele(var); // hom_idx
+        for (int j = 1; j <= LONGCALLD_DEF_PLOID; ++j) var->hap_to_cons_alle[j] = -1;
+    } else {
+        for (int j = 0; j <= LONGCALLD_DEF_PLOID; ++j) memset(var->hap_to_alle_profile[j], 0, var->n_uniq_alles * sizeof(int));
+        var->hap_to_cons_alle[0] = get_var_max_cov_allele(var); // hom_idx
+        for (int j = 1; j <= LONGCALLD_DEF_PLOID; ++j) var->hap_to_cons_alle[j] = -1;
+    }
+}
+
+
 void var_init_hap_to_alle_profile(cand_var_t *cand_vars, int *var_idx, int n_cand_vars) {
     for (int _var_i = 0; _var_i < n_cand_vars; ++_var_i) {
         int var_i = var_idx[_var_i]; cand_var_t *var = cand_vars+var_i;
         if (var->hap_to_alle_profile == NULL) {
             var->hap_to_alle_profile = (int**)malloc((LONGCALLD_DEF_PLOID+1) * sizeof(int*));
-            for (int i = 1; i <= LONGCALLD_DEF_PLOID; ++i) var->hap_to_alle_profile[i] = (int*)calloc(var->n_uniq_alles, sizeof(int));
+            for (int i = 0; i <= LONGCALLD_DEF_PLOID; ++i) var->hap_to_alle_profile[i] = (int*)calloc(var->n_uniq_alles, sizeof(int));
         } else {
-            for (int j = 1; j <= LONGCALLD_DEF_PLOID; ++j) {
+            for (int j = 0; j <= LONGCALLD_DEF_PLOID; ++j) {
                 memset(var->hap_to_alle_profile[j], 0, var->n_uniq_alles * sizeof(int));
             }
         }
@@ -382,6 +397,10 @@ int assign_hap_based_on_het_vars_kmeans(bam_chunk_t *chunk, int target_var_cate,
         valid_var_idx[n_valid_vars++] = i;
         var_is_valid[i] = 1;
     }
+    if (n_valid_vars == 0) {
+        free(valid_var_idx); free(var_is_valid);
+        return 0;
+    }
     int *var_i_to_cate = chunk->var_i_to_cate;
     cand_var_t *cand_vars = chunk->cand_vars;
     cgranges_t *read_var_cr = chunk->read_var_cr;
@@ -442,5 +461,122 @@ int assign_hap_based_on_het_vars_kmeans(bam_chunk_t *chunk, int target_var_cate,
     // update PS for read & var after all iterations
     update_read_phase_set(chunk, var_is_valid, p, cand_vars);
     free(valid_var_idx); free(var_is_valid);
+    return 0;
+}
+
+static int add_phase_set(hts_pos_t ps, hts_pos_t *uniq_phase_sets, int *n_uniq_phase_sets) {
+    int i;
+    for (i = 0; i < *n_uniq_phase_sets; ++i) {
+        if (uniq_phase_sets[i] == ps) return i;
+    }
+    uniq_phase_sets[i] = ps;
+    (*n_uniq_phase_sets)++;
+    return i;
+}
+
+void sort_phase_sets(hts_pos_t *uniq_phase_set, int *phase_set_to_total_depth, int n_uniq_phase_set, int ***phase_set_to_hap_alle_profile) {
+    for (int i = 0; i < n_uniq_phase_set-1; ++i) {
+        for (int j = i+1; j < n_uniq_phase_set; ++j) {
+            if (phase_set_to_total_depth[i] < phase_set_to_total_depth[j]) {
+                int tmp = phase_set_to_total_depth[i]; phase_set_to_total_depth[i] = phase_set_to_total_depth[j]; phase_set_to_total_depth[j] = tmp;
+                hts_pos_t tmp_ps = uniq_phase_set[i]; uniq_phase_set[i] = uniq_phase_set[j]; uniq_phase_set[j] = tmp_ps;
+                int **tmp_profile = phase_set_to_hap_alle_profile[i]; phase_set_to_hap_alle_profile[i] = phase_set_to_hap_alle_profile[j]; phase_set_to_hap_alle_profile[j] = tmp_profile;
+            }
+        }
+    }
+}
+
+static int select_somatic_phase_set(hts_pos_t *uniq_phase_set, int n_uniq_phase_set, int ***phase_set_to_hap_alle_profile, int min_somatic_hap_depth) {
+    int ps_i = -1;
+    int *phase_set_to_total_depth = (int*)calloc(n_uniq_phase_set, sizeof(int));
+    for (int i = 0; i < n_uniq_phase_set; ++i) {
+        for (int j = 1; j < 3; ++j) {
+            phase_set_to_total_depth[i] += (phase_set_to_hap_alle_profile[i][j][0] + phase_set_to_hap_alle_profile[i][j][1]);
+        }
+    }
+    sort_phase_sets(uniq_phase_set, phase_set_to_total_depth, n_uniq_phase_set, phase_set_to_hap_alle_profile);
+    free(phase_set_to_total_depth);
+    for (int i = 0; i < n_uniq_phase_set; ++i) {
+        int skip = 0, alt_hap = 0;
+        for (int hap = 1; hap <= 2; ++hap) {
+            // check if this hap has alt reads
+            if (phase_set_to_hap_alle_profile[i][hap][1] > 0) {
+                alt_hap++;
+                // alt frequency in alt hap < 0.5
+                if (phase_set_to_hap_alle_profile[i][hap][0]*2 < phase_set_to_hap_alle_profile[i][hap][1]) {
+                    skip = 1; break;
+                }
+            }
+            // hap depth
+            if (phase_set_to_hap_alle_profile[i][hap][0] + phase_set_to_hap_alle_profile[i][hap][1] < min_somatic_hap_depth) {
+                skip = 1; break;
+            }
+            //
+        }
+        if (skip == 0 && alt_hap == 1) {
+            ps_i = i; break;
+        }
+    }
+    return ps_i;
+}
+// somaticcccccc SNP:
+// 1) alt reads all come from one haplotype, no alt reads come from ref haplotype or non-haplotype
+// 2) alt freqency in alt haplotype < 0.5
+// 3) total depth in alt haplotype >= 10, total depth in ref haplotype >= 10
+int assign_somatic_hap_based_on_phased_reads(bam_chunk_t *chunk, int target_var_cate, call_var_opt_t *opt) {
+    int min_somatic_hap_depth = opt->min_somatic_hap_dp;
+    int *var_i_to_cate = chunk->var_i_to_cate;
+    cand_var_t *cand_vars = chunk->cand_vars;
+    cgranges_t *read_var_cr = chunk->read_var_cr;
+    int64_t ovlp_i, ovlp_n, *ovlp_b = 0, max_b = 0;
+    for (int var_i = 0; var_i < chunk->n_cand_vars; ++var_i) {
+        if ((var_i_to_cate[var_i] & target_var_cate) == 0) continue;
+        cand_var_t *var = cand_vars+var_i;
+        var_init_hap_profile_cons_allele1(var);
+        read_var_profile_t *p = chunk->read_var_profile;
+        ovlp_n = cr_overlap(read_var_cr, "cr", var_i, var_i+1, &ovlp_b, &max_b);
+        hts_pos_t *uniq_phase_set = (hts_pos_t*)calloc(ovlp_n, sizeof(hts_pos_t)); int n_uniq_phase_set = 0;
+        int skip = 0, ***phase_set_to_hap_alle_profile = (int***)calloc(ovlp_n, sizeof(int**));
+        for (int i = 0; i < ovlp_n; ++i) {
+            phase_set_to_hap_alle_profile[i] = (int**)calloc(3, sizeof(int*));
+            for (int j = 0; j < 3; ++j) phase_set_to_hap_alle_profile[i][j] = (int*)calloc(var->n_uniq_alles, sizeof(int));
+        }
+        for (ovlp_i = 0; ovlp_i < ovlp_n; ++ovlp_i) {
+            int read_i = cr_label(read_var_cr, ovlp_b[ovlp_i]);
+            if (chunk->is_skipped[read_i]) continue;
+            int hap = chunk->haps[read_i]; hts_pos_t phase_set = chunk->phase_sets[read_i];
+            read_var_profile_t *p1 = p + read_i;
+            int var_idx = var_i - p1->start_var_idx;
+            int alle_i = p1->alleles[var_idx];
+            if (alle_i == -1) continue;
+            if (hap == 0 || phase_set == -1) {
+                if (alle_i == 1) {
+                    skip = 1;
+                    break;
+                } else continue;
+            } else {
+                int phase_set_i = add_phase_set(phase_set, uniq_phase_set, &n_uniq_phase_set);
+                phase_set_to_hap_alle_profile[phase_set_i][hap][alle_i] += 1;
+            }
+        }
+        if (skip == 0) {
+            int phase_set_i = select_somatic_phase_set(uniq_phase_set, n_uniq_phase_set, phase_set_to_hap_alle_profile, min_somatic_hap_depth);
+            // update hap_to_cons_alle based on phase_set_to_use
+            if (phase_set_i != -1) {
+                hts_pos_t phase_set = uniq_phase_set[phase_set_i];
+                var->phase_set = phase_set;
+                if (phase_set_to_hap_alle_profile[phase_set_i][1][1] > 0) { // HAP1 is alt
+                    var->hap_to_cons_alle[1] = 1; var->hap_to_cons_alle[2] = 0;
+                } else {
+                    var->hap_to_cons_alle[1] = 0; var->hap_to_cons_alle[2] = 1;
+                }
+            }
+        }
+        for (int i = 0; i < ovlp_n; ++i) {
+            for (int j = 0; j < 3; ++j) free(phase_set_to_hap_alle_profile[i][j]);
+            free(phase_set_to_hap_alle_profile[i]);
+        } free(phase_set_to_hap_alle_profile); free(uniq_phase_set);
+    }
+    if (ovlp_b != NULL) free(ovlp_b);
     return 0;
 }

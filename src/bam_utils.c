@@ -186,13 +186,36 @@ void update_read_var_profile_with_allele(int var_i, int allele_i, read_var_profi
     read_var_profile->alleles[_var_i] = allele_i; // ref:0, alt:1~n, or -1: not ref/alt
 }
 
+
+int get_digar_ave_qual(digar1_t *digar, const uint8_t *qual) {
+    if (digar->qi < 0) return 0;
+    int q_start, q_end;
+    if (digar->type == BAM_CDEL) {
+        if (digar->qi == 0) {
+            q_start = 0;
+            q_end = 0;
+        } else {
+            q_start = digar->qi - 1;
+            q_end = digar->qi;
+        }
+    } else {
+        q_start = digar->qi;
+        q_end = digar->qi + digar->len - 1;
+    }
+    int ave_qual = 0;
+    for (int i = q_start; i <= q_end; ++i) {
+        ave_qual += qual[i];
+    }
+    return ave_qual / digar->len;
+}
+
 // cand_vars:
 // X: 1 -> M SNPs
 // I: 0 -> M INSs
 // D: M -> 1 DEL
 // XXX no minor_alt_allele here, will be used in read_var_profile
 // here, minor_alt_allele will be simply treated as non-alt, i.e., ref allele
-int update_cand_vars_from_digar(bam_chunk_t *chunk, digar_t *digar, int n_var_sites, var_site_t *var_sites, int start_i, cand_var_t *cand_vars) {
+int update_cand_vars_from_digar(const call_var_opt_t *opt, bam_chunk_t *chunk, digar_t *digar, int n_var_sites, var_site_t *var_sites, int start_i, cand_var_t *cand_vars) {
     int cur_start_i, site_i, digar_i = 0;
     // hts_pos_t pos_start = read->core.pos+1, pos_end = bam_endpos(read);
     hts_pos_t pos_start = digar->beg, pos_end = digar->end;
@@ -207,13 +230,14 @@ int update_cand_vars_from_digar(bam_chunk_t *chunk, digar_t *digar, int n_var_si
             digar_i++; continue;
         }
         var_site_t digar_var_site = make_var_site_from_digar(tid, digar->digars+digar_i);
+        int ave_qual = get_digar_ave_qual(digar->digars+digar_i, digar->qual);
         int ret = comp_var_site(var_sites+site_i, &digar_var_site);
         if (ret < 0) { // var_site < digar_var_site
             // update_var_site_with_allele(cand_vars+site_i, is_in_noisy_reg(cand_vars[site_i].pos, digar->noisy_regs), strand, 0);
             update_var_site_with_allele(cand_vars+site_i, 0, strand, 0);
             site_i++;
         } else if (ret == 0) { // merge together, update/add alt allele
-            update_var_site_with_allele(cand_vars+site_i, digar->digars[digar_i].is_low_qual, strand, 1);
+            update_var_site_with_allele(cand_vars+site_i, (digar->digars[digar_i].is_low_qual) || (ave_qual < opt->min_bq), strand, 1);
             site_i++;
         } else { // ret > 0, var_site > digar_var_site
             digar_i++;
@@ -249,7 +273,7 @@ int get_alt_allele_idx(cand_var_t *cand_var, digar1_t *digar, const uint8_t *bse
     // return allele_i;
 }
 
-int update_read_var_profile_from_digar(bam_chunk_t *chunk, digar_t *digar, int n_cand_vars, cand_var_t *cand_vars, int start_var_i, read_var_profile_t *read_var_profile) {
+int update_read_var_profile_from_digar(const call_var_opt_t *opt, bam_chunk_t *chunk, digar_t *digar, int n_cand_vars, cand_var_t *cand_vars, int start_var_i, read_var_profile_t *read_var_profile) {
     int cur_start_i, var_i, digar_i = 0, allele_i=-1;
     // hts_pos_t pos_start = read->core.pos+1, pos_end = bam_endpos(read);
     hts_pos_t pos_start = digar->beg, pos_end = digar->end;
@@ -263,11 +287,11 @@ int update_read_var_profile_from_digar(bam_chunk_t *chunk, digar_t *digar, int n
             digar_i++; continue;
         }
         var_site_t var_site0 = make_var_site_from_cand_var(cand_vars+var_i);
-        // XXX should always update read_var_profile
-        // if (is_in_noisy_reg(var_site0.pos, digar->noisy_regs)) {
-        //     var_i++; continue;
-        // }
         var_site_t digar_var_site = make_var_site_from_digar(tid, digar1+digar_i);
+        int ave_qual = get_digar_ave_qual(digar1+digar_i, digar->qual);
+        // if (ave_qual < opt->min_bq) {
+            // digar_i++; continue;
+        // }
         int is_ovlp, ret;
         ret = comp_ovlp_var_site(&var_site0, &digar_var_site, &is_ovlp);
         if (is_ovlp == 0) { // no overlapping
@@ -277,17 +301,13 @@ int update_read_var_profile_from_digar(bam_chunk_t *chunk, digar_t *digar, int n
             } else if (ret > 0) { // var_site > digar_var_site
                 digar_i++;
             } else { // var_site == digar_var_site
-                _err_error_exit("Unexpected case: is_ovlp == 0 && var_site == digar_var_site, %d-%c-%d-%d\n", cand_vars[var_i].pos, BAM_CIGAR_STR[cand_vars[var_i].var_type], digar_var_site.pos, BAM_CIGAR_STR[digar_var_site.var_type]);
-                // if (var_site0.var_type != BAM_CINS || digar_var_site.var_type != BAM_CINS) {
-                    // _err_error_exit("Unexpected case: is_ovlp == 0 && var_site == digar_var_site, %d-%c-%d-%d\n", cand_vars[var_i].pos, BAM_CIGAR_STR[cand_vars[var_i].var_type], digar_var_site.pos, BAM_CIGAR_STR[digar_var_site.var_type]);
-                // }
-                // allele_i = get_alt_allele_idx(cand_vars+var_i, digar->digars+digar_i, digar->bseq);
-                // update_read_var_profile_with_allele(var_i, allele_i, read_var_profile); // is_in_noisy_reg(var_site0.pos, digar->noisy_regs));
-                // var_i++;
+                _err_error("Unexpected case: is_ovlp == 0 && var_site == digar_var_site, %d-%c-%d-%d\n", cand_vars[var_i].pos, BAM_CIGAR_STR[cand_vars[var_i].var_type], digar_var_site.pos, BAM_CIGAR_STR[digar_var_site.var_type]);
+                var_i++; digar_i++;
             }
         } else { // overlap
             if (ret == 0) { // exact the same with var_site
                 allele_i = get_alt_allele_idx(cand_vars+var_i, digar->digars+digar_i, digar->bseq);
+                if (ave_qual < opt->min_bq) allele_i = -1;
                 update_read_var_profile_with_allele(var_i, allele_i, read_var_profile); // is_in_noisy_reg(var_site0.pos, digar->noisy_regs));
                 var_i++;
             } else {
@@ -1076,7 +1096,7 @@ static int is_ovlp_with_next_region(const struct call_var_pl_t *pl, bam_chunk_t 
 }
 
 // load ref_seq/read in reg_chunks[reg_chunk_i]->tid/beg/end[reg_i] to chunks
-int collect_ref_seq_bam_main(const struct call_var_pl_t *pl, call_var_io_aux_t *io_aux, int reg_chunk_i, int reg_i, bam_chunk_t *chunk) {
+int collect_ref_seq_bam_main(const struct call_var_pl_t *pl, struct call_var_io_aux_t *io_aux, int reg_chunk_i, int reg_i, bam_chunk_t *chunk) {
     assert(reg_chunk_i < pl->n_reg_chunks); assert(reg_i < pl->reg_chunks[reg_chunk_i].n_regions);
     int tid = pl->reg_chunks[reg_chunk_i].reg_tids[reg_i];
     hts_pos_t reg_beg = pl->reg_chunks[reg_chunk_i].reg_begs[reg_i];
@@ -1120,6 +1140,84 @@ int collect_ref_seq_bam_main(const struct call_var_pl_t *pl, call_var_io_aux_t *
         return chunk->n_reads;
     }
 
+}
+
+// open & read bam, then output phased bam
+int write_read_to_bam(bam_chunk_t *chunk, const struct call_var_opt_t *opt) {
+    int n_out_reads = 0;
+    int min_mapq = opt->min_mq;
+    hts_pos_t reg_beg = chunk->reg_beg, reg_end = chunk->reg_end; int tid = chunk->tid;
+    samFile *in_bam = sam_open(opt->in_bam_fn, "r"); if (in_bam == NULL) _err_error_exit("Failed to open alignment file \'%s\'\n", opt->in_bam_fn);
+    const htsFormat *fmt = hts_get_format(in_bam); if (fmt == NULL) _err_error_exit("Failed to get format of alignment file \'%s\'\n", opt->in_bam_fn);
+    if (fmt->format != bam && fmt->format != cram) {
+        sam_close(in_bam); _err_error_exit("Input file must be BAM or CRAM format.\n");
+    }
+    hts_tpool *p = hts_tpool_init(MAX_OF_TWO(1, opt->pl_threads));
+    htsThreadPool thread_pool = {p, 0};
+    if (hts_set_thread_pool(in_bam, &thread_pool) != 0) _err_error_exit("Failed to set thread pool.\n");
+    bam_hdr_t *header = sam_hdr_read(in_bam); if (header == NULL) _err_error_exit("Failed to read header \'%s\'\n", opt->in_bam_fn);
+    faidx_t *fai = fai_load3(opt->ref_fa_fn, opt->ref_fa_fai_fn, NULL, FAI_CREATE);
+    if (fai == NULL) _err_error_exit("Failed to load/build reference fasta index \'%s\'\n", opt->ref_fa_fn);
+    if (fmt->format == cram) {
+        if (hts_set_fai_filename(in_bam, opt->ref_fa_fn) != 0) {
+            fai_destroy(fai); hts_tpool_destroy(p); sam_hdr_destroy(header); sam_close(in_bam);
+            _err_error_exit("Failed to set reference file for CRAM decoding: %s %s\n", opt->in_bam_fn, opt->ref_fa_fn);
+        }
+    }
+    hts_idx_t *idx = sam_index_load(in_bam, opt->in_bam_fn); if (idx == NULL) _err_error_exit("Failed to load index \'%s\'\n", opt->in_bam_fn);
+    hts_itr_t *iter = sam_itr_queryi(idx, tid, reg_beg-1, reg_end); // (reg_beg-1, reg_end] ==> [reg_beg, reg_end]
+    if (iter == NULL) {
+        _err_warning("Failed to create iterator for region: %s:%" PRId64 "-%" PRId64 ". Skipping.\n", header->target_name[tid], reg_beg, reg_end);
+    } else {
+        // load bam records
+        bam1_t *read = bam_init1();
+        int read_i = 0;
+        int min_mapq = opt->min_mq;
+        while (sam_itr_next(in_bam, iter, read) >= 0) {
+            if (read->core.flag & (BAM_FUNMAP | BAM_FSECONDARY | BAM_FSUPPLEMENTARY)) continue; // BAM_FSUPPLEMENTARY
+            if (read->core.qual < min_mapq) continue;
+            // check if read is overlapping with previous region
+            if (read_i >= chunk->n_up_ovlp_reads) {
+                // Add HP tag
+                int hap = chunk->haps[read_i];
+                if (hap != 0) {
+                    // check if HP tag exists
+                    uint8_t *hp = bam_aux_get(read, "HP");
+                    if (hp != NULL) {
+                        if (hap != bam_aux2i(hp)) {
+                            bam_aux_del(read, hp);
+                            bam_aux_append(read, "HP", 'i', 4, (uint8_t *)&(hap));
+                        }
+                    } else {
+                        bam_aux_append(read, "HP", 'i', 4, (uint8_t *)&(hap));
+                    }
+                }
+                // Add PS tag
+                hts_pos_t ps = chunk->phase_sets[read_i];
+                if (ps != -1) {
+                    // check if PS tag exists
+                    uint8_t *ps_tag = bam_aux_get(read, "PS");
+                    if (ps_tag != NULL) {
+                        if (ps != bam_aux2i(ps_tag))
+                        {
+                            bam_aux_del(read, ps_tag);
+                            bam_aux_append(read, "PS", 'i', 4, (uint8_t *)&(ps));
+                        }
+                    } else {
+                        bam_aux_append(read, "PS", 'i', 4, (uint8_t *)&(ps));
+                    }
+                }
+                // write to bam
+                if (sam_write1(opt->out_bam, header, read) < 0) _err_error_exit("Failed to write BAM record. %s:%ld %s\n", chunk->tname, read->core.pos+1, bam_get_qname(read));
+                n_out_reads++;
+            }
+            read_i++;
+        }
+        bam_itr_destroy(iter); bam_destroy1(read);
+    }
+    fai_destroy(fai); hts_idx_destroy(idx);
+    sam_hdr_destroy(header); sam_close(in_bam); hts_tpool_destroy(p); 
+    return n_out_reads;
 }
 
 // check if multiple RG/SM tag are the same, if not same, output warning message
