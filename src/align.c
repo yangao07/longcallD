@@ -6,7 +6,7 @@
 #include <string.h>
 #include <stdint.h>
 #include "abpoa.h"
-#include "edlib.h"
+// #include "edlib.h"
 #include "call_var_main.h"
 #include "bam_utils.h"
 #include "utils.h"

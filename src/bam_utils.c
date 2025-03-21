@@ -1043,7 +1043,7 @@ void bam_chunks_post_free(bam_chunk_t *chunks, int n_chunks) {
 void get_bam_chunk_reg_ref_seq0(faidx_t *fai, bam_chunk_t *chunk) {
     assert(fai != NULL); // faidx_t *fai = fai_load(ref_fasta);
     int ref_seq_len = faidx_seq_len(fai, chunk->tname);
-    int flank_len = 50; // [reg_beg-flank_len, reg_end+flank_len]
+    int flank_len = 50000; // [reg_beg-flank_len, reg_end+flank_len]
     hts_pos_t ref_beg = MAX_OF_TWO(flank_len, chunk->reg_beg-1)-flank_len;
     hts_pos_t ref_end = MIN_OF_TWO(ref_seq_len-flank_len-1, chunk->reg_end-1)+flank_len;
     chunk->whole_ref_len = ref_seq_len;

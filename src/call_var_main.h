@@ -124,7 +124,7 @@ typedef struct call_var_opt_t {
     // int max_ploidy;
     int pl_threads, n_threads;
     // output
-    htsFile *out_bam; // phased bam
+    htsFile *out_bam; uint8_t out_is_cram; // phased bam
     FILE *out_vcf; 
     double p_error, log_p, log_1p, log_2; int max_gq; int max_qual;
     int8_t no_vcf_header, out_amb_base, out_somatic_snp, out_methylation;

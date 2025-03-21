@@ -1,16 +1,7 @@
 CC          = gcc
-CXX         = g++
 
-# Check if gcc is linked to clang
-GCC_CHECK := $(shell gcc --version | head -n 1 | grep -i "clang")
 # Check if the OS is macOS or linux
 UNAME_S := $(shell uname -s)
-
-ifeq ($(GCC_CHECK),) # gcc
-	CXXFLAGS = -std=c++11
-else # clang
-	CXXFLAGS = -std=c++11 -stdlib=libc++
-endif
 
 
 # add -fno-tree-vectorize to avoid certain vectorization errors in O3 optimization
@@ -20,10 +11,6 @@ EXTRA_FLAGS = -Wall -Wno-unused-function -Wno-misleading-indentation -Wno-unused
 HTSLIB_DIR  = ./htslib
 HTSLIB      = $(HTSLIB_DIR)/libhts.a
 
-EDLIB_DIR     = ./edlib
-EDLIB_INC_DIR = ./edlib/include
-EDLIB         = $(EDLIB_DIR)/src/edlib.o
-
 ABPOA_DIR   = ./abPOA
 ABPOA_LIB   = ./lib/libabpoa.a
 ABPOA_INC_DIR = $(ABPOA_DIR)/include
@@ -32,7 +19,7 @@ WFA2_DIR    = ./WFA2-lib
 WFA2_LIB    = $(WFA2_DIR)/lib/libwfa.a
 
 LIB         = $(HTSLIB) $(ABPOA_LIB) $(WFA2_LIB) -lm -lz -lpthread -llzma -lbz2 -lcurl
-INCLUDE     = -I $(HTSLIB_DIR) -I $(EDLIB_INC_DIR) -I $(ABPOA_INC_DIR) -I $(WFA2_DIR)
+INCLUDE     = -I $(HTSLIB_DIR) -I $(ABPOA_INC_DIR) -I $(WFA2_DIR)
 
 # Try linking against libdeflate
 ifeq ($(shell echo "int main() {return 0;}" | gcc -x c - -ldeflate >/dev/null 2>&1 && echo "yes"),yes)
@@ -85,13 +72,10 @@ INC_DIR = ./include
 SRC_DIR = ./src
 
 HTS_ALL = hts_all
-EDLIB_ALL = edlib_all
 ABPOA_ALL = abpoa_all
 WFA2_ALL = wfa2_all
 CSOURCE    = $(wildcard ${SRC_DIR}/*.c) 
-CPPSOURCE  = $(wildcard $(SRC_DIR)/*.cpp)
-CPPSOURCE += $(EDLIB_DIR)/src/edlib.cpp
-OBJS    = $(CSOURCE:.c=.o) $(CPPSOURCE:.cpp=.o)
+OBJS    = $(CSOURCE:.c=.o)
 BIN     = $(BIN_DIR)/longcallD
 ifneq ($(gdb),)
 	BIN = $(BIN_DIR)/gdb_longcallD
@@ -100,7 +84,7 @@ endif
 .c.o:
 	$(CC) -c $(CFLAGS) $(INCLUDE) $< -o $@
 
-all: $(HTS_ALL) $(EDLIB) $(ABPOA_LIB) $(WFA2_LIB) $(BIN)
+all: $(HTS_ALL) $(ABPOA_LIB) $(WFA2_LIB) $(BIN)
 
 $(HTS_ALL): $(HTSLIB)
 
@@ -108,12 +92,6 @@ $(HTSLIB): $(HTSLIB_DIR)/configure.ac
 # disable lzma, bz2 (CRAM), and libcurl (network protocol support)
 #	 cd $(HTSLIB_DIR); autoreconf -i; ./configure --disable-lzma --disable-bz2 --disable-libcurl --without-libdeflate; make CC=gcc
 	cd $(HTSLIB_DIR); autoreconf -i; ./configure; make CC=gcc
-
-# edlib
-$(EDLIB): $(EDLIB_DIR)/src/edlib.cpp $(EDLIB_DIR)/include/edlib.h
-	$(CXX) -c $(CFLAGS) $(CXXFLAGS) $(INCLUDE) $< -o $@
-
-$(EDLIB_ALL): $(EDLIB)
 
 $(ABPOA_LIB): 
 	cd $(ABPOA_DIR); make clean libabpoa PREFIX=$(PWD) CC=gcc
@@ -126,10 +104,9 @@ $(WFA2_ALL): $(WFA2_LIB)
 
 $(BIN): $(OBJS)
 	if [ ! -d $(BIN_DIR) ]; then mkdir $(BIN_DIR); fi
-	$(CXX) $(OBJS) -o $@ $(LIB) $(PG_FLAG)
+	$(CC) $(OBJS) -o $@ $(LIB) $(PG_FLAG)
 
 $(SRC_DIR)/align.o: $(SRC_DIR)/align.c $(SRC_DIR)/align.h $(SRC_DIR)/utils.h $(SRC_DIR)/bam_utils.h $(SRC_DIR)/seq.h
-# $(CC) -c $(CFLAGS) $(INCLUDE) $< -o $@
 	$(CC) -c -DUSE_SIMDE -DSIMDE_ENABLE_NATIVE_ALIASES $(CFLAGS) $< $(INCLUDE) -o $@
 
 $(SRC_DIR)/assign_aln_hap.o: $(SRC_DIR)/assign_aln_hap.c $(SRC_DIR)/assign_aln_hap.h $(SRC_DIR)/utils.h $(SRC_DIR)/bam_utils.h
@@ -147,7 +124,7 @@ $(SRC_DIR)/sdust.o: $(SRC_DIR)/sdust.c $(SRC_DIR)/sdust.h $(SRC_DIR)/kdq.h $(SRC
 $(SRC_DIR)/utils.o: $(SRC_DIR)/utils.c $(SRC_DIR)/utils.h $(SRC_DIR)/ksort.h $(SRC_DIR)/kseq.h
 $(SRC_DIR)/vcf_utils.o: $(SRC_DIR)/vcf_utils.c $(SRC_DIR)/vcf_utils.h $(SRC_DIR)/utils.h
 
-.PHONY: all hts_all edlib_all abpoa_all wfa2_all clean clean_all clean_hts clean_edlib clean_abpoa clean_wfa2
+.PHONY: all hts_all abpoa_all wfa2_all clean clean_all clean_hts clean_edlib clean_abpoa clean_wfa2
 
 clean:
 	rm -f $(SRC_DIR)/*.o $(BIN)

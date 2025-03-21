@@ -1,7 +1,7 @@
 <!-- # LongcallD: local-haplotagging-based small and structural variant calling -->
 
 <!-- [![Latest Release](https://img.shields.io/github/release/yangao07/longcallD.svg?label=Release)](https://github.com/yangao07/longcallD/releases/latest) -->
-<!-- [![Github All Releases](https://img.shields.io/github/downloads/yangao07/longcallD/total.svg?label=Download)](https://github.com/yangao07/longcallD/releases) -->
+[![Github All Releases](https://img.shields.io/github/downloads/yangao07/longcallD/total.svg?label=Download)](https://github.com/yangao07/longcallD/releases)
 [![C/C++ CI](https://github.com/yangao07/longcallD/actions/workflows/linux-CI.yml/badge.svg)](https://github.com/yangao07/longcallD/actions/workflows/linux-CI.yml)
 [![C/C++ CI](https://github.com/yangao07/longcallD/actions/workflows/macos-CI.yml/badge.svg)](https://github.com/yangao07/longcallD/actions/workflows/macos-CI.yml)
 [![License](https://img.shields.io/badge/License-MIT-black.svg)](https://github.com/yangao07/longcallD/blob/main/LICENSE)
@@ -50,6 +50,7 @@ man ./longcallD.1
   - [Region-specific variant calling](#region-specific-variant-calling)
   - [Variant calling and output phased long reads](#variant-calling-and-output-phased-long-reads)
   - [Variant calling from remote files](#variant-calling-from-remote-files)
+- [Acknowledgements](#acknowledgements)
 - [Contact](#contact)
 
 
@@ -109,6 +110,15 @@ ref=https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/references/
 bam=https://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/data/AshkenazimTrio/HG002_NA24385_son/PacBio_HiFi-Revio_20231031/HG002_PacBio-HiFi-Revio_20231031_48x_GRCh38-GIABv3.bam
 longcallD call -t16 $ref $bam chr11:10,229,956-10,256,221 chr12:10,576,356-10,583,438 > hifi_regs.vcf
 ```
+
+## Acknowledgements
+LongcallD is dependent on the following libraries, we are grateful to all the developers/maintainers:
+
+* [htslib](https://github.com/samtools/htslib): read/write BAM/CRAM
+* [abPOA](https://github.com/yangao07/abPOA): consensus calling
+* [WFA](https://github.com/smarco/WFA2-lib): pairwise alignment
+* [cgranges](https://github.com/lh3/cgranges): interval operations
+* [sdust](https://github.com/lh3/sdust): identify low-complexity regions
 
 ## Contact
 

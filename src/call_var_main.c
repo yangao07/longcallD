@@ -40,6 +40,7 @@ const struct option call_var_opt [] = {
     { "ref-idx", 1, NULL, 'r' },
     { "out-vcf", 1, NULL, 'o'},
     { "out-bam", 1, NULL, 'b' },
+    { "out-cram", 1, NULL, 'C' },
     { "no-vcf-header", 0, NULL, 'H'},
     { "gap-aln", 1, NULL, 'g'},
     // { "out-bam", 1, NULL, 'b' },
@@ -211,7 +212,8 @@ call_var_opt_t *call_var_init_para(void) {
     opt->p_error = 0.001; opt->log_p = -3.0; opt->log_1p = log10(1-opt->p_error); opt->log_2 = 0.301023;
     opt->max_gq = 60; opt->max_qual = 60;
     opt->out_vcf = NULL; opt->no_vcf_header = 0; opt->out_amb_base = 0;
-    opt->out_bam = NULL; opt->out_somatic_snp = 0; opt->out_methylation = 0;
+    opt->out_bam = NULL; opt->out_is_cram = 0;
+    opt->out_somatic_snp = 0; opt->out_methylation = 0;
     // opt->verbose = 0;
     return opt;
 }
@@ -487,7 +489,7 @@ static void collect_regions(call_var_pl_t *pl, call_var_opt_t *opt, int n_region
             _err_error("Failed to parse provided regions: ");
             for (int i = 0; i < n_regions; ++i) fprintf(stderr, "%s ", regions[i]);
             fprintf(stderr, "\n");
-            _err_error("Will process the whole BAM file.\n");
+            _err_error("Will process the whole alignment file.\n");
         } else {
             return collect_regions_from_region_list(opt, pl, iter, n_regions, regions);
         }
@@ -495,7 +497,7 @@ static void collect_regions(call_var_pl_t *pl, call_var_opt_t *opt, int n_region
         collect_regions_from_bed_file(opt, pl);
         if (pl->n_reg_chunks == 0) {
             _err_error("Failed to parse provided region bed file: %s\n", opt->reg_bed_fn);
-            _err_error("Will process the whole BAM file.\n");
+            _err_error("Will process the whole alignment file.\n");
         } else return;
     }
     // whole genome, plit chromosomes into region_chunks
@@ -539,20 +541,20 @@ static void collect_regions(call_var_pl_t *pl, call_var_opt_t *opt, int n_region
 static void call_var_pl_open_fa_bam(call_var_opt_t *opt, call_var_pl_t *pl, char **regions, int n_regions) {
     // input BAM file
     if (strcmp(opt->in_bam_fn, "-") == 0) { _err_error_exit("Input from pipe/stdin is not supported\n"); }
-    else { _err_info("Opening BAM/CRAM file: %s\n", opt->in_bam_fn); }
+    else { _err_info("Opening alignment file: %s\n", opt->in_bam_fn); }
     pl->io_aux = (call_var_io_aux_t*)malloc(pl->n_threads * sizeof(call_var_io_aux_t));
     // multi-threading
     for (int i = 0; i < pl->n_threads; ++i){
         pl->io_aux[i].bam = sam_open(opt->in_bam_fn, "r"); if (pl->io_aux[i].bam == NULL) _err_error_exit("Failed to open alignment file \'%s\'\n", opt->in_bam_fn);
         const htsFormat *fmt = hts_get_format(pl->io_aux[i].bam); if (!fmt) _err_error_exit("Failed to get format of alignment file \'%s\'\n", opt->in_bam_fn);
         if (fmt->format != bam && fmt->format != cram) {
-            sam_close(pl->io_aux[i].bam); _err_error_exit("Input file must be BAM or CRAM format.\n");
+            sam_close(pl->io_aux[i].bam); _err_error_exit("Input alignment file must be BAM or CRAM format.\n");
         }
         pl->io_aux[i].hts_fmt = fmt->format;
         pl->io_aux[i].header = sam_hdr_read(pl->io_aux[i].bam);
         if (pl->io_aux[i].header == NULL) {
             sam_close(pl->io_aux[i].bam);
-            _err_error_exit("Failed to read header \'%s\'\n", opt->in_bam_fn);
+            _err_error_exit("Failed to read alignment header \'%s\'\n", opt->in_bam_fn);
         }
         pl->io_aux[i].fai = fai_load3(opt->ref_fa_fn, opt->ref_fa_fai_fn, NULL, FAI_CREATE);
         if (pl->io_aux[i].fai == NULL) {
@@ -567,15 +569,15 @@ static void call_var_pl_open_fa_bam(call_var_opt_t *opt, call_var_pl_t *pl, char
         }
         pl->io_aux[i].idx = sam_index_load(pl->io_aux[i].bam, opt->in_bam_fn);
         if (pl->io_aux[i].idx == NULL) { // attempt to create index if not exist
-            _err_warning("BAM index not found for \'%s\', creating now ...\n", opt->in_bam_fn);
+            _err_warning("Index not found for \'%s\', creating now ...\n", opt->in_bam_fn);
             if (sam_index_build(opt->in_bam_fn, 0) < 0) {
                 fai_destroy(pl->io_aux[i].fai); sam_hdr_destroy(pl->io_aux[i].header); sam_close(pl->io_aux[i].bam);
-                _err_error_exit("Failed to build BAM index \'%s\'\n", opt->in_bam_fn);
+                _err_error_exit("Failed to build index for \'%s\'\n", opt->in_bam_fn);
             } else {
                 pl->io_aux[i].idx = sam_index_load(pl->io_aux[i].bam, opt->in_bam_fn);
                 if (pl->io_aux[i].idx == NULL) {
                     fai_destroy(pl->io_aux[i].fai); sam_hdr_destroy(pl->io_aux[i].header); sam_close(pl->io_aux[i].bam);
-                    _err_error_exit("Failed to load BAM index \'%s\'\n", opt->in_bam_fn);
+                    _err_error_exit("Failed to load index for \'%s\'\n", opt->in_bam_fn);
                 }
             }
         }
@@ -587,9 +589,12 @@ static void call_var_pl_open_fa_bam(call_var_opt_t *opt, call_var_pl_t *pl, char
     collect_regions(pl, opt, n_regions, regions);
 }
 
-static void call_var_pl_write_bam_header(samFile *out_bam, bam_hdr_t *header) {
+static void call_var_pl_write_bam_header(call_var_opt_t *opt, bam_hdr_t *header) {
+    if (opt->out_is_cram) {
+        if (hts_set_fai_filename(opt->out_bam, opt->ref_fa_fn) != 0) _err_error_exit("Failed to set reference file for output CRAM encoding: %s\n", opt->ref_fa_fn);
+    }
     if (sam_hdr_add_pg(header, PROG, "VN", VERSION, "CL", CMD, NULL) < 0) _err_error_exit("Fail to add PG line to bam header.\n");
-    if (sam_hdr_write(out_bam, header) < 0) _err_error_exit("Failed to write BAM header.\n");
+    if (sam_hdr_write(opt->out_bam, header) < 0) _err_error_exit("Failed to write BAM header.\n");
 }
 
 // work with sorted SAM/BAM/CRAM
@@ -633,7 +638,10 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
             var_free(s->vars + i);  // free output
         }
         if (n_out_vars > 0) _err_info("Output %d variants to VCF.\n", n_out_vars);
-        if (n_out_reads > 0) _err_info("Output %d reads to BAM.\n", n_out_reads);
+        if (n_out_reads > 0) {
+            if (pl->opt->out_is_cram) _err_info("Output %d reads to CRAM.\n", n_out_reads);
+            else _err_info("Output %d reads to BAM.\n", n_out_reads);
+        }
         bam_chunks_post_free(s->chunks, s->n_chunks); // free input
         free(s->vars); free(s);
     }
@@ -674,6 +682,7 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "    -H --no-vcf-header    do NOT output VCF header [False]\n");
     fprintf(stderr, "       --amb-base         output variant with ambiguous base [False]\n");
     fprintf(stderr, "    -b --out-bam    FILE  output phased BAM file [NULL]\n");
+    fprintf(stderr, "    -C --out-cram   FILE  output phased CRAM file [NULL]\n");
     // fprintf(stderr, "    -g --gap-aln     STR  put gap on the \'left\' or \'right\' side in alignment [left/l]\n");
     // fprintf(stderr, "                          \'left\':  ATTTG\n");
     // fprintf(stderr, "                                   | |||\n");
@@ -719,7 +728,7 @@ int call_var_main(int argc, char *argv[]) {
     // _err_cmd("%s\n", CMD);
     int c, op_idx; call_var_opt_t *opt = call_var_init_para();
     double realtime0 = realtime();
-    while ((c = getopt_long(argc, argv, "r:o:Hb:c:d:M:B:a:n:x:w:j:L:f:p:g:Nt:hvV:", call_var_opt, &op_idx)) >= 0) {
+    while ((c = getopt_long(argc, argv, "r:o:Hb:C:c:d:M:B:a:n:x:w:j:L:f:p:g:Nt:hvV:", call_var_opt, &op_idx)) >= 0) {
         switch(c) {
             case 'r': opt->ref_fa_fai_fn = strdup(optarg); break;
             // case 'b': cgp->var_block_size = atoi(optarg); break;
@@ -736,7 +745,8 @@ int call_var_main(int argc, char *argv[]) {
                     else if (strcmp(call_var_opt[op_idx].name, "somatic-snp") == 0) opt->out_somatic_snp = 1;
                     else if (strcmp(call_var_opt[op_idx].name, "methylation") == 0) opt->out_methylation = 1;
                     break;
-            case 'b': opt->out_bam = hts_open(optarg, "wb"); break;
+            case 'b': opt->out_bam = hts_open(optarg, "wb"); opt->out_is_cram = 0; break;
+            case 'C': opt->out_bam = hts_open(optarg, "wc"); opt->out_is_cram = 1; break;
             case 'c': opt->min_dp = atoi(optarg); break;
             case 'd': opt->min_alt_dp = atoi(optarg); break;
             case 'a': opt->min_af = atof(optarg); break;
@@ -794,7 +804,7 @@ int call_var_main(int argc, char *argv[]) {
     call_var_pl_open_fa_bam(opt, &pl, argv+optind, argc-optind);
 
     // write VCF/BAM header
-    if (opt->out_bam != NULL) call_var_pl_write_bam_header(opt->out_bam, pl.io_aux[0].header);
+    if (opt->out_bam != NULL) call_var_pl_write_bam_header(opt, pl.io_aux[0].header);
     if (opt->out_vcf != NULL && opt->no_vcf_header == 0) write_vcf_header(pl.io_aux[0].header, opt->out_vcf, opt->sample_name);
     // start to work !!!
     pl.opt = opt;
