@@ -39,6 +39,7 @@ const struct option call_var_opt [] = {
     // short options
     { "ref-idx", 1, NULL, 'r' },
     { "out-vcf", 1, NULL, 'o'},
+    { "out-type", 1, NULL, 'O'},
     { "out-bam", 1, NULL, 'b' },
     { "out-cram", 1, NULL, 'C' },
     { "no-vcf-header", 0, NULL, 'H'},
@@ -211,7 +212,7 @@ call_var_opt_t *call_var_init_para(void) {
 
     opt->p_error = 0.001; opt->log_p = -3.0; opt->log_1p = log10(1-opt->p_error); opt->log_2 = 0.301023;
     opt->max_gq = 60; opt->max_qual = 60;
-    opt->out_vcf = NULL; opt->no_vcf_header = 0; opt->out_amb_base = 0;
+    opt->out_vcf = NULL; opt->out_vcf_fn = NULL; opt->out_vcf_type = 'v'; opt->no_vcf_header = 0; opt->out_amb_base = 0;
     opt->out_bam = NULL; opt->out_is_cram = 0;
     opt->out_somatic_snp = 0; opt->out_methylation = 0;
     // opt->verbose = 0;
@@ -236,6 +237,7 @@ void call_var_free_para(call_var_opt_t *opt) {
         }
         free(opt->ont_hp_profile);
     }
+    if (opt->out_vcf_fn != NULL) free(opt->out_vcf_fn);
     free(opt);
 }
 
@@ -676,6 +678,7 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "    -n --sample-name STR  sample name. 'RG/SM' in BAM header will be used if not provided [NULL]\n");
     fprintf(stderr, "                          BAM file name will be used if not provided and no 'RG/SM' in BAM header\n");
     fprintf(stderr, "    -o --out-vcf    FILE  output phased VCF file [stdout]\n");
+    fprintf(stderr, "    -O --out-type    STR  v/z: un/compressed VCF [v]\n");
     // fprintf(stderr, "       --somatic-snp    output somatic SNPs [False]\n");
     // fprintf(stderr, "       --methylation    output methylation site information [False]\n");
     // fprintf(stderr, "                          if present, MM/ML tags will be used to calculate methylation level\n");
@@ -728,11 +731,14 @@ int call_var_main(int argc, char *argv[]) {
     // _err_cmd("%s\n", CMD);
     int c, op_idx; call_var_opt_t *opt = call_var_init_para();
     double realtime0 = realtime();
-    while ((c = getopt_long(argc, argv, "r:o:Hb:C:c:d:M:B:a:n:x:w:j:L:f:p:g:Nt:hvV:", call_var_opt, &op_idx)) >= 0) {
+    while ((c = getopt_long(argc, argv, "r:o:O:Hb:C:c:d:M:B:a:n:x:w:j:L:f:p:g:Nt:hvV:", call_var_opt, &op_idx)) >= 0) {
         switch(c) {
             case 'r': opt->ref_fa_fai_fn = strdup(optarg); break;
             // case 'b': cgp->var_block_size = atoi(optarg); break;
-            case 'o': opt->out_vcf = fopen(optarg, "w"); break;
+            case 'o': opt->out_vcf_fn = strdup(optarg); break; // = fopen(optarg, "w"); break;
+            case 'O': if (strcmp(optarg, "v") == 0 || strcmp(optarg, "z") == 0) opt->out_vcf_type = optarg[0];
+                      else _err_error_exit("\'-O/--out-type\' can only be \'v\' or \'z\'\n");
+                      break;
             case 'H': opt->no_vcf_header = 1; break;
             case 0: if (strcmp(call_var_opt[op_idx].name, "amb-base") == 0) opt->out_amb_base = 1; 
                     else if (strcmp(call_var_opt[op_idx].name, "hifi") == 0) set_hifi_opt(opt);
@@ -767,7 +773,7 @@ int call_var_main(int argc, char *argv[]) {
             case 'N': opt->disable_read_realign = 1; break;
             case 't': opt->n_threads = atoi(optarg); break;
             case 'h': call_var_free_para(opt); call_var_usage();
-            case 'v': fprintf(stderr, "%s\n", VERSION); call_var_free_para(opt); return 0;
+            case 'v': fprintf(stdout, "%s\n", VERSION); call_var_free_para(opt); return 0;
             case 'V': LONGCALLD_VERBOSE = atoi(optarg); break;
             default: call_var_free_para(opt); call_var_usage();
         }
@@ -794,7 +800,9 @@ int call_var_main(int argc, char *argv[]) {
         opt->n_threads = MIN_OF_TWO(opt->n_threads, get_num_processors());
         opt->pl_threads = MIN_OF_TWO(2, opt->n_threads); // MIN_OF_TWO(opt->n_threads, CALL_VAR_PL_THREAD_N);
     }
-    if (opt->out_vcf == NULL) opt->out_vcf = stdout;
+    if (opt->out_vcf_fn == NULL) opt->out_vcf_fn = strdup("-");
+    if (opt->out_vcf_type == 'z') opt->out_vcf = hts_open(opt->out_vcf_fn, "wz");
+    else opt->out_vcf = hts_open(opt->out_vcf_fn, "w");
     // set up pipeline for multi-threading
     call_var_pl_t pl;
     memset(&pl, 0, sizeof(call_var_pl_t));
@@ -805,12 +813,14 @@ int call_var_main(int argc, char *argv[]) {
 
     // write VCF/BAM header
     if (opt->out_bam != NULL) call_var_pl_write_bam_header(opt, pl.io_aux[0].header);
-    if (opt->out_vcf != NULL && opt->no_vcf_header == 0) write_vcf_header(pl.io_aux[0].header, opt->out_vcf, opt->sample_name);
+    if (opt->out_vcf != NULL && (opt->out_vcf_type == 'z' || opt->no_vcf_header == 0)) write_vcf_header(pl.io_aux[0].header, opt);
     // start to work !!!
     pl.opt = opt;
     kt_pipeline(opt->pl_threads, call_var_worker_pipeline, &pl, 3);
     if (opt->out_bam != NULL) hts_close(opt->out_bam);
-    if (opt->out_vcf != NULL) fclose(opt->out_vcf);
+    if (opt->out_vcf != NULL) {
+        bcf_hdr_destroy(opt->vcf_hdr); hts_close(opt->out_vcf);
+    }
     call_var_free_pl(pl); call_var_free_para(opt); 
     // finish
     _err_info("Real time: %.3f sec; CPU: %.3f sec; Peak RSS: %.3f GB.\n", realtime() - realtime0, cputime(), peakrss() / 1024.0 / 1024.0 / 1024.0);

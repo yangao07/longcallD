@@ -23,6 +23,7 @@ TODO.md
 *.pch
 
 # Libraries
+lib/*
 *.lib
 *.a
 *.la

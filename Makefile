@@ -1,5 +1,3 @@
-CC          = gcc
-
 # Check if the OS is macOS or linux
 UNAME_S := $(shell uname -s)
 
@@ -18,11 +16,12 @@ ABPOA_INC_DIR = $(ABPOA_DIR)/include
 WFA2_DIR    = ./WFA2-lib
 WFA2_LIB    = $(WFA2_DIR)/lib/libwfa.a
 
-LIB         = $(HTSLIB) $(ABPOA_LIB) $(WFA2_LIB) -lm -lz -lpthread -llzma -lbz2 -lcurl
+LIB_PATH    =
+LIB         = $(HTSLIB) $(ABPOA_LIB) $(WFA2_LIB) $(LIB_PATH) -lm -lz -lpthread -llzma -lbz2 -lcurl
 INCLUDE     = -I $(HTSLIB_DIR) -I $(ABPOA_INC_DIR) -I $(WFA2_DIR)
 
 # Try linking against libdeflate
-ifeq ($(shell echo "int main() {return 0;}" | gcc -x c - -ldeflate >/dev/null 2>&1 && echo "yes"),yes)
+ifeq ($(shell echo "int main() {return 0;}" | ${CC} -x c - $(LIB_PATH) -ldeflate >/dev/null 2>&1 && echo "yes"),yes)
 	LIB += -ldeflate
 endif
 
@@ -89,16 +88,14 @@ all: $(HTS_ALL) $(ABPOA_LIB) $(WFA2_LIB) $(BIN)
 $(HTS_ALL): $(HTSLIB)
 
 $(HTSLIB): $(HTSLIB_DIR)/configure.ac
-# disable lzma, bz2 (CRAM), and libcurl (network protocol support)
-#	 cd $(HTSLIB_DIR); autoreconf -i; ./configure --disable-lzma --disable-bz2 --disable-libcurl --without-libdeflate; make CC=gcc
-	cd $(HTSLIB_DIR); autoreconf -i; ./configure; make CC=gcc
+	cd $(HTSLIB_DIR); autoreconf -i; ./configure; make CC=${CC}
 
 $(ABPOA_LIB): 
-	cd $(ABPOA_DIR); make clean libabpoa PREFIX=$(PWD) CC=gcc
+	cd $(ABPOA_DIR); make clean libabpoa PREFIX=$(PWD)
 $(ABPOA_ALL): $(ABPOA_LIB)
 
 $(WFA2_LIB):
-	cd $(WFA2_DIR); make setup lib_wfa CC=gcc
+	cd $(WFA2_DIR); make setup lib_wfa
 $(WFA2_ALL): $(WFA2_LIB)
 
 
@@ -124,16 +121,14 @@ $(SRC_DIR)/sdust.o: $(SRC_DIR)/sdust.c $(SRC_DIR)/sdust.h $(SRC_DIR)/kdq.h $(SRC
 $(SRC_DIR)/utils.o: $(SRC_DIR)/utils.c $(SRC_DIR)/utils.h $(SRC_DIR)/ksort.h $(SRC_DIR)/kseq.h
 $(SRC_DIR)/vcf_utils.o: $(SRC_DIR)/vcf_utils.c $(SRC_DIR)/vcf_utils.h $(SRC_DIR)/utils.h
 
-.PHONY: all hts_all abpoa_all wfa2_all clean clean_all clean_hts clean_edlib clean_abpoa clean_wfa2
+.PHONY: all hts_all abpoa_all wfa2_all clean clean_all clean_hts clean_abpoa clean_wfa2
 
 clean:
 	rm -f $(SRC_DIR)/*.o $(BIN)
 clean_all:
-	rm -f $(SRC_DIR)/*.o $(BIN) $(HTSLIB) $(EDLIB) $(ABPOA_LIB) $(WFA2_LIB)
+	rm -f $(SRC_DIR)/*.o $(BIN) $(HTSLIB) $(ABPOA_LIB) $(WFA2_LIB)
 clean_hts:
 	rm -f $(HTSLIB)
-clean_edlib:
-	rm -f $(EDLIB)
 clean_abpoa:
 	rm -f $(ABPOA_LIB)
 clean_wfa2:

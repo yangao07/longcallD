@@ -2,10 +2,10 @@
 
 <!-- [![Latest Release](https://img.shields.io/github/release/yangao07/longcallD.svg?label=Release)](https://github.com/yangao07/longcallD/releases/latest) -->
 [![Github All Releases](https://img.shields.io/github/downloads/yangao07/longcallD/total.svg?label=Download)](https://github.com/yangao07/longcallD/releases)
+[![BioConda Install](https://img.shields.io/conda/dn/bioconda/longcallD.svg?style=flag&label=BioConda%20install)](https://anaconda.org/bioconda/longcallD)
 [![C/C++ CI](https://github.com/yangao07/longcallD/actions/workflows/linux-CI.yml/badge.svg)](https://github.com/yangao07/longcallD/actions/workflows/linux-CI.yml)
 [![C/C++ CI](https://github.com/yangao07/longcallD/actions/workflows/macos-CI.yml/badge.svg)](https://github.com/yangao07/longcallD/actions/workflows/macos-CI.yml)
 [![License](https://img.shields.io/badge/License-MIT-black.svg)](https://github.com/yangao07/longcallD/blob/main/LICENSE)
-<!-- [![BioConda Install](https://img.shields.io/conda/dn/bioconda/longcallD.svg?style=flag&label=BioConda%20install)](https://anaconda.org/bioconda/longcallD) -->
 <!-- [![Published in Bioinformatics](https://img.shields.io/badge/Published%20in-Bioinformatics-blue.svg)](https://dx.doi.org/10.1093/bioinformatics/btaa963) -->
 <!-- [![GitHub Issues](https://img.shields.io/github/issues/yangao07/longcallD.svg?label=Issues)](https://github.com/yangao07/longcallD/issues) -->
 ## Updates (pre-release v0.0.4)
@@ -44,6 +44,7 @@ man ./longcallD.1
 - [Introduction](#introduction)
 - [Installation](#installation)
   - [Pre-built executables (recommended)](#pre-built-executables-recommended)
+  - [BioConda](#bioconda)
   - [Build from source](#build-from-source)
 - [Usage](#usage)
   - [Variant calling with HiFi/Nanopore long reads](#variant-calling-with-hifinanopore-long-reads)
@@ -73,8 +74,14 @@ wget https://github.com/yangao07/longcallD/releases/download/v0.0.4/longcallD-v0
 tar -zxvf longcallD-v0.0.4_arm64-macos.tar.gz
 ```
 
+### BioConda
+**For Linux and macOS:**
+```
+conda install bioconda::longcalld  # 'd' is lowcase
+```
+
 ### Build from source
-To compile longcallD from source, ensure you have **GCC/clang(9.0+)** and **zlib** installed. 
+To compile longcallD from source, ensure you have **GCC/clang(9.0+)** and **zlib/libbz2/liblzma/libcurl** (for htslib) installed. 
 It is recommended to use the [latest release](https://github.com/yangao07/longcallD/releases).
 ```
 wget https://github.com/yangao07/longcallD/releases/download/v0.0.4/longcallD-v0.0.4.tar.gz
@@ -83,7 +90,7 @@ cd longcallD-v0.0.4; make
 ```
 
 ## Usage
-LongcallD requires a **reference genome (FASTA)** and a **long-read SAM/BAM/CRAM** file as inputs. It outputs **phased variant calls in VCF format**.
+LongcallD requires a **reference genome (FASTA)** and a **long-read BAM/CRAM** file as inputs. It outputs **phased variant calls in VCF format**.
 ### Variant calling with HiFi/Nanopore long reads
 ```
 longcallD call -t16 ref.fa hifi.bam > hifi.vcf         # default for PacBio HiFi reads (--hifi)
@@ -114,7 +121,7 @@ longcallD call -t16 $ref $bam chr11:10,229,956-10,256,221 chr12:10,576,356-10,58
 ## Acknowledgements
 LongcallD is dependent on the following libraries, we are grateful to all the developers/maintainers:
 
-* [htslib](https://github.com/samtools/htslib): read/write BAM/CRAM
+* [htslib](https://github.com/samtools/htslib): read/write BAM/CRAM/VCF
 * [abPOA](https://github.com/yangao07/abPOA): consensus calling
 * [WFA](https://github.com/smarco/WFA2-lib): pairwise alignment
 * [cgranges](https://github.com/lh3/cgranges): interval operations
