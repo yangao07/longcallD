@@ -8,7 +8,9 @@
 
 const char PROG[20] = "longcallD";
 const char DESCRIP[100] = "local-haplotagging-based small and structural variant calling";
+#ifndef VERSION
 const char VERSION[20] = "0.0.4";
+#endif
 const char CONTACT[30] = "yangao@ds.dfci.harvard.edu";
 int LONGCALLD_VERBOSE = 0;
 char *CMD;

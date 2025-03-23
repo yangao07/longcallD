@@ -6,6 +6,12 @@ UNAME_S := $(shell uname -s)
 # right now, we are using -O3 for the best performance, and no vectorization errors were found
 EXTRA_FLAGS = -Wall -Wno-unused-function -Wno-misleading-indentation -Wno-unused-variable
 
+# Get the Git commit hash
+GIT_COMMIT := $(shell git rev-parse --short HEAD)
+
+# Define the version number
+VERSION = 0.0.4-$(GIT_COMMIT)
+
 HTSLIB_DIR  = ./htslib
 HTSLIB      = $(HTSLIB_DIR)/libhts.a
 
@@ -55,7 +61,7 @@ else
 	ABPOA_LIB = $(ABPOA_NOR_LIB)
 endif
 
-CFLAGS = $(OPT_FLAGS) $(EXTRA_FLAGS)
+CFLAGS = $(OPT_FLAGS) $(EXTRA_FLAGS) -DVERSION=\"$(VERSION)\"
 
 # for gprof
 ifneq ($(pg),)
