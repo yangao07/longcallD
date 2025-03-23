@@ -2,7 +2,7 @@
 
 <!-- [![Latest Release](https://img.shields.io/github/release/yangao07/longcallD.svg?label=Release)](https://github.com/yangao07/longcallD/releases/latest) -->
 [![Github All Releases](https://img.shields.io/github/downloads/yangao07/longcallD/total.svg?label=Download)](https://github.com/yangao07/longcallD/releases)
-[![BioConda Install](https://img.shields.io/conda/dn/bioconda/longcallD.svg?style=flag&label=BioConda%20install)](https://anaconda.org/bioconda/longcallD)
+[![Bioconda Install](https://img.shields.io/conda/dn/bioconda/longcallD.svg?style=flag&label=Bioconda)](https://anaconda.org/bioconda/longcalld)
 [![C/C++ CI](https://github.com/yangao07/longcallD/actions/workflows/linux-CI.yml/badge.svg)](https://github.com/yangao07/longcallD/actions/workflows/linux-CI.yml)
 [![C/C++ CI](https://github.com/yangao07/longcallD/actions/workflows/macos-CI.yml/badge.svg)](https://github.com/yangao07/longcallD/actions/workflows/macos-CI.yml)
 [![License](https://img.shields.io/badge/License-MIT-black.svg)](https://github.com/yangao07/longcallD/blob/main/LICENSE)
@@ -44,7 +44,7 @@ man ./longcallD.1
 - [Introduction](#introduction)
 - [Installation](#installation)
   - [Pre-built executables (recommended)](#pre-built-executables-recommended)
-  - [BioConda](#bioconda)
+  - [Bioconda](#bioconda)
   - [Build from source](#build-from-source)
 - [Usage](#usage)
   - [Variant calling with HiFi/Nanopore long reads](#variant-calling-with-hifinanopore-long-reads)
@@ -74,7 +74,7 @@ wget https://github.com/yangao07/longcallD/releases/download/v0.0.4/longcallD-v0
 tar -zxvf longcallD-v0.0.4_arm64-macos.tar.gz
 ```
 
-### BioConda
+### Bioconda
 **For Linux and macOS:**
 ```
 conda install -c bioconda longcalld

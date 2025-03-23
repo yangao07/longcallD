@@ -495,17 +495,14 @@ void collect_digars_from_bam(bam_chunk_t *chunk, const struct call_var_pl_t *pl)
         bam1_t *read = chunk->reads[i];
         if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "%d: qname: %s, flag: %d, pos: %" PRId64 ", end: %" PRId64 "\n", i, bam_get_qname(read), read->core.flag, read->core.pos+1, bam_endpos(read));
         if (chunk->is_skipped[i]) continue;
-        // if (strcmp(test_read_name, bam_get_qname(read)) == 0)
-            // fprintf(stderr, "Read: %s\n", bam_get_qname(read));
         int ret;
-        // if (chunk->bam_has_eqx_cigar) { // 1) look for Xs in cigar if =/X in cigar
         if (has_equal_X_in_bam_cigar(read)) {
             ret = collect_digar_from_eqx_cigar(chunk, read, opt, chunk->digars+i);
-        // } else if (chunk->bam_has_md_tag) { // 2) look for mismatches in MD tag
+        } else if (has_cs_in_bam(read)) {
+            ret = collect_digar_from_cs_tag(chunk, read, opt, chunk->digars+i);
         } else if (has_MD_in_bam(read)) {
             ret = collect_digar_from_MD_tag(chunk, read, opt, chunk->digars+i);
-        // XXX TODO use cs tag
-        } else { // 3) no =/X in cigar and no MD tag, compare bases with ref_seq
+        } else { // no =/X in cigar and no cs/MD tag, compare bases with ref_seq
             ret = collect_digar_from_ref_seq(chunk, read, opt, chunk->digars+i);
         }
         if (ret < 0) chunk->is_skipped[i] = BAM_RECORD_WRONG_MAP;

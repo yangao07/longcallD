@@ -53,6 +53,11 @@ int has_equal_X_in_bam_cigar(bam1_t *read) {
     return 0;
 }
 
+int has_cs_in_bam(bam1_t *b) {
+    uint8_t *s = bam_aux_get(b, "cs");
+    return s != NULL;
+}
+
 int has_MD_in_bam(bam1_t *b) {
     uint8_t *s = bam_aux_get(b, "MD");
     return s != NULL;
@@ -481,7 +486,7 @@ int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct 
             _n_digar++; // push_xid_queue(q, pos, 0, 1);
             n_total_cand_vars++;
             qi += len;
-        } else if (op == BAM_CSOFT_CLIP) {
+        } else if (op == BAM_CSOFT_CLIP || op == BAM_CHARD_CLIP) {
             _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
             set_digar(_digars+_n_digar, pos, op, len, qi, 0); // clipping
             _n_digar++; // push_xid_queue(q, pos, 0, 0);
@@ -495,20 +500,7 @@ int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct 
                     n_total_cand_vars++;
                 }
             }
-            qi += len;
-        } else if (op == BAM_CHARD_CLIP) {
-            _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
-            set_digar(_digars+_n_digar, pos, op, len, qi, 0); // clipping
-            _n_digar++; // push_xid_queue(q, pos, 0, 0);
-            if (len > end_clip_reg) {
-                if (i == 0) {
-                    // the very start of the contig
-                    if (pos > 1) cr_add(digar->noisy_regs, "cr", pos-1, pos+end_clip_reg_flank_win, 0); // left end
-                } else {
-                    if (pos < tlen) cr_add(digar->noisy_regs, "cr", pos-1-end_clip_reg_flank_win, pos, 0); // right end
-                }
-            }
-            // push_xid_queue_win(q, pos, 0, 0, digar->noisy_regs, &noisy_start, &noisy_end);
+            if (op == BAM_CSOFT_CLIP) qi += len;
         } else if (op == BAM_CREF_SKIP) { // XXX no action for N op
             pos += len;
         } else if (op == BAM_CMATCH) {
@@ -563,8 +555,160 @@ int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct 
 }
 
 // XXX TODO make it consistent with collect_digar_from_eqx_cigar
-int collect_digar_from_cs_tag(bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar, cgranges_t *chunk_noisy_regs) {
-    return 0;
+int collect_digar_from_cs_tag(bam_chunk_t *chunk, bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar) {
+    uint8_t *cs_tag = bam_aux_get(read, "cs");
+    if (cs_tag == NULL) { _err_error_exit("cs tag not found in the BAM file: %s", bam_get_qname(read)); }
+    const uint32_t *cigar = bam_get_cigar(read); int n_cigar = read->core.n_cigar;
+    if (n_cigar <= 0) { _err_error_exit("CIGAR not found in the BAM file: %s", bam_get_qname(read)); }
+    hts_pos_t reg_beg = chunk->reg_beg, reg_end = chunk->reg_end; cgranges_t *chunk_noisy_regs = chunk->chunk_noisy_regs;
+    hts_pos_t pos = read->core.pos+1, qi = 0;
+    digar->beg = pos; digar->end = bam_endpos(read); digar->is_rev = bam_is_rev(read);
+    int max_s = opt->noisy_reg_max_xgaps, win = opt->noisy_reg_slide_win;
+    double max_noisy_frac_per_read = opt->max_noisy_frac_per_read, max_var_ratio_per_read = opt->max_var_ratio_per_read;
+    int end_clip_reg = opt->end_clip_reg, end_clip_reg_flank_win = opt->end_clip_reg_flank_win;
+
+    digar->n_digar = 0; digar->m_digar = 2 * n_cigar; digar->digars = (digar1_t*)malloc(n_cigar * 2 * sizeof(digar1_t));
+    digar->noisy_regs = cr_init();
+    int qlen = read->core.l_qseq;
+    digar->bseq = (uint8_t*)malloc((size_t)(qlen+1)/2 * sizeof(uint8_t));
+    for (int i = 0; i < (qlen+1)/2; ++i) digar->bseq[i] = bam_get_seq(read)[i];
+    digar->qual = (uint8_t*)malloc((size_t)qlen * sizeof(uint8_t));
+    for (int i = 0; i < qlen; ++i) digar->qual[i] = bam_get_qual(read)[i];
+    int _n_digar = 0, _m_digar = 2 * n_cigar; digar1_t *_digars = (digar1_t*)malloc(_m_digar * sizeof(digar1_t));
+    char *cs = bam_aux2Z(cs_tag); int cs_i = 0, cs_len = strlen(cs);
+    int rlen = bam_cigar2rlen(n_cigar, cigar); int tlen = chunk->whole_ref_len;
+    xid_queue_t *q = init_xid_queue(rlen, max_s, win);
+    hts_pos_t noisy_start = -1, noisy_end = -1; int cr_q_start = -1, cr_q_end = -1;
+    int n_total_cand_vars = 0;
+
+    // left-end clipping
+    if (bam_cigar_op(cigar[0]) == BAM_CSOFT_CLIP || bam_cigar_op(cigar[0]) == BAM_CHARD_CLIP) {
+        int len = bam_cigar_oplen(cigar[0]);
+        _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
+        set_digar(_digars+_n_digar, pos, bam_cigar_op(cigar[0]), len, qi, 0); // clipping
+        _n_digar++; // push_xid_queue(q, pos, 0, 0);
+        if (len > end_clip_reg) {
+            if (check_noisy_end_clip(opt, read)) {
+                if (pos > 1) cr_add(digar->noisy_regs, "cr", pos-1, pos+end_clip_reg_flank_win, 0); // left end
+                // if (pos < tlen) cr_add(digar->noisy_regs, "cr", pos-1-end_clip_reg_flank_win, pos, 0); // right end
+                n_total_cand_vars++;
+            }
+        }
+        if (bam_cigar_op(cigar[0]) == BAM_CSOFT_CLIP) qi += len;
+    }
+    while (*cs) {
+        if (*cs == ':') { // identical seq length
+            _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
+            int len = strtol(&cs[1], &cs, 10);
+            set_digar(_digars+_n_digar, pos, BAM_CEQUAL, len, qi, 0);
+            _n_digar++; // push_xid_queue(q, pos, 0, 0);
+            pos += len; qi += len;
+        } else if (*cs == '=') { // identical sequence
+            _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
+            cs++; int len = 0;
+            while (isalpha(*cs)) {
+                len++; cs++;
+            }
+            set_digar(_digars+_n_digar, pos, BAM_CEQUAL, len, qi, 0);
+            _n_digar++; // push_xid_queue(q, pos, 0, 0);
+            pos += len; qi += len;
+        } else if (*cs == '*') { // mismatch: 1bp
+            _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
+            uint8_t *x_seq = (uint8_t*)malloc(sizeof(uint8_t));
+            x_seq[0] = nst_nt4_table[(int)*(cs+2)];
+            if (digar->qual[qi] >= opt->min_bq) {
+                push_xid_size_queue_win(q, pos, 1, 1, digar->noisy_regs, &noisy_start, &noisy_end, &cr_q_start, &cr_q_end);
+                set_seq_digar(_digars+_n_digar, pos, BAM_CDIFF, 1, qi, 0, x_seq);
+            } else set_seq_digar(_digars+_n_digar, pos, BAM_CDIFF, 1, qi, 1, x_seq);
+            _n_digar++; pos++; qi++; cs += 3;
+            n_total_cand_vars++;
+        } else if (*cs == '+') { // insertion
+            _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
+            cs++; int len = 0;
+            while (isalpha(*cs)) {
+                len++; cs++;
+            }
+            uint8_t *ins_seq = (uint8_t*)malloc(len * sizeof(uint8_t));
+            for (int i = 0; i < len; ++i) ins_seq[i] = nst_nt4_table[(int)*(cs-len+i)];
+            int is_low_qual = 1;
+            for (int _i = 0; _i < len; ++_i) {
+                if (digar->qual[qi+_i] >= opt->min_bq) {
+                    is_low_qual = 0; break;
+                }
+            }
+            if (!is_low_qual) push_xid_size_queue_win(q, pos, 0, len, digar->noisy_regs, &noisy_start, &noisy_end, &cr_q_start, &cr_q_end);
+            set_seq_digar(_digars+_n_digar, pos, BAM_CINS, len, qi, is_low_qual, ins_seq);
+            _n_digar++; qi += len;
+            n_total_cand_vars++;
+        } else if (*cs == '-') { // deletion
+            _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
+            cs++; int len = 0;
+            while (isalpha(*cs)) {
+                len++; cs++;
+            }
+            if ((qi == 0 || digar->qual[qi-1] >= opt->min_bq) && digar->qual[qi] >= opt->min_bq) {
+                push_xid_size_queue_win(q, pos, len, len, digar->noisy_regs, &noisy_start, &noisy_end, &cr_q_start, &cr_q_end);
+                set_digar(_digars+_n_digar, pos, BAM_CDEL, len, qi, 0);
+            } else set_digar(_digars+_n_digar, pos, BAM_CDEL, len, qi, 1);
+            _n_digar++; pos += len;
+            n_total_cand_vars++;
+        } else if (*cs == '~') { // intron/splice
+            cs++;
+            while (isalpha(*cs) || isdigit(*cs)) cs++;
+        } else {
+            _err_error_exit("Unexpected character in cs tag: %c", *cs);
+        }
+    }
+    
+    // right-end clipping
+    if (bam_cigar_op(cigar[n_cigar-1]) == BAM_CSOFT_CLIP || bam_cigar_op(cigar[n_cigar-1]) == BAM_CHARD_CLIP) {
+        int len = bam_cigar_oplen(cigar[n_cigar-1]);
+        _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
+        set_digar(_digars+_n_digar, pos, bam_cigar_op(cigar[n_cigar-1]), len, qi, 0); // clipping
+        _n_digar++; // push_xid_queue(q, pos, 0, 0);
+        if (len > end_clip_reg) {
+            if (check_noisy_end_clip(opt, read)) {
+                if (pos < tlen) cr_add(digar->noisy_regs, "cr", pos-1-end_clip_reg_flank_win, pos, 0); // right end
+                n_total_cand_vars++;
+            }
+        }
+        if (bam_cigar_op(cigar[n_cigar-1]) == BAM_CSOFT_CLIP) qi += len;
+    }
+
+    for (int i = 0; i < _n_digar; ++i) {
+        push_digar1(digar, _digars[i]);
+    }
+    if (noisy_start != -1) {
+        int var_size = 0;
+        for (int i = cr_q_start; i <= cr_q_end; ++i) var_size += q->counts[i];
+        var_size = var_size > (noisy_end - noisy_start + 1) ? var_size : (noisy_end - noisy_start + 1);
+        // fprintf(stderr, "var_size: %d, noisy_start: %ld, noisy_end: %ld\n", var_size, noisy_start, noisy_end);
+        cr_add(digar->noisy_regs, "cr", noisy_start-1, noisy_end, var_size);
+    }
+    cr_index(digar->noisy_regs);
+    int skip = 0;
+    int total_noisy_reg_len = collect_noisy_region_len(digar->noisy_regs);
+    int mapped_len = digar->end - digar->beg + 1;
+    if (total_noisy_reg_len > mapped_len * max_noisy_frac_per_read || n_total_cand_vars > mapped_len * max_var_ratio_per_read) {
+        // fprintf(stderr, "Skip: %s %d-noisy %d-var %d-ref_span\n", bam_get_qname(read), total_noisy_reg_len, n_total_cand_vars, mapped_len);
+        skip = 1;
+    } else {
+        for (int i = 0; i < digar->noisy_regs->n_r; ++i) {
+            if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "NoisyRead %s %s:%d-%d %d\n", bam_get_qname(read), chunk->tname, cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i), cr_label(digar->noisy_regs, i));
+            if (is_overlap_reg(cr_start(digar->noisy_regs, i)+1, cr_end(digar->noisy_regs, i), reg_beg, reg_end))
+                cr_add(chunk_noisy_regs, "cr", cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i), cr_label(digar->noisy_regs, i));
+        }
+        if (LONGCALLD_VERBOSE >= 2) {
+            fprintf(stderr, "DIGAR2: %s\n", bam_get_qname(read));
+            print_digar(digar, stderr);
+            if (digar->noisy_regs->n_r > 0) fprintf(stderr, "Noisy-%s\n", bam_get_qname(read));
+            for (int i = 0; i < digar->noisy_regs->n_r; ++i) {
+                fprintf(stderr, "Noisy: %s:%d-%d\n", chunk->tname, cr_start(digar->noisy_regs, i), cr_end(digar->noisy_regs, i));
+            }
+        }
+    }
+    free(_digars); free_xid_queue(q);
+    return skip == 1 ? -1 : 0;
 }
 
 int collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar) {
@@ -675,9 +819,9 @@ int collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct cal
             _n_digar++; // push_xid_queue(q, pos, 0, 1);
             n_total_cand_vars++;
             qi += len;
-        } else if (op == BAM_CSOFT_CLIP) {
+        } else if (op == BAM_CSOFT_CLIP || op == BAM_CHARD_CLIP) {
             _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
-            set_digar(_digars+_n_digar, pos, BAM_CSOFT_CLIP, len, qi, 0); // clipping
+            set_digar(_digars+_n_digar, pos, op, len, qi, 0); // clipping
             _n_digar++; // push_xid_queue(q, pos, 0, 0);
             if (len > end_clip_reg) {
                 if (check_noisy_end_clip(opt, read)) {
@@ -689,19 +833,7 @@ int collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct cal
                     n_total_cand_vars++;
                 }
             }
-            qi += len;
-        } else if (op == BAM_CHARD_CLIP) {
-            _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
-            set_digar(_digars+_n_digar, pos, BAM_CHARD_CLIP, len, qi, 0); // insertion
-            _n_digar++; // push_xid_queue(q, pos, 0, 0);
-            if (len > end_clip_reg) {
-                if (i == 0) {
-                    // the very start of the contig
-                    if (pos > 1) cr_add(digar->noisy_regs, "cr", pos-1, pos+end_clip_reg_flank_win, 0); // left end
-                } else {
-                    if (pos < tlen) cr_add(digar->noisy_regs, "cr", pos-1-end_clip_reg_flank_win, pos, 0); // right end
-                }
-            }
+            if (op == BAM_CSOFT_CLIP) qi += len;
         } else if (op == BAM_CREF_SKIP) {
             pos += len;
         } else if (op == BAM_CEQUAL || op == BAM_CDIFF) {
@@ -836,7 +968,7 @@ int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct ca
             _n_digar++; //push_xid_queue(q, pos, 0, 1);
             n_total_cand_vars++;
             qi += len;
-        } else if (op == BAM_CSOFT_CLIP) {
+        } else if (op == BAM_CSOFT_CLIP || op == BAM_CHARD_CLIP) {
             _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
             set_digar(_digars+_n_digar, pos, BAM_CSOFT_CLIP, len, qi, 0); // clipping 
             _n_digar++; //push_xid_queue(q, pos, 0, 0);
@@ -850,19 +982,7 @@ int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct ca
                     n_total_cand_vars++;
                 }
             }
-            qi += len;
-        } else if (op == BAM_CHARD_CLIP) {
-            _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
-            set_digar(_digars+_n_digar, pos, BAM_CHARD_CLIP, len, qi, 0); // clipping 
-            _n_digar++; //push_xid_queue(q, pos, 0, 0);
-            if (len > end_clip_reg) {
-                if (i == 0) {
-                    // the very start of the contig
-                    if (pos > 1) cr_add(digar->noisy_regs, "cr", pos-1, pos+end_clip_reg_flank_win, 0); // left end
-                } else {
-                    if (pos < tlen) cr_add(digar->noisy_regs, "cr", pos-1-end_clip_reg_flank_win, pos, 0); // right end
-                }
-            }
+            if (op == BAM_CSOFT_CLIP) qi += len;
         } else if (op == BAM_CREF_SKIP) {
             pos += len;
         } // else if (op == BAM_CEQUAL || op == BAM_CDIFF) {
