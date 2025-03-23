@@ -8,10 +8,11 @@ on:
 
 jobs:
   build-macos:
-    runs-on: 
-      - macos-latest
-      - macos-13
-    
+    strategy:
+      matrix:
+        os: [macos-latest, macos-13] # test on arm64 and x64
+    runs-on: ${{ matrix.os }}
+      
     steps:
     - uses: actions/checkout@v4
       with:
