@@ -170,7 +170,7 @@ int var_is_homopolymer(char *ref_seq, hts_pos_t ref_beg, hts_pos_t ref_end, cand
     if (is_homopolymer) return is_homopolymer;
     // reverse
     for (int i = 0; i < 6; ++i) {
-        // fprintf(stderr, "%ld, %ld, %ld, %ld\n", start_pos, end_pos, ref_beg, ref_end);
+        // fprintf(stderr, "%" PRIi64 ", %" PRIi64 ", %" PRIi64 ", %" PRIi64 "\n", start_pos, end_pos, ref_beg, ref_end);
         ref_bases[i] = nst_nt4_table[(int) ref_seq[start_pos-ref_beg-i]];
     }
     for (int rep_unit_len = 1; rep_unit_len <= max_unit_len; ++rep_unit_len) {
@@ -822,7 +822,7 @@ int make_variants(const call_var_opt_t *opt, bam_chunk_t *chunk, var_t **_var) {
         if (hap1_alle == -1 && hap2_alle == -1) { // homozygous
             is_hom = 1;
             hap1_alle = hap2_alle = hom_alle;
-            _err_warning("Warning: both hap1 and hap2 are -1, set to hom_alle: %d var: %s:%ld\n", hom_alle, chunk->tname, cand_vars[cand_i].pos);
+            _err_warning("Warning: both hap1 and hap2 are -1, set to hom_alle: %d var: %s:%" PRIi64 "\n", hom_alle, chunk->tname, cand_vars[cand_i].pos);
         } else if (hap1_alle == hap2_alle) is_hom = 1;
         if (hap1_alle == -1) hap1_alle = LONGCALLD_REF_ALLELE;
         if (hap2_alle == -1) hap2_alle = LONGCALLD_REF_ALLELE;
@@ -927,7 +927,7 @@ void flip_variant_hap(call_var_opt_t *opt, bam_chunk_t *pre_chunk, bam_chunk_t *
     int n_pre_ovlp_reads = pre_chunk->n_down_ovlp_reads;
     // assert(n_cur_ovlp_reads == n_pre_ovlp_reads);
     if (n_cur_ovlp_reads != n_pre_ovlp_reads) {
-        _err_error_exit("n_pre_ovlp_reads: %d (%s:%ld-%ld), n_cur_ovlp_reads: %d (%s:%ld-%ld)\n", n_pre_ovlp_reads, pre_chunk->tname, pre_chunk->reg_beg, pre_chunk->reg_end,
+        _err_error_exit("n_pre_ovlp_reads: %d (%s:%" PRIi64 "-%" PRIi64 "), n_cur_ovlp_reads: %d (%s:%" PRIi64 "-%" PRIi64 ")\n", n_pre_ovlp_reads, pre_chunk->tname, pre_chunk->reg_beg, pre_chunk->reg_end,
                         n_cur_ovlp_reads, cur_chunk->tname, cur_chunk->reg_beg, cur_chunk->reg_end);
     }
     if (n_cur_ovlp_reads <= 0) return;
@@ -941,14 +941,14 @@ void flip_variant_hap(call_var_opt_t *opt, bam_chunk_t *pre_chunk, bam_chunk_t *
         // if (pre_read_i >= pre_chunk->n_reads) continue;
         if (LONGCALLD_VERBOSE >= 2) {
             if (strcmp(bam_get_qname(pre_chunk->reads[pre_read_i]), bam_get_qname(cur_chunk->reads[cur_read_i])) != 0) {
-                _err_error_exit("OvlpRead not match: %d: cur_read: %s, pre_read: %s, %s:%ld-%ld\n", i, bam_get_qname(cur_chunk->reads[cur_read_i]), pre_chunk->reads[pre_read_i], cur_chunk->tname, cur_chunk->reg_beg, cur_chunk->reg_end);
+                _err_error_exit("OvlpRead not match: %d: cur_read: %s, pre_read: %s, %s:%" PRIi64 "-%" PRIi64 "\n", i, bam_get_qname(cur_chunk->reads[cur_read_i]), pre_chunk->reads[pre_read_i], cur_chunk->tname, cur_chunk->reg_beg, cur_chunk->reg_end);
             }
             fprintf(stderr, "read: %s pre_i: %d (%d)\n", bam_get_qname(pre_chunk->reads[pre_read_i]), pre_read_i, pre_chunk->n_reads);
             fprintf(stderr, "read: %s cur_i: %d (%d)\n", bam_get_qname(cur_chunk->reads[cur_read_i]), cur_read_i, cur_chunk->n_reads);
             fprintf(stderr, "pre_hap: %d\n", pre_chunk->haps[pre_read_i]);
             fprintf(stderr, "cur_hap: %d\n", cur_chunk->haps[cur_read_i]);
-            fprintf(stderr, "pre_PS: %ld\n", pre_chunk->phase_sets[pre_read_i]);
-            fprintf(stderr, "cur_PS: %ld\n", cur_chunk->phase_sets[cur_read_i]);
+            fprintf(stderr, "pre_PS: %" PRIi64 "\n", pre_chunk->phase_sets[pre_read_i]);
+            fprintf(stderr, "cur_PS: %" PRIi64 "\n", cur_chunk->phase_sets[cur_read_i]);
         }
         if (pre_chunk->is_skipped[pre_read_i] || pre_chunk->haps[pre_read_i] == 0 ||
             cur_chunk->is_skipped[cur_read_i] || cur_chunk->haps[cur_read_i] == 0) continue;
@@ -969,7 +969,7 @@ void flip_variant_hap(call_var_opt_t *opt, bam_chunk_t *pre_chunk, bam_chunk_t *
     int flip = flip_hap_score > 0 ? 1 : 0; // flip : keep
     cur_chunk->flip_hap = flip;
     if (LONGCALLD_VERBOSE >= 2)
-        fprintf(stderr, "Region: %s:%ld-%ld, flip_hap: %d (%d) pre_PS: %ld, cur_PS: %ld\n", cur_chunk->tname, cur_chunk->reg_beg, cur_chunk->reg_end, cur_chunk->flip_hap, flip_hap_score, max_pre_read_PS, min_cur_read_PS);
+        fprintf(stderr, "Region: %s:%" PRIi64 "-%" PRIi64 ", flip_hap: %d (%d) pre_PS: %" PRIi64 ", cur_PS: %" PRIi64 "\n", cur_chunk->tname, cur_chunk->reg_beg, cur_chunk->reg_end, cur_chunk->flip_hap, flip_hap_score, max_pre_read_PS, min_cur_read_PS);
     update_chunk_var_hap_phase_set1(cur_chunk);
     if (opt->out_bam != NULL) update_chunk_read_hap_phase_set1(cur_chunk);
 }
@@ -1104,7 +1104,7 @@ int comp_var_site(var_site_t *var1, var_site_t *var2) {
     if (var1->ref_len > var2->ref_len) return 1;
     if (var1->alt_len < var2->alt_len) return -1;
     if (var1->alt_len > var2->alt_len) return 1;
-    // fprintf(stderr, "Error: %ld, %d, %d, %d, %d\n", var1->pos, var1->var_type, var1->ref_len, var1->alt_len, 
+    // fprintf(stderr, "Error: %" PRIi64 ", %d, %d, %d, %d\n", var1->pos, var1->var_type, var1->ref_len, var1->alt_len, 
                                                         // var2->alt_len);
     // fprintf(stderr, "1alt_seq: %d\n", var1->alt_seq[0]);
     // fprintf(stderr, "2alt_seq: %d\n", var2->alt_seq[0]);
@@ -1141,7 +1141,7 @@ int is_match(uint8_t *read_seq, uint8_t *target_seq, int msa_len, int target_pos
 // 0: ref, 1: alt, -1: unknown
 int is_match_aln_str(aln_str_t *aln_str, int target_pos, int len, float cons_sim_thres, int *full_cover) {
     int cur_pos = -1, n_eq = 0, n_xid = 0;
-    int checked_base = 0;
+    // int checked_base = 0;
     int cover_start = 0, cover_end = 0;
     int start_pos, end_pos;
     if (target_pos < 0) {
@@ -1159,7 +1159,7 @@ int is_match_aln_str(aln_str_t *aln_str, int target_pos, int len, float cons_sim
         if (cur_pos == end_pos) cover_end = 1;
 
         if (cur_pos >= target_pos) {
-            checked_base++;
+            // checked_base++;
             if (aln_str->query_aln[i] == aln_str->target_aln[i]) n_eq++;
             else n_xid++;
         }
@@ -1412,7 +1412,6 @@ int update_cand_var_profile_from_cons_aln_str2(bam_chunk_t *chunk, int *clu_n_se
     }
     // collect read_var_profile for each read and each var
     *p = init_read_var_profile(chunk->n_reads, n_vars);
-    int p_i = 0;
     for (int i = 0; i < 2; ++i) {
         aln_str_t *clu_aln_str = aln_strs[i];
         for (int j = 0; j < clu_n_seqs[i]; ++j) {
@@ -1421,7 +1420,6 @@ int update_cand_var_profile_from_cons_aln_str2(bam_chunk_t *chunk, int *clu_n_se
             if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "read: %s\n", bam_get_qname(chunk->reads[read_id]));
             aln_str_t *cons_aln_str = LONGCALLD_CONS_READ_ALN_STR(clu_aln_str, j);
             update_cand_var_profile_from_cons_aln_str21(i+1, cons_aln_str, noisy_reg_beg, *noisy_vars, n_vars, var_from_cons_idx, p1);
-            p_i++;
         }
     }
     free(var_from_cons_idx);
@@ -1534,7 +1532,7 @@ int merge_vars(var_t *old_vars, var_t *add_vars) {
                 }
             } else {
                 if (LONGCALLD_VERBOSE >= 2)
-                    fprintf(stderr, "DIFF: old: %ld %d %c %d add: %ld %d %c %d\n", old_vars->vars[old_i].pos,
+                    fprintf(stderr, "DIFF: old: %" PRIi64 " %d %c %d add: %" PRIi64 " %d %c %d\n", old_vars->vars[old_i].pos,
                                                                                    old_vars->vars[old_i].ref_len,
                                                                                    BAM_CIGAR_STR[old_vars->vars[old_i].type],
                                                                                    old_vars->vars[old_i].n_alt_allele,
@@ -1573,13 +1571,13 @@ int collect_noisy_vars1(bam_chunk_t *chunk, const call_var_opt_t *opt, int noisy
     hts_pos_t active_reg_beg = chunk->reg_beg, active_reg_end = chunk->reg_end;
     int max_noisy_reg_len = opt->max_noisy_reg_len, max_noisy_reg_reads = opt->max_noisy_reg_reads;
     if (noisy_reg_end - noisy_reg_beg + 1 > max_noisy_reg_len) {
-        if (LONGCALLD_VERBOSE >= 1) fprintf(stderr, "Skipped long region: %s:%ld-%ld %ld (>%d)\n", chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end-noisy_reg_beg+1, max_noisy_reg_len);
+        if (LONGCALLD_VERBOSE >= 1) fprintf(stderr, "Skipped long region: %s:%" PRIi64 "-%" PRIi64 " %" PRIi64 " (>%d)\n", chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end-noisy_reg_beg+1, max_noisy_reg_len);
         free(ref_seq);
         return 0;
     }
     int *noisy_reads; int n_noisy_reads = collect_noisy_reg_reads1(chunk, noisy_reg_beg, noisy_reg_end, noisy_reg_i, &noisy_reads);
     if (n_noisy_reads > max_noisy_reg_reads) {
-        if (LONGCALLD_VERBOSE >= 1) fprintf(stderr, "Skipped deep region: %s:%ld-%ld %ld %d reads\n", chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end-noisy_reg_beg+1, n_noisy_reads);
+        if (LONGCALLD_VERBOSE >= 1) fprintf(stderr, "Skipped deep region: %s:%" PRIi64 "-%" PRIi64 " %" PRIi64 " %d reads\n", chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end-noisy_reg_beg+1, n_noisy_reads);
         free(noisy_reads); free(ref_seq);
         return 0;
     }
@@ -1587,7 +1585,7 @@ int collect_noisy_vars1(bam_chunk_t *chunk, const call_var_opt_t *opt, int noisy
     double realtime0 = realtime();
 
     if (LONGCALLD_VERBOSE >= 2) {
-        fprintf(stderr, "NoisyReg: chunk_reg: %s:%ld-%ld, reg: %s:%ld-%ld %ld (%d)\n", chunk->tname, chunk->reg_beg, chunk->reg_end, 
+        fprintf(stderr, "NoisyReg: chunk_reg: %s:%" PRIi64 "-%" PRIi64 ", reg: %s:%" PRIi64 "-%" PRIi64 " %" PRIi64 " (%d)\n", chunk->tname, chunk->reg_beg, chunk->reg_end, 
                         chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end-noisy_reg_beg+1, n_noisy_reads);
     }
     // MSA and consensus calling
@@ -1610,7 +1608,7 @@ int collect_noisy_vars1(bam_chunk_t *chunk, const call_var_opt_t *opt, int noisy
     int n_noisy_vars = 0;
     if (n_cons == 0) {
         if (LONGCALLD_VERBOSE >= 2)
-            fprintf(stderr, "Skipped region: %s:%ld-%ld %ld %d reads\n", chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end-noisy_reg_beg+1, n_noisy_reads);
+            fprintf(stderr, "Skipped region: %s:%" PRIi64 "-%" PRIi64 " %" PRIi64 " %d reads\n", chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end-noisy_reg_beg+1, n_noisy_reads);
         n_noisy_vars = -1;
         goto collect_noisy_vars1_end;
     }
@@ -1623,7 +1621,7 @@ int collect_noisy_vars1(bam_chunk_t *chunk, const call_var_opt_t *opt, int noisy
     for (int i = 0; i < n_cons; ++i) n_total_reads += clu_n_seqs[i];
     merge_var_profile(chunk, n_total_reads, n_noisy_vars, noisy_vars, noisy_var_cate, noisy_rvp);
     if (LONGCALLD_VERBOSE >= 2) {
-        fprintf(stderr, "NoisyReg: chunk_reg: %s:%ld-%ld, reg: %s:%ld-%ld %ld (%d)\t", chunk->tname, chunk->reg_beg, chunk->reg_end, 
+        fprintf(stderr, "NoisyReg: chunk_reg: %s:%" PRIi64 "-%" PRIi64 ", reg: %s:%" PRIi64 "-%" PRIi64 " %" PRIi64 " (%d)\t", chunk->tname, chunk->reg_beg, chunk->reg_end, 
                         chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end-noisy_reg_beg+1, n_noisy_reads);
         fprintf(stderr, "Real time: %.3f sec.\n", realtime() - realtime0);
     }
@@ -1673,14 +1671,14 @@ void pre_process_noisy_regs(bam_chunk_t *chunk, call_var_opt_t *opt) {
     if (chunk->chunk_noisy_regs == NULL || chunk->chunk_noisy_regs->n_r == 0) return;
     cr_index(chunk->chunk_noisy_regs);
     // if (LONGCALLD_VERBOSE >= 2) {
-    //     fprintf(stderr, "Before merge: %s:%ld-%ld %ld noisy regions\n", chunk->tname, chunk->reg_beg, chunk->reg_end, chunk->chunk_noisy_regs->n_r);
+    //     fprintf(stderr, "Before merge: %s:%" PRIi64 "-%" PRIi64 " %" PRIi64 " noisy regions\n", chunk->tname, chunk->reg_beg, chunk->reg_end, chunk->chunk_noisy_regs->n_r);
     //     for (int i = 0; i < chunk->chunk_noisy_regs->n_r; ++i) {
     //         fprintf(stderr, "NoisyReg: %s:%d-%d %d\n", chunk->tname, cr_start(chunk->chunk_noisy_regs, i), cr_end(chunk->chunk_noisy_regs, i), cr_label(chunk->chunk_noisy_regs, i));
     //     }
     // }
     chunk->chunk_noisy_regs = cr_merge(chunk->chunk_noisy_regs, -1);
     // if (LONGCALLD_VERBOSE >= 2) {
-    //     fprintf(stderr, "After merge: %s:%ld-%ld %ld noisy regions\n", chunk->tname, chunk->reg_beg, chunk->reg_end, chunk->chunk_noisy_regs->n_r);
+    //     fprintf(stderr, "After merge: %s:%" PRIi64 "-%" PRIi64 " %" PRIi64 " noisy regions\n", chunk->tname, chunk->reg_beg, chunk->reg_end, chunk->chunk_noisy_regs->n_r);
     //     for (int i = 0; i < chunk->chunk_noisy_regs->n_r; ++i) {
     //         fprintf(stderr, "NoisyReg: %s:%d-%d %d\n", chunk->tname, cr_start(chunk->chunk_noisy_regs, i), cr_end(chunk->chunk_noisy_regs, i), cr_label(chunk->chunk_noisy_regs, i));
     //     }

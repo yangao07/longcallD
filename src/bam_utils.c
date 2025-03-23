@@ -119,7 +119,7 @@ void push_xid_size_queue_win(xid_queue_t *q, hts_pos_t pos, int len, int count,
         q->count -= q->counts[q->front]; // q->lens[q->front];
         q->front++;
     }
-    // fprintf(stderr, "pos: %ld, len: %d, count: %d, front: %d, rear: %d, count: %d\n", pos, len, count, q->front, q->rear, q->count);
+    // fprintf(stderr, "pos: %" PRIi64 ", len: %d, count: %d, front: %d, rear: %d, count: %d\n", pos, len, count, q->front, q->rear, q->count);
     if (count > 0) {
         if (q->count > q->max_s) {
             for (int j = q->front; j <= q->rear; j++)
@@ -330,7 +330,7 @@ int update_read_var_profile_from_digar(const call_var_opt_t *opt, bam_chunk_t *c
 }
 
 void set_digar(digar1_t *digar, hts_pos_t pos, int type, int len, int qi, int is_low_qual) {
-    // fprintf(stderr, "Set digar: %ld, %d%c, %d\n", pos, len, BAM_CIGAR_STR[type], qi);
+    // fprintf(stderr, "Set digar: %" PRIi64 ", %d%c, %d\n", pos, len, BAM_CIGAR_STR[type], qi);
     // uint8_t d_qual; if (qi > 0) d_qual = (qual[qi] + qual[qi-1]) / 2; else d_qual = qual[qi];
     digar->pos = pos; digar->type = type; digar->len = len; digar->qi = qi; digar->alt_seq = NULL; digar->is_low_qual = is_low_qual;
 }
@@ -407,7 +407,7 @@ int check_noisy_end_clip(const call_var_opt_t *opt, bam1_t *read) {
                 sa_entry = strtok(NULL, ";");
                 // if any SA entry is a palindrome, then it is not a noisy region
                 if (check_ont_palindrome(primary_pos, primary_end, pos, sa_end_pos)) {
-                    if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "palindrome: %s %ld-%ld, sa: %s %d-%d\n", bam_get_qname(read), primary_pos, primary_end, rname, pos, sa_end_pos);
+                    if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "palindrome: %s %" PRIi64 "-%" PRIi64 ", sa: %s %d-%d\n", bam_get_qname(read), primary_pos, primary_end, rname, pos, sa_end_pos);
                     return 0;
                 }
             }
@@ -514,7 +514,7 @@ int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct 
         int var_size = 0;
         for (int i = cr_q_start; i <= cr_q_end; ++i) var_size += q->counts[i];
         var_size = var_size > (noisy_end - noisy_start + 1) ? var_size : (noisy_end - noisy_start + 1);
-        // fprintf(stderr, "var_size: %d, noisy_start: %ld, noisy_end: %ld\n", var_size, noisy_start, noisy_end);
+        // fprintf(stderr, "var_size: %d, noisy_start: %" PRIi64 ", noisy_end: %" PRIi64 "\n", var_size, noisy_start, noisy_end);
         cr_add(digar->noisy_regs, "cr", noisy_start-1, noisy_end, var_size);
     }
     cr_index(digar->noisy_regs);
@@ -682,7 +682,7 @@ int collect_digar_from_cs_tag(bam_chunk_t *chunk, bam1_t *read, const struct cal
         int var_size = 0;
         for (int i = cr_q_start; i <= cr_q_end; ++i) var_size += q->counts[i];
         var_size = var_size > (noisy_end - noisy_start + 1) ? var_size : (noisy_end - noisy_start + 1);
-        // fprintf(stderr, "var_size: %d, noisy_start: %ld, noisy_end: %ld\n", var_size, noisy_start, noisy_end);
+        // fprintf(stderr, "var_size: %d, noisy_start: %" PRIi64 ", noisy_end: %" PRIi64 "\n", var_size, noisy_start, noisy_end);
         cr_add(digar->noisy_regs, "cr", noisy_start-1, noisy_end, var_size);
     }
     cr_index(digar->noisy_regs);
@@ -847,7 +847,7 @@ int collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct cal
         int var_size = 0;
         for (int i = cr_q_start; i <= cr_q_end; ++i) var_size += q->counts[i];
         var_size = var_size > (noisy_end - noisy_start + 1) ? var_size : (noisy_end - noisy_start + 1);
-        // fprintf(stderr, "var_size: %d, noisy_start: %ld, noisy_end: %ld\n", var_size, noisy_start, noisy_end);
+        // fprintf(stderr, "var_size: %d, noisy_start: %" PRIi64 ", noisy_end: %" PRIi64 "\n", var_size, noisy_start, noisy_end);
         cr_add(digar->noisy_regs, "cr", noisy_start-1, noisy_end, var_size);
     }
     cr_index(digar->noisy_regs);
@@ -909,7 +909,7 @@ int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct ca
                 // Get the reference base
                 if (pos <= ref_beg || pos > ref_end) {
                     if (LONGCALLD_VERBOSE >= 2) {
-                        fprintf(stderr, "pos: %ld (%ld-%ld)\t", pos, ref_beg, ref_end);
+                        fprintf(stderr, "pos: %" PRIi64 " (%" PRIi64 "-%" PRIi64 ")\t", pos, ref_beg, ref_end);
                         fprintf(stderr, "Read exceed reference region sequence: %s", bam_get_qname(read));
                     }
                     pos++; qi++; continue;
@@ -996,7 +996,7 @@ int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct ca
         int var_size = 0;
         for (int i = cr_q_start; i <= cr_q_end; ++i) var_size += q->counts[i];
         var_size = var_size > (noisy_end - noisy_start + 1) ? var_size : (noisy_end - noisy_start + 1);
-        // fprintf(stderr, "var_size: %d, noisy_start: %ld, noisy_end: %ld\n", var_size, noisy_start, noisy_end);
+        // fprintf(stderr, "var_size: %d, noisy_start: %" PRIi64 ", noisy_end: %" PRIi64 "\n", var_size, noisy_start, noisy_end);
         cr_add(digar->noisy_regs, "cr", noisy_start-1, noisy_end, var_size);
     }
     cr_index(digar->noisy_regs);
@@ -1194,7 +1194,7 @@ static int is_ovlp_with_prev_region(const struct call_var_pl_t *pl, bam_chunk_t 
     hts_pos_t read_beg = read->core.pos+1, read_end = bam_endpos(read);
     if (read_end < pre_reg_beg || read_beg > pre_reg_end) return 0;
     else {
-        // fprintf(stderr, "ovlp_pre: %s %ld-%ld %" PRId64 "-%" PRId64 "\n", bam_get_qname(read), read_beg, read_end, chunk->reg_beg, chunk->reg_end);
+        // fprintf(stderr, "ovlp_pre: %s %" PRIi64 "-%" PRIi64 " %" PRId64 "-%" PRId64 "\n", bam_get_qname(read), read_beg, read_end, chunk->reg_beg, chunk->reg_end);
         return 1;
     }
 }
@@ -1210,7 +1210,7 @@ static int is_ovlp_with_next_region(const struct call_var_pl_t *pl, bam_chunk_t 
     hts_pos_t read_beg = read->core.pos+1, read_end = bam_endpos(read);
     if (read_end < next_reg_beg || read_beg > next_reg_end) return 0;
     else {
-        // fprintf(stderr, "ovlp_next: %s %ld-%ld %" PRId64 "-%" PRId64 "\n", bam_get_qname(read), read_beg, read_end, chunk->reg_beg, chunk->reg_end);
+        // fprintf(stderr, "ovlp_next: %s %" PRIi64 "-%" PRIi64 " %" PRId64 "-%" PRId64 "\n", bam_get_qname(read), read_beg, read_end, chunk->reg_beg, chunk->reg_end);
         return 1;
     }
 }
@@ -1328,7 +1328,7 @@ int write_read_to_bam(bam_chunk_t *chunk, const struct call_var_opt_t *opt) {
                     }
                 }
                 // write to bam
-                if (sam_write1(opt->out_bam, header, read) < 0) _err_error_exit("Failed to write BAM record. %s:%ld %s\n", chunk->tname, read->core.pos+1, bam_get_qname(read));
+                if (sam_write1(opt->out_bam, header, read) < 0) _err_error_exit("Failed to write BAM record. %s:%" PRIi64 " %s\n", chunk->tname, read->core.pos+1, bam_get_qname(read));
                 n_out_reads++;
             }
             read_i++;

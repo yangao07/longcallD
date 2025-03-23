@@ -200,7 +200,7 @@ int update_var_hap_profile_cons_alle_based_on_read_hap(int read_i, int hap, cand
         if ((var_i_to_cate[var_i] & target_var_cate) == 0) continue;
         int read_var_idx = var_i - start_var_idx;
         int allele_i = p[read_i].alleles[read_var_idx];
-        if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "var_i: %d, %ld allele_i: %d\n", var_i, cand_vars[var_i].pos, allele_i);
+        if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "var_i: %d, %" PRIi64 " allele_i: %d\n", var_i, cand_vars[var_i].pos, allele_i);
         if (allele_i == -1) continue;
         cand_var_t *var = cand_vars+var_i; int var_cate = var_i_to_cate[var_i];
         if (hap == 0) {
@@ -292,7 +292,7 @@ int iter_update_var_hap_cons_phase_set(bam_chunk_t *chunk, int *var_idx, read_va
         int _var_i = het_var_idx[__var_i];
         int var_i = var_idx[_var_i];
         cand_var_t *var = cand_vars+var_i;
-        if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "var_i %d %ld %d-%c-%d %d reads\n", var_i, var->pos, var->ref_len, BAM_CIGAR_STR[cand_vars[var_i].var_type], cand_vars[var_i].alt_len, cand_vars[var_i].total_cov);
+        if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "var_i %d %" PRIi64 " %d-%c-%d %d reads\n", var_i, var->pos, var->ref_len, BAM_CIGAR_STR[cand_vars[var_i].var_type], cand_vars[var_i].alt_len, cand_vars[var_i].total_cov);
         ovlp_n = cr_overlap(read_var_cr, "cr", var_idx[het_var_idx[__var_i-1]], var_i+1, &ovlp_b, &max_b);
         for (ovlp_i = 0; ovlp_i < ovlp_n; ++ovlp_i) { // assign each read a haplotype if it is not assigned yet
             int read_i = cr_label(read_var_cr, ovlp_b[ovlp_i]);
@@ -317,7 +317,7 @@ int iter_update_var_hap_cons_phase_set(bam_chunk_t *chunk, int *var_idx, read_va
             var->phase_set = phase_set;
             continue;
         }
-        if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "%ld %d %d\n", var->pos, n_agree[_var_i], n_conflict[_var_i]);
+        if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "%" PRIi64 " %d %d\n", var->pos, n_agree[_var_i], n_conflict[_var_i]);
         if (is_het[_var_i] == 1) {
             if (n_agree[_var_i] < 2 && n_conflict[_var_i] < 2) { // new phase set
                 if (var->var_type == BAM_CDIFF) phase_set = var->pos;
@@ -425,7 +425,7 @@ int assign_hap_based_on_het_vars_kmeans(bam_chunk_t *chunk, int target_var_cate,
                 continue;
             cand_var_t *var = cand_vars+var_i;
             if (LONGCALLD_VERBOSE >= 2)
-                fprintf(stderr, "var_i %d %ld %d-%c-%d %d reads\n", var_i, var->pos, var->ref_len, BAM_CIGAR_STR[var->var_type], var->alt_len, var->total_cov);
+                fprintf(stderr, "var_i %d %" PRIi64 " %d-%c-%d %d reads\n", var_i, var->pos, var->ref_len, BAM_CIGAR_STR[var->var_type], var->alt_len, var->total_cov);
             ovlp_n = cr_overlap(read_var_cr, "cr", var_i, var_i+1, &ovlp_b, &max_b);
             for (ovlp_i = 0; ovlp_i < ovlp_n; ++ovlp_i) { // assign each read a haplotype if it is not assigned yet
                 int read_i = cr_label(read_var_cr, ovlp_b[ovlp_i]);
@@ -434,7 +434,7 @@ int assign_hap_based_on_het_vars_kmeans(bam_chunk_t *chunk, int target_var_cate,
                 // 1/2: hap, 0: tied, no hap, -1: no var can be used
                 int hap = assign_read_hap_based_on_cons_alle(read_i, cand_vars, p, var_i_to_cate, target_var_cate);
                 if (hap == -1) { // no used vars, new phase set
-                    if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "new PS: %ld %s\n", cand_vars[var_i].pos, bam_get_qname(chunk->reads[read_i]));
+                    if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "new PS: %" PRIi64 " %s\n", cand_vars[var_i].pos, bam_get_qname(chunk->reads[read_i]));
                     hap = 1;
                 }
                 chunk->haps[read_i] = hap;

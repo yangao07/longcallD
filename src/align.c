@@ -682,7 +682,7 @@ int abpoa_partial_aln_msa_cons(const call_var_opt_t *opt, abpoa_t *ab, int wb, i
         }
         n_cons = abc->n_cons;
     } else {
-        _err_error_exit("No Consensus: %ld\n");
+        _err_error_exit("No Consensus.\n");
     }
     // msa bases
     if (msa_seq != NULL && msa_seq_len != NULL) {
@@ -719,7 +719,7 @@ int collect_reg_ref_bseq(bam_chunk_t *chunk, hts_pos_t *reg_beg, hts_pos_t *reg_
     if (*reg_beg < ref_beg) *reg_beg = ref_beg;
     if (*reg_end > ref_end) *reg_end = ref_end;
 
-    // fprintf(stderr, "Collecting ref_bseq: %ld %ld %ld %ld\n", reg_beg, reg_end, ref_beg, ref_end);
+    // fprintf(stderr, "Collecting ref_bseq: %" PRIi64 " %" PRIi64 " %" PRIi64 " %" PRIi64 "\n", reg_beg, reg_end, ref_beg, ref_end);
     *ref_bseq = (uint8_t*)malloc((*reg_end - *reg_beg + 1) * sizeof(uint8_t));
     for (int i = *reg_beg; i <= *reg_end; ++i) {
         (*ref_bseq)[i-*reg_beg] = nst_nt4_table[(int)ref_seq[i-ref_beg]];
@@ -1109,7 +1109,7 @@ int wfa_collect_noisy_aln_str_with_ps_hap(const call_var_opt_t *opt, int n_reads
             n_ps_hap_reads++;
         }
         // only call consensus at first
-        if (LONGCALLD_VERBOSE >=2 ) fprintf(stderr, "PS: %ld HAP: %d n_reads: %d\n", ps, hap, n_ps_hap_reads);
+        if (LONGCALLD_VERBOSE >=2 ) fprintf(stderr, "PS: %" PRIi64 " HAP: %d n_reads: %d\n", ps, hap, n_ps_hap_reads);
         if (n_ps_hap_reads == 0) continue;
         // collect consensus sequences
 
@@ -1160,7 +1160,7 @@ int wfa_collect_noisy_aln_str_with_ps_hap(const call_var_opt_t *opt, int n_reads
                 wfa_collect_aln_str(opt, cons_seqs[hap-1], cons_lens[hap-1], seqs[i], lens[i], fully_covers[i], LONGCALLD_CONS_READ_ALN_STR(clu_aln_str, n_ps_hap_reads));
                 n_ps_hap_reads++;
             }
-            if (LONGCALLD_VERBOSE >=2 ) fprintf(stderr, "With Ref+Cons PS: %ld HAP: %d n_reads: %d\n", ps, hap, n_ps_hap_reads);
+            if (LONGCALLD_VERBOSE >=2 ) fprintf(stderr, "With Ref+Cons PS: %" PRIi64 " HAP: %d n_reads: %d\n", ps, hap, n_ps_hap_reads);
             if (n_ps_hap_reads == 0) continue;
         }
     }
@@ -1274,7 +1274,7 @@ int collect_noisy_reg_aln_strs(const call_var_opt_t *opt, bam_chunk_t *chunk, ht
                                                      ref_seq, ref_seq_len, clu_n_seqs, clu_read_ids, aln_strs);
     } else { // if (n_full_cover_reads <= 0 || reg_end - reg_beg + 1 > 5000) {
         if (LONGCALLD_VERBOSE >= 2)
-            fprintf(stderr, "Skipped region: %s:%ld-%ld %ld %d reads (%d full)\n", chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end-noisy_reg_beg+1, n_noisy_reg_reads, n_full_reads);
+            fprintf(stderr, "Skipped region: %s:%" PRIi64 "-%" PRIi64 " %" PRIi64 " %d reads (%d full)\n", chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end-noisy_reg_beg+1, n_noisy_reg_reads, n_full_reads);
     }
     for (int i = 0; i < n_noisy_reg_reads; ++i) {
         free(seqs[i]); free(base_quals[i]);

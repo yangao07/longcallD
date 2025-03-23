@@ -416,7 +416,7 @@ static void collect_regions_from_region_list(call_var_opt_t *opt, call_var_pl_t 
         for (int i = 0; i < pl->n_reg_chunks; i++) {
             fprintf(stderr, "Chunk %d:\n", i);
             for (int j = 0; j < pl->reg_chunks[i].n_regions; j++) {
-                fprintf(stderr, "\tRegion %d %s:%ld-%ld\n", j, pl->io_aux[0].header->target_name[pl->reg_chunks[i].reg_tids[j]], pl->reg_chunks[i].reg_begs[j], pl->reg_chunks[i].reg_ends[j]);
+                fprintf(stderr, "\tRegion %d %s:%" PRIi64 "-%" PRIi64 "\n", j, pl->io_aux[0].header->target_name[pl->reg_chunks[i].reg_tids[j]], pl->reg_chunks[i].reg_begs[j], pl->reg_chunks[i].reg_ends[j]);
             }
         }
     }
@@ -460,7 +460,7 @@ static void collect_regions_from_bed_file(call_var_opt_t *opt, call_var_pl_t *pl
             regions = (char**)realloc(regions, m_regions * sizeof(char*));
             for (int i = n_regions; i < m_regions; ++i) regions[i] = (char*)malloc(1024);
         }
-        sprintf(regions[n_regions], "%s:%ld-%ld", tname, beg, end);
+        sprintf(regions[n_regions], "%s:%" PRIi64 "-%" PRIi64 "", tname, beg, end);
         n_regions++;
     }
     hts_idx_t *idx = pl->io_aux[0].idx;
@@ -533,7 +533,7 @@ static void collect_regions(call_var_pl_t *pl, call_var_opt_t *opt, int n_region
         for (int i = 0; i < pl->n_reg_chunks; i++) {
             fprintf(stderr, "Chunk %d:\n", i);
             for (int j = 0; j < pl->reg_chunks[i].n_regions; j++) {
-                fprintf(stderr, "\tRegion %d %s:%ld-%ld\n", j, pl->io_aux[0].header->target_name[pl->reg_chunks[i].reg_tids[j]], pl->reg_chunks[i].reg_begs[j], pl->reg_chunks[i].reg_ends[j]);
+                fprintf(stderr, "\tRegion %d %s:%" PRIi64 "-%" PRIi64 "\n", j, pl->io_aux[0].header->target_name[pl->reg_chunks[i].reg_tids[j]], pl->reg_chunks[i].reg_begs[j], pl->reg_chunks[i].reg_ends[j]);
             }
         }
     }
@@ -627,7 +627,7 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
         for (int i = 0; i < ((call_var_step_t*)in)->n_chunks; ++i) {
             n_processed_reads += (((call_var_step_t*)in)->chunks[i].n_reads - ((call_var_step_t*)in)->chunks[i].n_up_ovlp_reads);
         }
-        if (n_processed_reads > 0) _err_info("Processed %ld reads.\n", n_processed_reads);
+        if (n_processed_reads > 0) _err_info("Processed %" PRIi64 " reads.\n", n_processed_reads);
         return in;
     } else if (step == 2) { // step 3: write the buffer to output
         if (LONGCALLD_VERBOSE >= 1) _err_info("Step 3: output variants (& phased bam).\n");
