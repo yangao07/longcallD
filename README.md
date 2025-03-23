@@ -17,14 +17,11 @@
 
 ## Getting Started
 ```sh
-# git clone --recursive https://github.com/yangao07/longcallD
-# cd longcallD && make
-
 # Download pre-built executables and test data (recommended)
-# Linux
+# Linux-x64
 wget https://github.com/yangao07/longcallD/releases/download/v0.0.4/longcallD-v0.0.4_x64-linux.tar.gz
 tar -zxvf longcallD-v0.0.4_x64-linux.tar.gz && cd longcallD-v0.0.4_x64-linux
-# MacOS
+# MacOS-arm64
 wget https://github.com/yangao07/longcallD/releases/download/v0.0.4/longcallD-v0.0.4_arm64-macos.tar.gz
 tar -zxvf longcallD-v0.0.4_arm64-macos.tar.gz && cd longcallD-v0.0.4_arm64-macos
 
@@ -63,19 +60,23 @@ LongcallD phases long reads into haplotypes using SNPs and small indels before c
 ## Installation
 
 ### Pre-built executables (recommended)
-**For Linux:**
+**Linux-x64**
 ```
 wget https://github.com/yangao07/longcallD/releases/download/v0.0.4/longcallD-v0.0.4_x64-linux.tar.gz
 tar -zxvf longcallD-v0.0.4_x64-linux.tar.gz
 ```
-**For macOS:**
+**MacOS-arm64**
 ```
 wget https://github.com/yangao07/longcallD/releases/download/v0.0.4/longcallD-v0.0.4_arm64-macos.tar.gz
 tar -zxvf longcallD-v0.0.4_arm64-macos.tar.gz
 ```
 
+**Linux-arm64/macOS-x64**
+
+There is no pre-built executable for Linux-arm64 or macOS-x64, please try conda or build from source.
+
 ### Bioconda
-**For Linux and macOS:**
+**For Linux and macOS**
 ```
 conda install -c bioconda longcalld
 ```
