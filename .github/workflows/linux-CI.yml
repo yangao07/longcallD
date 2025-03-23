@@ -8,9 +8,10 @@ on:
 
 jobs:
   build-linux:
-    runs-on:
-      - ubuntu-latest
-      - ubuntu-24.04-arm
+    strategy:
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm] # test on x64 and arm64
+    runs-on: ${{ matrix.os }}
 
     steps:
     - uses: actions/checkout@v4
