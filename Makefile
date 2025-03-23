@@ -10,7 +10,7 @@ HTSLIB_DIR  = ./htslib
 HTSLIB      = $(HTSLIB_DIR)/libhts.a
 
 ABPOA_DIR   = ./abPOA
-ABPOA_LIB   = ./lib/libabpoa.a
+ABPOA_LIB   = ./abPOA/lib/libabpoa.a
 ABPOA_INC_DIR = $(ABPOA_DIR)/include
 
 WFA2_DIR    = ./WFA2-lib
@@ -44,12 +44,15 @@ ifneq ($(debug),)
 	EXTRA_FLAGS  += -D __DEBUG__
 endif
 
+ABPOA_GDB_LIB = ./abPOA/lib/libabpoa_sse41.a
+ABPOA_NOR_LIB     = ./abPOA/lib/libabpoa.a
 # for gdb
 ifneq ($(gdb),)
 	OPT_FLAGS = -g
-	ABPOA_LIB = ./lib/libabpoa_gdb.a
+	ABPOA_LIB = $(ABPOA_GDB_LIB)
 else
 	OPT_FLAGS = -O3
+	ABPOA_LIB = $(ABPOA_NOR_LIB)
 endif
 
 CFLAGS = $(OPT_FLAGS) $(EXTRA_FLAGS)
@@ -90,8 +93,11 @@ $(HTS_ALL): $(HTSLIB)
 $(HTSLIB): $(HTSLIB_DIR)/configure.ac
 	cd $(HTSLIB_DIR); autoreconf -i; ./configure; make CC=${CC}
 
-$(ABPOA_LIB): 
-	cd $(ABPOA_DIR); make clean libabpoa PREFIX=$(PWD)
+$(ABPOA_GDB_LIB): 
+	cd $(ABPOA_DIR); make clean libabpoa gdb=1 sse41=1
+$(ABPOA_NOR_LIB):
+	cd $(ABPOA_DIR); make clean libabpoa
+
 $(ABPOA_ALL): $(ABPOA_LIB)
 
 $(WFA2_LIB):

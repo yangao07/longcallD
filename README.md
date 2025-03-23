@@ -77,7 +77,7 @@ tar -zxvf longcallD-v0.0.4_arm64-macos.tar.gz
 ### BioConda
 **For Linux and macOS:**
 ```
-conda install bioconda::longcalld  # 'd' is lowcase
+conda install -c bioconda longcalld
 ```
 
 ### Build from source

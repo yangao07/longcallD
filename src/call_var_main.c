@@ -212,7 +212,7 @@ call_var_opt_t *call_var_init_para(void) {
 
     opt->p_error = 0.001; opt->log_p = -3.0; opt->log_1p = log10(1-opt->p_error); opt->log_2 = 0.301023;
     opt->max_gq = 60; opt->max_qual = 60;
-    opt->out_vcf = NULL; opt->out_vcf_fn = NULL; opt->out_vcf_type = 'v'; opt->no_vcf_header = 0; opt->out_amb_base = 0;
+    opt->out_vcf = NULL; opt->vcf_hdr = NULL; opt->out_vcf_fn = NULL; opt->out_vcf_type = 'v'; opt->no_vcf_header = 0; opt->out_amb_base = 0;
     opt->out_bam = NULL; opt->out_is_cram = 0;
     opt->out_somatic_snp = 0; opt->out_methylation = 0;
     // opt->verbose = 0;
@@ -819,7 +819,8 @@ int call_var_main(int argc, char *argv[]) {
     kt_pipeline(opt->pl_threads, call_var_worker_pipeline, &pl, 3);
     if (opt->out_bam != NULL) hts_close(opt->out_bam);
     if (opt->out_vcf != NULL) {
-        bcf_hdr_destroy(opt->vcf_hdr); hts_close(opt->out_vcf);
+        if (opt->vcf_hdr != NULL) bcf_hdr_destroy(opt->vcf_hdr);
+        hts_close(opt->out_vcf);
     }
     call_var_free_pl(pl); call_var_free_para(opt); 
     // finish
