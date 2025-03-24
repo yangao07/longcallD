@@ -300,16 +300,16 @@ int write_var_to_vcf(var_t *vars, const struct call_var_opt_t *opt, char *chrom)
             len += snprintf(buffer + len, sizeof(buffer) - len, ":%d:%" PRId64 "\n", var.GQ, var.PS);
 
         // Write to htsFile
-        // if (out_vcf->format.compression!=no_compression) {
-            // if (bgzf_write(out_vcf->fp.bgzf, buffer, len) < 0) {
-                // _err_error_exit("Error: Could not write to VCF file.\n");
-            // }
-        // } else {
-            // if (hwrite(out_vcf->fp.hfile, buffer, len) < 0) {
-                // _err_error_exit("Error: Could not write to VCF file.\n");
-            // }
-        // }
-        fprintf(stdout, "%s", buffer);
+        if (out_vcf->format.compression!=no_compression) {
+            if (bgzf_write(out_vcf->fp.bgzf, buffer, len) < 0) {
+                _err_error_exit("Error: Could not write to VCF file.\n");
+            }
+        } else {
+            if (hwrite(out_vcf->fp.hfile, buffer, len) < 0) {
+                _err_error_exit("Error: Could not write to VCF file.\n");
+            }
+        }
+        // fprintf(stdout, "%s", buffer);
         n_output_vars++;
     }
     free(buffer);
