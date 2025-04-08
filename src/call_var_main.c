@@ -20,6 +20,8 @@
 #include "collect_var.h"
 #include "kthread.h"
 #include "align.h"
+#include "math_utils.h"
+#include "kmer.h"
 
 extern int LONGCALLD_VERBOSE;
 
@@ -40,12 +42,14 @@ const struct option call_var_opt [] = {
     { "ref-idx", 1, NULL, 'r' },
     { "out-vcf", 1, NULL, 'o'},
     { "out-type", 1, NULL, 'O'},
+    { "min-sv-len", 1, NULL, 's'},
     { "out-bam", 1, NULL, 'b' },
     { "out-cram", 1, NULL, 'C' },
     { "no-vcf-header", 0, NULL, 'H'},
     { "gap-aln", 1, NULL, 'g'},
     // { "out-bam", 1, NULL, 'b' },
     { "sample-name", 1, NULL, 'n'},
+    { "trans-elem", 1, NULL, 'T'},
 
     { "min-cov", 1, NULL, 'c' },
     { "alt-cov", 1, NULL, 'd' },
@@ -158,6 +162,27 @@ void set_ont_hp_prof(call_var_opt_t *opt, char *prof_fn) {
     fclose(fp);
 }
 
+void math_utils_test(const call_var_opt_t *opt) {
+    printf("Math Utils Test\n");
+    int k = 8;          // Alternate allele count
+    int n = 50;        // Total reads
+    int alpha = 2; // Beta prior (somatic)
+    int beta = 10; // Beta prior (background)
+    double error_rate = 0.01; // Sequencing error
+
+    double logBF = log_bayes_factor(k, n, alpha, beta, error_rate, opt);
+    double BF = exp(logBF);
+
+    printf("Log-Bayes Factor: %.2f\n", logBF);
+    printf("Bayes Factor: %.2e\n", BF);
+    printf("Decision: %s\n", BF > 100 ? "Somatic" : "Error/Germline");
+
+    // test fisher exact test
+    int a = 5, b = 10, c = 15, d = 2;
+    printf("Fisher's Exact Test (Two-tailed): %.5f\n", fisher_exact_test(a, b, c, d, opt));
+    exit(1);
+}
+
 call_var_opt_t *call_var_init_para(void) {
     call_var_opt_t *opt = (call_var_opt_t*)_err_malloc(sizeof(call_var_opt_t));
 
@@ -210,12 +235,22 @@ call_var_opt_t *call_var_init_para(void) {
     opt->pl_threads = MIN_OF_TWO(CALL_VAR_PL_THREAD_N, get_num_processors());
     opt->n_threads = MIN_OF_TWO(CALL_VAR_THREAD_N, get_num_processors());
 
+    opt->min_sv_len = LONGCALLD_MIN_SV_LEN;
+    opt->min_tsd_len = LONGCALLD_MIN_TSD_LEN; opt->max_tsd_len = LONGCALLD_MAX_TSD_LEN;
+    opt->min_polya_len = LONGCALLD_MIN_POLYA_LEN; opt->min_polya_ratio = LONGCALLD_MIN_POLYA_RATIO;
+
+    initialize_lgamma_cache(opt);
+    opt->te_seq_fn = NULL; opt->te_kmer_len = 15; opt->te_for_h = NULL; opt->te_rev_h = NULL;
+
     opt->p_error = 0.001; opt->log_p = -3.0; opt->log_1p = log10(1-opt->p_error); opt->log_2 = 0.301023;
     opt->max_gq = 60; opt->max_qual = 60;
     opt->out_vcf = NULL; opt->vcf_hdr = NULL; opt->out_vcf_fn = NULL; opt->out_vcf_type = 'v'; opt->no_vcf_header = 0; opt->out_amb_base = 0;
     opt->out_bam = NULL; opt->out_is_cram = 0;
-    opt->out_somatic_snp = 0; opt->out_methylation = 0;
+    opt->out_somatic = 0; opt->out_methylation = 0;
     // opt->verbose = 0;
+
+    // math utils test
+    // math_utils_test(opt);
     return opt;
 }
 
@@ -238,6 +273,15 @@ void call_var_free_para(call_var_opt_t *opt) {
         free(opt->ont_hp_profile);
     }
     if (opt->out_vcf_fn != NULL) free(opt->out_vcf_fn);
+    if (opt->te_seq_fn != NULL) {
+        free(opt->te_seq_fn);
+        for (int i = 0; i < opt->n_te_seqs; ++i) {
+            free(opt->te_seq_names[i]);
+            kh_destroy(kmer32, opt->te_for_h[i]);
+            kh_destroy(kmer32, opt->te_rev_h[i]);
+        }
+        free(opt->te_seq_names); free(opt->te_for_h); free(opt->te_rev_h);
+    }
     free(opt);
 }
 
@@ -275,7 +319,9 @@ void var_free(var_t *v) {
                 for (int j = 0; j < v->vars[i].n_alt_allele; ++j) free(v->vars[i].alt_bases[j]);
                 free(v->vars[i].alt_bases);
             }
-
+            if (v->vars[i].tsd_len > 0) {
+                free(v->vars[i].tsd_seq);
+            }
         }
         free(v->vars);
     }
@@ -287,6 +333,9 @@ void var1_free(var1_t *v) {
     if (v->alt_bases) {
         for (int j = 0; j < v->n_alt_allele; ++j) free(v->alt_bases[j]);
         free(v->alt_bases);
+    }
+    if (v->tsd_len > 0) {
+        free(v->tsd_seq);
     }
 }
 
@@ -595,7 +644,7 @@ static void call_var_pl_write_bam_header(call_var_opt_t *opt, bam_hdr_t *header)
     if (opt->out_is_cram) {
         if (hts_set_fai_filename(opt->out_bam, opt->ref_fa_fn) != 0) _err_error_exit("Failed to set reference file for output CRAM encoding: %s\n", opt->ref_fa_fn);
     }
-    if (sam_hdr_add_pg(header, PROG, "VN", VERSION, "CL", CMD, NULL) < 0) _err_error_exit("Fail to add PG line to bam header.\n");
+    if (sam_hdr_add_pg(header, PROG, "VN", LONGCALLD_VERSION, "CL", CMD, NULL) < 0) _err_error_exit("Fail to add PG line to bam header.\n");
     if (sam_hdr_write(opt->out_bam, header) < 0) _err_error_exit("Failed to write BAM header.\n");
 }
 
@@ -653,7 +702,7 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
 static void call_var_usage(void) {//main usage
     fprintf(stderr, "\n");
     fprintf(stderr, "Program: %s (%s)\n", PROG, DESCRIP);
-    fprintf(stderr, "Version: %s\tContact: %s\n\n", VERSION, CONTACT); 
+    fprintf(stderr, "Version: %s\tContact: %s\n\n", LONGCALLD_VERSION, CONTACT); 
 
     fprintf(stderr, "Usage: %s call [options] <ref.fa> <input.bam/cram> [region ...] > phased.vcf\n", PROG);
     fprintf(stderr, "       Note: \'ref.fa\' should contain the same contig/chromosome names as \'input.bam/cram\'\n");
@@ -673,17 +722,19 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "                          e.g., human: chr{1-22} or 1-22\n");
     fprintf(stderr, "    --autosome-XY         Only call variants on autosomes and sex chromosomes [False]\n");
     fprintf(stderr, "                          e.g., human: chr{1-22,XY} or 1-22,XY\n");
-    fprintf(stderr, "    -r --ref-idx    FILE  .fai index file for reference genome FASTA file, detect automaticaly if not provided [NULL]\n");
-    // fprintf(stderr, "    -b --out-bam     STR  output phased BAM file [NULL]\n");
     fprintf(stderr, "    -n --sample-name STR  sample name. 'RG/SM' in BAM header will be used if not provided [NULL]\n");
+    fprintf(stderr, "    -r --ref-idx    FILE  .fai index file for reference genome FASTA file, detect automaticaly if not provided [NULL]\n");
     fprintf(stderr, "                          BAM file name will be used if not provided and no 'RG/SM' in BAM header\n");
+    fprintf(stderr, "    -T --trans-elem FILE  transposable element sequence [NULL]\n");
     fprintf(stderr, "    -o --out-vcf    FILE  output phased VCF file [stdout]\n");
     fprintf(stderr, "    -O --out-type    STR  v/z: un/compressed VCF [v]\n");
+    fprintf(stderr, "    -s --min-sv-len  INT  min. length to be considered as SV [%d]\n", LONGCALLD_MIN_SV_LEN);
+    fprintf(stderr, "                          SV-related information will be added to INFO field, e.g., SVLEN/SVTYPE/TSD\n");
     // fprintf(stderr, "       --somatic-snp    output somatic SNPs [False]\n");
     // fprintf(stderr, "       --methylation    output methylation site information [False]\n");
     // fprintf(stderr, "                          if present, MM/ML tags will be used to calculate methylation level\n");
     fprintf(stderr, "    -H --no-vcf-header    do NOT output VCF header [False]\n");
-    fprintf(stderr, "       --amb-base         output variant with ambiguous base [False]\n");
+    fprintf(stderr, "       --amb-base         output variant with ambiguous base (N) [False]\n");
     fprintf(stderr, "    -b --out-bam    FILE  output phased BAM file [NULL]\n");
     fprintf(stderr, "    -C --out-cram   FILE  output phased CRAM file [NULL]\n");
     // fprintf(stderr, "    -g --gap-aln     STR  put gap on the \'left\' or \'right\' side in alignment [left/l]\n");
@@ -731,7 +782,7 @@ int call_var_main(int argc, char *argv[]) {
     // _err_cmd("%s\n", CMD);
     int c, op_idx; call_var_opt_t *opt = call_var_init_para();
     double realtime0 = realtime();
-    while ((c = getopt_long(argc, argv, "r:o:O:Hb:C:c:d:M:B:a:n:x:w:j:L:f:p:g:Nt:hvV:", call_var_opt, &op_idx)) >= 0) {
+    while ((c = getopt_long(argc, argv, "r:T:o:O:s:Hb:C:c:d:M:B:a:n:x:w:j:L:f:p:g:Nt:hvV:", call_var_opt, &op_idx)) >= 0) {
         switch(c) {
             case 'r': opt->ref_fa_fai_fn = strdup(optarg); break;
             // case 'b': cgp->var_block_size = atoi(optarg); break;
@@ -740,6 +791,8 @@ int call_var_main(int argc, char *argv[]) {
                       else _err_error_exit("\'-O/--out-type\' can only be \'v\' or \'z\'\n");
                       break;
             case 'H': opt->no_vcf_header = 1; break;
+            case 's': opt->min_sv_len = atoi(optarg); break;
+            case 'T': opt->te_seq_fn = strdup(optarg); make_te_kmer_idx(opt); break;
             case 0: if (strcmp(call_var_opt[op_idx].name, "amb-base") == 0) opt->out_amb_base = 1; 
                     else if (strcmp(call_var_opt[op_idx].name, "hifi") == 0) set_hifi_opt(opt);
                     else if (strcmp(call_var_opt[op_idx].name, "ont") == 0) set_ont_opt(opt);
@@ -748,7 +801,7 @@ int call_var_main(int argc, char *argv[]) {
                              strcmp(call_var_opt[op_idx].name, "regions-file") == 0) opt->reg_bed_fn = strdup(optarg);
                     else if (strcmp(call_var_opt[op_idx].name, "autosome") == 0) opt->only_autosome = 1;
                     else if (strcmp(call_var_opt[op_idx].name, "autosome-XY") == 0) opt->only_autosome_XY = 1;
-                    else if (strcmp(call_var_opt[op_idx].name, "somatic-snp") == 0) opt->out_somatic_snp = 1;
+                    else if (strcmp(call_var_opt[op_idx].name, "somatic-snp") == 0) opt->out_somatic = 1;
                     else if (strcmp(call_var_opt[op_idx].name, "methylation") == 0) opt->out_methylation = 1;
                     break;
             case 'b': opt->out_bam = hts_open(optarg, "wb"); opt->out_is_cram = 0; break;
@@ -773,11 +826,14 @@ int call_var_main(int argc, char *argv[]) {
             case 'N': opt->disable_read_realign = 1; break;
             case 't': opt->n_threads = atoi(optarg); break;
             case 'h': call_var_free_para(opt); call_var_usage();
-            case 'v': fprintf(stdout, "%s\n", VERSION); call_var_free_para(opt); return 0;
+            case 'v': fprintf(stdout, "%s\n", LONGCALLD_VERSION); call_var_free_para(opt); return 0;
             case 'V': LONGCALLD_VERBOSE = atoi(optarg); break;
             default: call_var_free_para(opt); call_var_usage();
         }
     }
+    // test for kmer
+    // test_te_kmer_query(opt, "/homes2/yangao/programs/longcallD/anno/AluY_L1_SVA_cons.fa");
+    // exit(1);
 
     if (argc - optind == 0) {
         call_var_free_para(opt); call_var_usage();

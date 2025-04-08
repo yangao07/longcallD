@@ -7,6 +7,9 @@
 
 extern int LONGCALLD_VERBOSE;
 
+char test_read_name[1024];
+char test_chr[1024];
+
 read_var_profile_t *init_read_var_profile(int n_reads, int n_total_vars) {
     read_var_profile_t *p = (read_var_profile_t*)malloc(n_reads * sizeof(read_var_profile_t));
     for (int i = 0; i < n_reads; ++i) {
@@ -87,6 +90,7 @@ typedef struct {
     int *counts, *is_dense;
     int front, rear, count;
     int max_s, win; // max_s: max sub/gaps in win
+    int size_m;
 } xid_queue_t;
 
 xid_queue_t *init_xid_queue(int max_sites, int max_s, int win) {
@@ -95,9 +99,22 @@ xid_queue_t *init_xid_queue(int max_sites, int max_s, int win) {
     q->counts = (int*)malloc(max_sites * sizeof(int));
     q->lens = (int*)malloc(max_sites * sizeof(int));
     q->is_dense = (int*)calloc(max_sites, sizeof(int));
+    q->size_m = max_sites;
     q->front = 0; q->rear = -1; q->count = 0;
     q->max_s = max_s; q->win = win;
     return q;
+}
+
+void realloc_xid_queue(xid_queue_t *q) {
+    if (q->rear+1 >= q->size_m) {
+        fprintf(stderr, "realloc xid_queue: %s %s\n", test_chr, test_read_name);
+        q->size_m *= 2;
+        q->pos = (hts_pos_t*)realloc(q->pos, q->size_m * sizeof(hts_pos_t));
+        q->counts = (int*)realloc(q->counts, q->size_m * sizeof(int));
+        q->lens = (int*)realloc(q->lens, q->size_m * sizeof(int));
+        q->is_dense = (int*)realloc(q->is_dense, q->size_m * sizeof(int));
+        for (int i = q->rear+1; i < q->size_m; ++i) q->is_dense[i] = 0;
+    }
 }
 
 void free_xid_queue(xid_queue_t *q) {
@@ -110,6 +127,7 @@ void free_xid_queue(xid_queue_t *q) {
 void push_xid_size_queue_win(xid_queue_t *q, hts_pos_t pos, int len, int count,
                              cgranges_t *cr, hts_pos_t *cr_cur_start, hts_pos_t *cr_cur_end,
                              int *cr_q_start, int *cr_q_end) {
+    realloc_xid_queue(q);
     q->pos[++q->rear] = pos; // left-most pos of the region
     q->lens[q->rear] = len; q->counts[q->rear] = count;
     q->count += count;
@@ -429,9 +447,9 @@ int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct 
     digar->noisy_regs = cr_init();
     digar->beg = pos; digar->end = bam_endpos(read); digar->is_rev = bam_is_rev(read);
     int qlen = read->core.l_qseq;
-    digar->bseq = (uint8_t*)malloc((size_t)(qlen+1)/2 * sizeof(uint8_t));
+    digar->bseq = (uint8_t*)malloc((qlen+1)/2 * sizeof(uint8_t));
     for (int i = 0; i < (qlen+1)/2; ++i) digar->bseq[i] = bam_get_seq(read)[i];
-    digar->qual = (uint8_t*)malloc((size_t)qlen * sizeof(uint8_t));
+    digar->qual = (uint8_t*)malloc((size_t)(qlen * sizeof(uint8_t)));
     for (int i = 0; i < qlen; ++i) digar->qual[i] = bam_get_qual(read)[i];
     int _n_digar = 0, _m_digar = 2 * n_cigar; digar1_t *_digars = (digar1_t*)malloc(_m_digar * sizeof(digar1_t));
     int rlen = bam_cigar2rlen(n_cigar, cigar); int tlen = chunk->whole_ref_len;
@@ -569,10 +587,10 @@ int collect_digar_from_cs_tag(bam_chunk_t *chunk, bam1_t *read, const struct cal
 
     digar->n_digar = 0; digar->m_digar = 2 * n_cigar; digar->digars = (digar1_t*)malloc(n_cigar * 2 * sizeof(digar1_t));
     digar->noisy_regs = cr_init();
-    int qlen = read->core.l_qseq;
-    digar->bseq = (uint8_t*)malloc((size_t)(qlen+1)/2 * sizeof(uint8_t));
+    int32_t qlen = read->core.l_qseq;
+    digar->bseq = (uint8_t*)malloc((qlen+1)/2 * sizeof(uint8_t));
     for (int i = 0; i < (qlen+1)/2; ++i) digar->bseq[i] = bam_get_seq(read)[i];
-    digar->qual = (uint8_t*)malloc((size_t)qlen * sizeof(uint8_t));
+    digar->qual = (uint8_t*)malloc(qlen * sizeof(uint8_t));
     for (int i = 0; i < qlen; ++i) digar->qual[i] = bam_get_qual(read)[i];
     int _n_digar = 0, _m_digar = 2 * n_cigar; digar1_t *_digars = (digar1_t*)malloc(_m_digar * sizeof(digar1_t));
     char *cs = bam_aux2Z(cs_tag); int cs_i = 0, cs_len = strlen(cs);
@@ -900,6 +918,9 @@ int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct ca
     hts_pos_t noisy_start = -1, noisy_end = -1; int cr_q_start = -1, cr_q_end = -1;
     int n_total_cand_vars = 0;
 
+    strcpy(test_read_name, bam_get_qname(read));
+    strcpy(test_chr, chunk->tname);
+
     for (int i = 0; i < n_cigar; ++i) {
         int op = bam_cigar_op(cigar[i]);
         int len = bam_cigar_oplen(cigar[i]);
@@ -914,10 +935,10 @@ int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct ca
                     }
                     pos++; qi++; continue;
                 }
-                char ref_base = ref_seq[pos-ref_beg];
+                int ref_base = nst_nt4_table[(int)ref_seq[pos-ref_beg]];
                 // char ref_base = get_ref_base_from_cr(ref_seq, chunk_cr, pos);
                 // Get the read base
-                char read_base = seq_nt16_str[bam_seqi(digar->bseq, qi)];
+                int read_base = seq_nt16_int[bam_seqi(digar->bseq, qi)];
                 if (ref_base != read_base) {
                     if (eq_len > 0) {
                         _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
@@ -927,8 +948,9 @@ int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct ca
                     }
                     _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
                     uint8_t *x_seq = (uint8_t*)malloc(sizeof(uint8_t));
-                    x_seq[0] = seq_nt16_int[bam_seqi(digar->bseq, qi)];
+                    x_seq[0] = read_base; //seq_nt16_int[bam_seqi(digar->bseq, qi)];
                     if (digar->qual[qi] >= opt->min_bq) {
+                        fprintf(stderr, "%c vs %c\n", "ACGTN"[ref_base], "ACGTN"[read_base]);
                         push_xid_size_queue_win(q, pos, 1, 1, digar->noisy_regs, &noisy_start, &noisy_end, &cr_q_start, &cr_q_end);
                         set_seq_digar(_digars+_n_digar, pos, BAM_CDIFF, 1, qi, 0, x_seq);
                     } else set_seq_digar(_digars+_n_digar, pos, BAM_CDIFF, 1, qi, 1, x_seq);

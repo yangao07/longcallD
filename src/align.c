@@ -6,13 +6,94 @@
 #include <string.h>
 #include <stdint.h>
 #include "abpoa.h"
-// #include "edlib.h"
 #include "call_var_main.h"
 #include "bam_utils.h"
 #include "utils.h"
+#include "math_utils.h"
 #include "align.h"
+#include "kmer.h"
 
 extern int LONGCALLD_VERBOSE;
+
+
+// INS/DEL : left-most
+// short   :    XXXXX                      [TSD]XXXXX
+// long    :    XXXXX[TSD]----------[polyA][TSD]XXXXX
+// or:
+// short   :    XXXXX                      [TSD]XXXXX
+// long    :    XXXXX[TSD][polyT]----------[TSD]XXXXX
+// INS/DEL : right-most (not considered in this function)
+// short   :    XXXXX[TSD]                      XXXXX
+// long    :    XXXXX[TSD]----------[polyA][TSD]XXXXX
+// or:
+// short   :    XXXXX[TSD]                      XXXXX
+// long    :    XXXXX[TSD][polyT]----------[TSD]XXXXX
+
+// input  : cons' aln-str, or raw read' aln-str (mosaic variant)
+// return : 0: not have TSD & polyA, 1: have TSD & polyA
+//        tsd_len: length of TSD
+//        tsd_target_pos1/2: position of 1st/2nd TSD on target
+int collect_te_info(const call_var_opt_t *opt, bam_chunk_t *chunk, hts_pos_t ref_pos, int msa_pos, int msa_len, int var_type, int gap_len, uint8_t *ref_msa_seq, uint8_t *cons_msa_seq, 
+                     uint8_t **tsd_seq, hts_pos_t *tsd_pos1, hts_pos_t *tsd_pos2, int *te_seq_i, int *te_is_rev) {
+    xassert(var_type == BAM_CINS || var_type == BAM_CDEL, "Var_type should be INS/DEL\n");
+    int has_tsd = 0, has_polya = 0; *te_seq_i = -1;
+    int min_tsd_len = opt->min_tsd_len, max_tsd_len = opt->max_tsd_len;
+    int min_polya_len = opt->min_polya_len; float min_polya_ratio = opt->min_polya_ratio;
+    int max_search_polya_len = 20;
+    // in case flanking sequence in ref_msa_seq is not long enough
+    char *ref_seq = chunk->ref_seq; hts_pos_t ref_beg = chunk->ref_beg, ref_end = chunk->ref_end;
+    uint8_t *long_seq, *cand_te_seq;
+    if (var_type == BAM_CINS) {
+        long_seq = cons_msa_seq;
+        cand_te_seq = cons_msa_seq+msa_pos;
+    } else {
+        long_seq = ref_msa_seq;
+        cand_te_seq = ref_msa_seq+msa_pos;
+    }
+    // int flank_len = 10; fprintf(stderr, "Ref:\n");
+    // for (int i = ref_pos-flank_len; i < ref_pos+gap_len+flank_len; ++i) fprintf(stderr, "%c", ref_seq[i-ref_beg]); fprintf(stderr, "\nCons:\n");
+    // for (int i = msa_pos-flank_len; i < msa_pos+gap_len+flank_len; ++i) fprintf(stderr, "%c", "ACGTN-"[ref_msa_seq[i]]); fprintf(stderr, "\n");
+    // for (int i = msa_pos-flank_len; i < msa_pos+gap_len+flank_len; ++i) fprintf(stderr, "%c", "ACGTN-"[cons_msa_seq[i]]); fprintf(stderr, "\n");
+    int msa_gap_start_i = msa_pos, msa_gap_end_i = msa_pos+gap_len-1; 
+    hts_pos_t ref_gap_end_i = ref_pos-1+ (var_type == BAM_CINS ? 0 : gap_len);
+    // look for left-most TSD + polyA/T
+    // compare long_seq[gap_start_i:] with ref_seq[gap_end_i+1:]
+    int tsd_len = 0, i = msa_gap_start_i; hts_pos_t j = ref_gap_end_i+1;
+    for (; i < msa_gap_end_i; i++, j++) {
+        uint8_t base1 = long_seq[i], base2 = get_bseq1(ref_seq, ref_beg, ref_end, j);
+        if (base1 == base2) tsd_len++; else break;
+        if (tsd_len > max_tsd_len) break;
+    }
+    if (tsd_len >= min_tsd_len && tsd_len <= max_tsd_len) {
+        has_tsd = 1;
+        // look for polyA/T
+        for (int polya_len = 0, polya = 0, i = msa_gap_end_i; i >= msa_gap_start_i; i--) {
+            polya_len++;
+            if (long_seq[i] == 0) polya++;
+            if (polya_len >= min_polya_len && polya >= min_polya_ratio*polya_len) {
+                has_polya = 1; break;
+            } else if (polya_len > max_search_polya_len) break;
+        }
+        if (has_polya == 0) { // look for polyT
+            for (int polyt_len = 0, polyt = 0, i = msa_gap_start_i+tsd_len; i <= msa_gap_end_i; i++) {
+                polyt_len++;
+                if (long_seq[i] == 3) polyt++;
+                if (polyt_len >= min_polya_len && polyt >= min_polya_ratio*polyt_len) {
+                    has_polya = 1; break;
+                } else if (polyt_len > max_search_polya_len) break;
+            }
+        }
+    }
+    // check if INS/DEL is TE
+    if (opt->n_te_seqs > 0) *te_seq_i = check_te_seq(opt, cand_te_seq, gap_len, te_is_rev);
+    if (has_tsd && has_polya) {
+        *tsd_seq = (uint8_t*)malloc(tsd_len*sizeof(uint8_t));
+        for (int i = 0; i < tsd_len; i++) (*tsd_seq)[i] = get_bseq1(ref_seq, ref_beg, ref_end, ref_gap_end_i+1+i);
+        *tsd_pos1 = ref_pos; 
+        if (var_type == BAM_CDEL) *tsd_pos2 = ref_pos+gap_len; else *tsd_pos2 = -1;
+        return tsd_len;
+    } else return 0;
+}
 
 int wfa_collect_pretty_alignment(cigar_t* const cigar,
                                  const uint8_t* const pattern,
@@ -687,14 +768,15 @@ int abpoa_partial_aln_msa_cons(const call_var_opt_t *opt, abpoa_t *ab, int wb, i
     // msa bases
     if (msa_seq != NULL && msa_seq_len != NULL) {
         // split msa and cons into 2 clusers
+            size_t msize = abc->msa_len * sizeof(uint8_t);
         for (int i = 0; i < n_cons; ++i) {
             msa_seq_len[i] = abc->msa_len;
             for (int j = 0; j < abc->clu_n_seq[i]; ++j) {
-                msa_seq[i][j] = (uint8_t*)malloc(abc->msa_len * sizeof(uint8_t));
+                msa_seq[i][j] = (uint8_t*)malloc(msize);
                 for (int k = 0; k < abc->msa_len; ++k)
                     msa_seq[i][j][k] = abc->msa_base[abc->clu_read_ids[i][j]][k];
             }
-            msa_seq[i][abc->clu_n_seq[i]] = (uint8_t*)malloc(abc->msa_len * sizeof(uint8_t));
+            msa_seq[i][abc->clu_n_seq[i]] = (uint8_t*)malloc(msize);
             for (int j = 0; j < abc->msa_len; ++j)
                 msa_seq[i][abc->clu_n_seq[i]][j] = abc->msa_base[abc->n_seq+i][j];
         }
@@ -730,17 +812,8 @@ int collect_reg_ref_bseq(bam_chunk_t *chunk, hts_pos_t *reg_beg, hts_pos_t *reg_
 void sort_by_full_cover_and_length(int n_reads, int *read_ids, int *read_lens, uint8_t **read_seqs, uint8_t **read_quals, uint8_t *strands, int *full_covers, char **names, int *haps, hts_pos_t *phase_sets) {
     for (int i = 0; i < n_reads-1; ++i) {
         for (int j = i+1; j < n_reads; ++j) {
-            if (full_covers[i] < full_covers[j]) {
-                int tmp_id = read_ids[i]; read_ids[i] = read_ids[j]; read_ids[j] = tmp_id;
-                int tmp_len = read_lens[i]; read_lens[i] = read_lens[j]; read_lens[j] = tmp_len;
-                uint8_t *tmp_seq = read_seqs[i]; read_seqs[i] = read_seqs[j]; read_seqs[j] = tmp_seq;
-                uint8_t *tmp_qual = read_quals[i]; read_quals[i] = read_quals[j]; read_quals[j] = tmp_qual;
-                uint8_t tmp_strand = strands[i]; strands[i] = strands[j]; strands[j] = tmp_strand;
-                int tmp_cover = full_covers[i]; full_covers[i] = full_covers[j]; full_covers[j] = tmp_cover;
-                char *tmp_name = names[i]; names[i] = names[j]; names[j] = tmp_name;
-                int tmp_hap = haps[i]; haps[i] = haps[j]; haps[j] = tmp_hap;
-                hts_pos_t tmp_ps = phase_sets[i]; phase_sets[i] = phase_sets[j]; phase_sets[j] = tmp_ps;
-            } else if (full_covers[i] == full_covers[j] && read_lens[i] < read_lens[j]) {
+            if (full_covers[i] < full_covers[j] || (full_covers[i] == full_covers[j] && read_lens[i] < read_lens[j])) {
+                int tmp_full_cover = full_covers[i]; full_covers[i] = full_covers[j]; full_covers[j] = tmp_full_cover;
                 int tmp_id = read_ids[i]; read_ids[i] = read_ids[j]; read_ids[j] = tmp_id;
                 int tmp_len = read_lens[i]; read_lens[i] = read_lens[j]; read_lens[j] = tmp_len;
                 uint8_t *tmp_seq = read_seqs[i]; read_seqs[i] = read_seqs[j]; read_seqs[j] = tmp_seq;
@@ -971,12 +1044,6 @@ hts_pos_t collect_phase_set_with_both_haps(int n_reads, int *read_haps, int *rea
     return max_ps;
 }
 
-int calculate_log_likelilood(double prob) {
-    if (prob < 0.00001) return -1000000;
-    else if (prob > 0.99999) return 1000000;
-    return log(prob);
-}
-
 // calculate in log space
 double cal_hp_len_posterior1(const call_var_opt_t *opt, int expect_hp_len, int *hp_lens, uint8_t *strands, int n_hp, uint8_t beg_base, uint8_t hp_base, uint8_t end_base) {
     if (expect_hp_len < 5 || expect_hp_len > 50) return 0.0;
@@ -991,13 +1058,13 @@ double cal_hp_len_posterior1(const call_var_opt_t *opt, int expect_hp_len, int *
         int hp_len_hit = 0;
         for (int hp_len_i = 0; hp_len_i < hp_profile->n_alt_hp_lens; ++hp_len_i) {
             if (hp_len == hp_profile->alt_hp_lens[hp_len_i]) {
-                hp_len_likelihood += calculate_log_likelilood(hp_profile->hp_len_to_prob[hp_len_i]);
+                hp_len_likelihood += log_likelilood(hp_profile->hp_len_to_prob[hp_len_i]);
                 hp_len_hit = 1;
                 break;
             }
         }
         if (hp_len_hit == 0) {
-            hp_len_likelihood += calculate_log_likelilood(hp_profile->hp_len_to_prob[hp_profile->n_alt_hp_lens-1]); // use the last prob
+            hp_len_likelihood += log_likelilood(hp_profile->hp_len_to_prob[hp_profile->n_alt_hp_lens-1]); // use the last prob
         }
     }
     fprintf(stderr, "HP: %d %.5f\n", expect_hp_len, hp_len_likelihood);

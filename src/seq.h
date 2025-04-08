@@ -8,7 +8,7 @@
 #include "cgranges.h"
 #include "htslib/hts.h"
 #include "htslib/faidx.h"
-// KSEQ_INIT(gzFile, gzread)
+KSEQ_INIT(gzFile, gzread)
 
 extern unsigned char nst_nt4_table[256];
 extern unsigned char com_nst_nt4_table[256];
@@ -22,6 +22,17 @@ KHASH_MAP_INIT_STR(str, uint32_t)
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+typedef struct {
+    int n, m;
+    // dfam_ac: DFxxxxxxx
+    // rep_name: AluJb
+    // rm_type: SINE
+    // rm_subtype: Alu
+    int *seq_lens;
+    char **seq, **dfam_ac, **seq_ver, **rep_name, **rm_type, **rm_subtype;
+    khash_t(str) *h;
+} trans_ele_anno_t; // load from Dfam database
 
 typedef struct {
     kstring_t name, seq, comment, qual;
@@ -45,25 +56,28 @@ typedef struct {
     cgranges_t *reg_cr;
 } ref_reg_seq_t;
 
-uint32_t hash_key(uint8_t *bseq, int seq_len);
-uint32_t hash_shift_key(uint32_t pre_key, uint8_t *bseq, int pre_i, int cur_i, int k);
+// trans_ele_anno_t *read_trans_ele_anno_from_embl(const char* fn);
+// void free_trans_ele_anno(trans_ele_anno_t *t);
+// uint32_t hash_key(uint8_t *bseq, int seq_len);
+// uint32_t hash_shift_key(uint32_t pre_key, uint8_t *bseq, int pre_i, int cur_i, int k);
 uint8_t *get_bseq(char *seq, int seq_len);
-char *get_rc_seq(char *seq, int seq_len);
+uint8_t get_bseq1(char *seq, hts_pos_t beg, hts_pos_t end, hts_pos_t pos);
+// char *get_rc_seq(char *seq, int seq_len);
 
-ref_seq_t *ref_seq_init();
-ref_seq_t *ref_seq_realloc(ref_seq_t *r);
-ref_seq_t *read_ref_seq(const char *ref_fa_fn);
-void ref_seq_free(ref_seq_t *r);
+// ref_seq_t *ref_seq_init();
+// ref_seq_t *ref_seq_realloc(ref_seq_t *r);
+// ref_seq_t *read_ref_seq(const char *ref_fa_fn);
+// void ref_seq_free(ref_seq_t *r);
 
-ref_reg_seq_t *ref_reg_seq_init(void);
-ref_reg_seq_t *ref_reg_seq_realloc(ref_reg_seq_t *r);
-void ref_reg_seq_free(ref_reg_seq_t *r);
-void read_ref_reg_seq1(faidx_t *fai, ref_reg_seq_t *r, const char *rname, hts_pos_t beg, hts_pos_t end);
-ref_reg_seq_t *read_ref_reg_seq(const char *ref_fa_fn);
+// ref_reg_seq_t *ref_reg_seq_init(void);
+// ref_reg_seq_t *ref_reg_seq_realloc(ref_reg_seq_t *r);
+// void ref_reg_seq_free(ref_reg_seq_t *r);
+// void read_ref_reg_seq1(faidx_t *fai, ref_reg_seq_t *r, const char *rname, hts_pos_t beg, hts_pos_t end);
+// ref_reg_seq_t *read_ref_reg_seq(const char *ref_fa_fn);
 // char get_ref_base_from_cr(ref_reg_seq_t *ref_seq, cgranges_t *chunk_cr, hts_pos_t pos);
 // char *get_ref_bases_from_cr(ref_reg_seq_t *ref_seq, cgranges_t *chunk_cr, hts_pos_t beg, hts_pos_t end);
 
-int ref_seq_name2id(ref_seq_t *r, const char *rname);
+// int ref_seq_name2id(ref_seq_t *r, const char *rname);
 // int ref_seq_get_chr_i(ref_seq_t *r, const char *rname);
 
 // char get_ref_base_from_cr(ref_reg_seq_t *ref_seq, cgranges_t *chunk_cr, hts_pos_t pos) {

@@ -97,6 +97,11 @@ uint32_t hash_shift_key(uint32_t pre_key, uint8_t *bseq, int pre_i, int cur_i, i
     return hash_key & ((1 << 2*k) - 1);
 }
 
+uint8_t get_bseq1(char *seq, hts_pos_t beg, hts_pos_t end, hts_pos_t pos) {
+    if (pos < beg || pos > end) return 4;
+    return nst_nt4_table[(int)seq[pos-beg]];
+}
+
 uint8_t *get_bseq(char *seq, int seq_len) {
     int i;
     uint8_t *bseq = (uint8_t*)_err_malloc(seq_len * sizeof(uint8_t));
@@ -280,4 +285,117 @@ ref_reg_seq_t *read_ref_reg_seq(const char *ref_fa_fn) {
     cr_index(r->reg_cr);
     free(line.s); hts_close(fp);
     return r;
+}
+
+trans_ele_anno_t *trans_ele_anno_init(void) {
+    trans_ele_anno_t *t = (trans_ele_anno_t*)_err_malloc(sizeof(trans_ele_anno_t));
+    t->n = t->m = 0;
+    t->seq = 0; t->dfam_ac = 0; t->rep_name = 0; t->rm_type = 0; t->rm_subtype = 0;
+    t->seq_ver = 0; t->seq_lens = 0;
+    t->h = kh_init(str);
+    return t;
+}
+
+trans_ele_anno_t *trans_ele_anno_realloc(trans_ele_anno_t *t) {
+    if (t->n >= t->m) {
+        t->m = t->m == 0 ? 1 : (t->m) << 1;
+        t->seq = (char**)_err_realloc(t->seq, t->m * sizeof(char*));
+        t->seq_lens = (int*)_err_realloc(t->seq_lens, t->m * sizeof(int));
+        t->dfam_ac = (char**)_err_realloc(t->dfam_ac, t->m * sizeof(char*));
+        t->seq_ver = (char**)_err_realloc(t->seq_ver, t->m * sizeof(char*));
+        t->rep_name = (char**)_err_realloc(t->rep_name, t->m * sizeof(char*));
+        t->rm_type = (char**)_err_realloc(t->rm_type, t->m * sizeof(char*));
+        t->rm_subtype = (char**)_err_realloc(t->rm_subtype, t->m * sizeof(char*));
+        int i;
+        for (i = t->n; i < t->m; ++i) {
+            t->seq[i] = NULL;
+            t->seq_lens[i] = 0;
+            t->dfam_ac[i] = NULL;
+            t->seq_ver[i] = NULL;
+            t->rep_name[i] = NULL;
+            t->rm_type[i] = NULL;
+            t->rm_subtype[i] = NULL;
+        }
+    }
+    return t;
+}
+
+trans_ele_anno_t *read_trans_ele_anno_from_embl(const char* fn) {
+    gzFile fp = xzopen(fn, "r");
+    if (fp == NULL) _err_error_exit("Failed to open Dfam file: %s\n", fn);
+    trans_ele_anno_t *t = trans_ele_anno_init();
+    char line[1024];
+    int n_rep = 0, is_in_rep_mask_anno = 0;
+    while (gzgets(fp, line, 1024) != NULL) {
+        line[strcspn(line, "\r\n")] = '\0';
+        if (strncmp("ID   ", line, 5) == 0) {
+            t = trans_ele_anno_realloc(t);
+            // extract the accession number
+            char *semicolon = strchr(line+5, ';');
+            if (semicolon == NULL) { _err_error_exit("Invalid Dfam file: %s %d\n", fn, __LINE__); }
+            else *semicolon = '\0';
+            t->dfam_ac[t->n] = strdup(line+5);
+            // extract sequence version
+            char *tmp = strchr(semicolon+5, ';');
+            if (tmp == NULL) { _err_error_exit("Invalid Dfam file: %s %d\n", fn, __LINE__); }
+            else *tmp = '\0';
+            t->seq_ver[t->n] = strdup(semicolon+5);
+        } else if (strncmp("NM   ", line, 5) == 0) {
+            t->rep_name[t->n] = strdup(line+5);
+        } else if (strncmp("CC   RepeatMasker Annotations", line, 29) == 0) {
+            is_in_rep_mask_anno = 1;
+        } else if (is_in_rep_mask_anno) {
+            if (strncmp("CC        Type: ", line, 16) == 0) {
+                t->rm_type[t->n] = strdup(line+16);
+            } else if (strncmp("CC        SubType: ", line, 19) == 0) {
+                t->rm_subtype[t->n] = strdup(line+19);
+            } else if (strncmp("XX", line, 2) == 0) {
+                is_in_rep_mask_anno = 0;
+            }
+        } else if (strncmp("SQ   Sequence ", line, 14) == 0) {
+            int seq_len = atoi(line+14);
+            t->seq_lens[t->n] = seq_len;
+            t->seq[t->n] = (char*)_err_malloc(sizeof(char) * (seq_len+1));
+            int i = 0;
+            while (gzgets(fp, line, 1024) != NULL) {
+                if (strncmp("//", line, 2) == 0) break;
+                for (int j = 0; j < strlen(line); ++j) {
+                    if (isalpha(line[j])) {
+                        t->seq[t->n][i++] = line[j];
+                    }
+                }
+            }
+            t->seq[t->n][i] = '\0';
+            ++t->n;
+        }
+    }
+    // print all the sequences
+    for (int i = 0; i < t->n; ++i) {
+        fprintf(stderr, "%s\t%s\t%s\n", t->dfam_ac[i], t->rep_name[i], t->seq[i]);
+    }
+    err_gzclose(fp);
+    return t;
+}
+
+void free_trans_ele_anno(trans_ele_anno_t *t) {
+    if (t->m > 0) {
+        int i;
+        for (i = 0; i < t->m; ++i) {
+            if (t->seq[i]) free(t->seq[i]);
+            if (t->dfam_ac[i]) free(t->dfam_ac[i]);
+            if (t->seq_ver[i]) free(t->seq_ver[i]);
+            if (t->rep_name[i]) free(t->rep_name[i]);
+            if (t->rm_type[i]) free(t->rm_type[i]);
+            if (t->rm_subtype[i]) free(t->rm_subtype[i]);
+        }
+        free(t->seq);
+        free(t->seq_lens);
+        free(t->dfam_ac);
+        free(t->seq_ver);
+        free(t->rep_name);
+        free(t->rm_type);
+        free(t->rm_subtype);
+    }
+    kh_destroy(str, t->h);
+    free(t);
 }

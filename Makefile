@@ -4,13 +4,15 @@ UNAME_S := $(shell uname -s)
 
 # add -fno-tree-vectorize to avoid certain vectorization errors in O3 optimization
 # right now, we are using -O3 for the best performance, and no vectorization errors were found
-EXTRA_FLAGS = -Wall -Wno-unused-function -Wno-misleading-indentation -Wno-unused-variable
-
-# Get the Git commit hash
-GIT_COMMIT := $(shell git rev-parse --short HEAD)
+EXTRA_FLAGS = -Wall -Wno-unused-function -Wno-misleading-indentation -Wno-unused-variable -Wno-alloc-size-larger-than
 
 # Define the version number
-VERSION = 0.0.4-$(GIT_COMMIT)
+LONGCALLD_VERSION =0.0.4
+# Get the Git commit hash
+GIT_COMMIT := $(shell git rev-parse --short HEAD 2> /dev/null)
+ifneq ($(GIT_COMMIT),)
+	LONGCALLD_VERSION = 0.0.4-$(GIT_COMMIT)
+endif
 
 HTSLIB_DIR  = ./htslib
 HTSLIB      = $(HTSLIB_DIR)/libhts.a
@@ -61,7 +63,7 @@ else
 	ABPOA_LIB = $(ABPOA_NOR_LIB)
 endif
 
-CFLAGS = $(OPT_FLAGS) $(EXTRA_FLAGS) -DVERSION=\"$(VERSION)\"
+CFLAGS = $(OPT_FLAGS) $(EXTRA_FLAGS) -DLONGCALLD_VERSION=\"$(LONGCALLD_VERSION)\"
 
 # for gprof
 ifneq ($(pg),)
@@ -100,9 +102,9 @@ $(HTSLIB): $(HTSLIB_DIR)/configure.ac
 	cd $(HTSLIB_DIR); autoreconf -i; ./configure; make CC=${CC}
 
 $(ABPOA_GDB_LIB): 
-	cd $(ABPOA_DIR); make clean libabpoa gdb=1 sse41=1
+	cd $(ABPOA_DIR); make libabpoa gdb=1 sse41=1
 $(ABPOA_NOR_LIB):
-	cd $(ABPOA_DIR); make clean libabpoa
+	cd $(ABPOA_DIR); make libabpoa
 
 $(ABPOA_ALL): $(ABPOA_LIB)
 

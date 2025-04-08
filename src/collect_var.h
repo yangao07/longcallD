@@ -38,6 +38,19 @@ typedef struct var_site_t {
     uint8_t *alt_seq; // only used for mismatch/insertion, deletion:NULL
 } var_site_t;
 
+// used for machine learning augmentation
+typedef struct cand_somatic_var_aux_info_t {
+    // int ref_len, alt_len;
+    int is_low_comp; // within low complexity region
+    float beta_bin_p, strand_fisher_p; 
+    int total_dp, hap_alt_dp, hap_total_dp, other_hap_alt_dp, other_hap_total_dp; // enriched haplotype
+    int hap_alt_forward_cov, hap_alt_reverse_cov; // strand bias
+
+    int *alt_read_ids; // size: alt_dp
+    uint8_t *alt_quals, *min_win_quals; int *dis_to_indel_errors; // size: alt_dp
+    int dis_to_het_var; // distance to nearest heterozygous var
+} cand_somatic_var_aux_info_t;
+
 // XXX each cand_var only have one alt_allele/var/seq, previously we keep multiple insertions in one var
 // XXX for insertion/deletion, not include the first reference base, will add it when output to VCF
 // alignment-based simple variant: SNP, small indel in non-repetitive region
@@ -56,6 +69,10 @@ typedef struct cand_var_t {
     int **strand_to_alle_covs; // strand-wise: 1:forward/2:reverse -> alle_i -> read count, used for strand bias
     int ref_len; uint8_t ref_base; // 1-base ref_base, only used for X
     int alt_len; uint8_t *alt_seq; // only used for mismatch/insertion, deletion:NULL
+    // retrotransposon: L1/Alu/SVA
+    uint8_t *tsd_seq; int tsd_len; hts_pos_t tsd_pos1, tsd_pos2; // target site duplication, 2 TSDs for DEL
+    int te_seq_i, te_is_rev;
+    // char *rep_name, *rep_family, *rep_class; 
 
     // dynamic information, update during haplotype assignment
     int **hap_to_alle_profile; // read-wise: 1:H1/2:H2 -> alle_i -> read count

@@ -23,6 +23,8 @@ extern "C" {
 struct bam_chunk_t;
 struct aln_str_t;
 
+int collect_te_info(const call_var_opt_t *opt, bam_chunk_t *chunk, hts_pos_t ref_pos, int msa_pos, int msa_len, int var_type, int gap_len,
+                    uint8_t *ref_msa_seq, uint8_t *cons_msa_seq, uint8_t **tsd_seq, hts_pos_t *tsd_pos1, hts_pos_t *tsd_pos2, int *te_seq_i, int *te_is_rev);
 // int wfa_aln(int gap_pos, char *pattern, int plen, char *text, int tlen, uint32_t **cigar_buf);
 int end2end_aln(const call_var_opt_t *opt, char *pattern, int plen, uint8_t *text, int tlen, uint32_t **cigar_buf);
 int collect_reg_ref_cseq(bam_chunk_t *chunk, hts_pos_t *reg_beg, hts_pos_t *reg_end, char **ref_cseq);

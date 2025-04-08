@@ -8,12 +8,13 @@
 [![License](https://img.shields.io/badge/License-MIT-black.svg)](https://github.com/yangao07/longcallD/blob/main/LICENSE)
 <!-- [![Published in Bioinformatics](https://img.shields.io/badge/Published%20in-Bioinformatics-blue.svg)](https://dx.doi.org/10.1093/bioinformatics/btaa963) -->
 <!-- [![GitHub Issues](https://img.shields.io/github/issues/yangao07/longcallD.svg?label=Issues)](https://github.com/yangao07/longcallD/issues) -->
-## Updates (pre-release v0.0.4)
 
-* Use static regions for multi-thread computing
-* Extended phase set
-* Fixed HP/PS tags in output phased bam
-* Fixed a few edge cases
+## Updates (pre-release v0.0.5)
+
+* Add -Oz for compressed VCF output
+* Add INFO/TSD for Alu/L1/SVA INS/DEL
+* Add support for BAM/cs tag
+* Fix compiling in macOS-x64
 
 ## Getting Started
 ```sh
@@ -35,7 +36,7 @@ man ./longcallD.1
 ``` -->
 
 ## Table of Contents
-- [Updates (pre-release v0.0.4)](#updates-pre-release-v004)
+- [Updates (pre-release v0.0.5)](#updates-pre-release-v005)
 - [Getting Started](#getting-started)
 - [Table of Contents](#table-of-contents)
 - [Introduction](#introduction)
