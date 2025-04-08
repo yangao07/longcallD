@@ -914,10 +914,8 @@ int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct ca
                     }
                     pos++; qi++; continue;
                 }
-                char ref_base = ref_seq[pos-ref_beg];
-                // char ref_base = get_ref_base_from_cr(ref_seq, chunk_cr, pos);
-                // Get the read base
-                char read_base = seq_nt16_str[bam_seqi(digar->bseq, qi)];
+                int ref_base = nst_nt4_table[(int)ref_seq[pos-ref_beg]];
+                int read_base = seq_nt16_int[bam_seqi(digar->bseq, qi)];
                 if (ref_base != read_base) {
                     if (eq_len > 0) {
                         _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
@@ -927,7 +925,7 @@ int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct ca
                     }
                     _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
                     uint8_t *x_seq = (uint8_t*)malloc(sizeof(uint8_t));
-                    x_seq[0] = seq_nt16_int[bam_seqi(digar->bseq, qi)];
+                    x_seq[0] = read_base; // seq_nt16_int[bam_seqi(digar->bseq, qi)];
                     if (digar->qual[qi] >= opt->min_bq) {
                         push_xid_size_queue_win(q, pos, 1, 1, digar->noisy_regs, &noisy_start, &noisy_end, &cr_q_start, &cr_q_end);
                         set_seq_digar(_digars+_n_digar, pos, BAM_CDIFF, 1, qi, 0, x_seq);
