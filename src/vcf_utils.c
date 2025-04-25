@@ -63,6 +63,7 @@ void write_vcf_header(bam_hdr_t *hdr, struct call_var_opt_t *opt) {
     // TSD info
     bcf_hdr_append(vcf_hdr, "##INFO=<ID=TSD,Number=1,Type=String,Description=\"Target site duplication sequence\">");
     bcf_hdr_append(vcf_hdr, "##INFO=<ID=TSDLEN,Number=1,Type=Integer,Description=\"Length of target site duplication\">");
+    bcf_hdr_append(vcf_hdr, "##INFO=<ID=POLYALEN,Number=1,Type=Integer,Description=\"Length of polyA/T sequence\">");
     // there will be 2 TSDs for DEL
     bcf_hdr_append(vcf_hdr, "##INFO=<ID=TSDPOS1,Number=1,Type=Integer,Description=\"Start position of first target site duplication on CHROM\">");
     bcf_hdr_append(vcf_hdr, "##INFO=<ID=TSDPOS2,Number=1,Type=Integer,Description=\"Start position of second target site duplication on CHROM\">");
@@ -99,7 +100,13 @@ int write_var_to_vcf(var_t *vars, const struct call_var_opt_t *opt, char *chrom)
     for (int var_i = 0; var_i < n_vars; var_i++) {
         var1_t var = vars->vars[var_i];
         if (var.n_alt_allele == 0) continue;
-        if (var.DP < opt->min_dp || var.AD[1] < opt->min_alt_dp) continue;
+        if (var.DP < opt->min_dp) continue;
+        if (opt->out_somatic && var.is_somatic) {
+            if (var.AD[1] < opt->min_somatic_te_dp) continue;
+            else if (var.AD[1] < opt->min_alt_dp && var.tsd_len <= 0) continue; 
+        } else {
+            if (var.AD[1] < opt->min_alt_dp) continue;
+        }
 
         // Validate bases
         if (opt->out_amb_base == 0) {
@@ -175,7 +182,7 @@ int write_var_to_vcf(var_t *vars, const struct call_var_opt_t *opt, char *chrom)
             if (var.tsd_len > 0 && var.tsd_pos1 > 0) {
                 len += snprintf(buffer + len, sizeof(buffer) - len, ";TSD=");
                 for (int i = 0; i < var.tsd_len; ++i) len += snprintf(buffer + len, sizeof(buffer) - len, "%c", "ACGTN"[var.tsd_seq[i]]);
-                len += snprintf(buffer + len, sizeof(buffer) - len, ";TSDLEN=%d;TSDPOS1=%" PRId64 "", var.tsd_len, var.tsd_pos1);
+                len += snprintf(buffer + len, sizeof(buffer) - len, ";TSDLEN=%d;POLYALEN=%d;TSDPOS1=%" PRId64 "", var.tsd_len, var.polya_len, var.tsd_pos1);
                 if (var.tsd_pos2 > 0) len += snprintf(buffer + len, sizeof(buffer) - len, ";TSDPOS2=%" PRId64 "", var.tsd_pos2);
             }
             if (var.te_seq_i >= 0) len += snprintf(buffer + len, sizeof(buffer) - len, ";REPNAME=%s", opt->te_seq_names[var.te_seq_i]);

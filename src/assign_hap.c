@@ -388,7 +388,7 @@ int iter_update_var_hap_to_cons_alle(bam_chunk_t *chunk, int *var_idx, int n_can
 // read's PS was assigned using a fake HET (HOM) var
 // goal: 1) assign haplotype + phase set to all reads
 //       2) variant calling based on clustered reads
-int assign_hap_based_on_het_vars_kmeans(bam_chunk_t *chunk, int target_var_cate, call_var_opt_t *opt) {
+int assign_hap_based_on_het_vars_kmeans(bam_chunk_t *chunk, int target_var_cate, const call_var_opt_t *opt) {
     read_var_profile_t *p = chunk->read_var_profile;
     int n_valid_vars = 0, *valid_var_idx = (int*)malloc(chunk->n_cand_vars * sizeof(int));
     int *var_is_valid = (int*)calloc(chunk->n_cand_vars, sizeof(int));
@@ -519,15 +519,14 @@ static int select_somatic_phase_set(hts_pos_t *uniq_phase_set, int n_uniq_phase_
     }
     return ps_i;
 }
-// somaticcccccc SNP:
+// somatic SNP:
 // 1) alt reads all come from one haplotype, no alt reads come from ref haplotype or non-haplotype
 // 2) alt freqency in alt haplotype < 0.5
 // 3) total depth in alt haplotype >= 10, total depth in ref haplotype >= 10
-int assign_somatic_hap_based_on_phased_reads(bam_chunk_t *chunk, int target_var_cate, call_var_opt_t *opt) {
+// somatic SVs, look for TE
+int assign_somatic_hap_based_on_phased_reads(bam_chunk_t *chunk, int target_var_cate, const call_var_opt_t *opt) {
     int min_somatic_hap_depth = opt->min_somatic_hap_dp;
-    int *var_i_to_cate = chunk->var_i_to_cate;
-    cand_var_t *cand_vars = chunk->cand_vars;
-    cgranges_t *read_var_cr = chunk->read_var_cr;
+    int *var_i_to_cate = chunk->var_i_to_cate; cand_var_t *cand_vars = chunk->cand_vars; cgranges_t *read_var_cr = chunk->read_var_cr;
     int64_t ovlp_i, ovlp_n, *ovlp_b = 0, max_b = 0;
     for (int var_i = 0; var_i < chunk->n_cand_vars; ++var_i) {
         if ((var_i_to_cate[var_i] & target_var_cate) == 0) continue;
@@ -548,29 +547,25 @@ int assign_somatic_hap_based_on_phased_reads(bam_chunk_t *chunk, int target_var_
             read_var_profile_t *p1 = p + read_i;
             int var_idx = var_i - p1->start_var_idx;
             int alle_i = p1->alleles[var_idx];
-            if (alle_i == -1) continue;
-            if (hap == 0 || phase_set == -1) {
-                if (alle_i == 1) {
-                    skip = 1;
-                    break;
-                } else continue;
-            } else {
-                int phase_set_i = add_phase_set(phase_set, uniq_phase_set, &n_uniq_phase_set);
-                phase_set_to_hap_alle_profile[phase_set_i][hap][alle_i] += 1;
-            }
+            if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "read %s %" PRIi64 " hap: %d phase_set: %" PRId64 " alle_i: %d\n", bam_get_qname(chunk->reads[read_i]), var->pos, hap, phase_set, alle_i);
+            if (hap == 0 || phase_set == -1) continue; // skip unphased reads
+            if (alle_i != 1) alle_i = 0; // change all non-alt alleles to 0
+            int phase_set_i = add_phase_set(phase_set, uniq_phase_set, &n_uniq_phase_set);
+            phase_set_to_hap_alle_profile[phase_set_i][hap][alle_i] += 1;
         }
-        if (skip == 0) {
-            int phase_set_i = select_somatic_phase_set(uniq_phase_set, n_uniq_phase_set, phase_set_to_hap_alle_profile, min_somatic_hap_depth);
-            // update hap_to_cons_alle based on phase_set_to_use
-            if (phase_set_i != -1) {
-                hts_pos_t phase_set = uniq_phase_set[phase_set_i];
-                var->phase_set = phase_set;
-                if (phase_set_to_hap_alle_profile[phase_set_i][1][1] > 0) { // HAP1 is alt
-                    var->hap_to_cons_alle[1] = 1; var->hap_to_cons_alle[2] = 0;
-                } else {
-                    var->hap_to_cons_alle[1] = 0; var->hap_to_cons_alle[2] = 1;
-                }
+        int phase_set_i = select_somatic_phase_set(uniq_phase_set, n_uniq_phase_set, phase_set_to_hap_alle_profile, min_somatic_hap_depth);
+        // update hap_to_cons_alle based on phase_set_to_use
+        if (phase_set_i != -1) {
+            hts_pos_t phase_set = uniq_phase_set[phase_set_i];
+            var->phase_set = phase_set;
+            if (phase_set_to_hap_alle_profile[phase_set_i][1][1] > 0) { // HAP1 is alt
+                var->hap_to_cons_alle[1] = 1; var->hap_to_cons_alle[2] = 0;
+            } else {
+                var->hap_to_cons_alle[1] = 0; var->hap_to_cons_alle[2] = 1;
             }
+        } else {
+            var->phase_set = -1; // no phase set
+            var->hap_to_cons_alle[1] = 0; var->hap_to_cons_alle[2] = 0; // no alt allele
         }
         for (int i = 0; i < ovlp_n; ++i) {
             for (int j = 0; j < 3; ++j) free(phase_set_to_hap_alle_profile[i][j]);

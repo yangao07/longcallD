@@ -7,11 +7,11 @@ UNAME_S := $(shell uname -s)
 EXTRA_FLAGS = -Wall -Wno-unused-function -Wno-misleading-indentation -Wno-unused-variable -Wno-alloc-size-larger-than
 
 # Define the version number
-LONGCALLD_VERSION =0.0.4
+LONGCALLD_VERSION =0.0.5
 # Get the Git commit hash
 GIT_COMMIT := $(shell git rev-parse --short HEAD 2> /dev/null)
 ifneq ($(GIT_COMMIT),)
-	LONGCALLD_VERSION = 0.0.4-$(GIT_COMMIT)
+	LONGCALLD_VERSION = 0.0.5-$(GIT_COMMIT)
 endif
 
 HTSLIB_DIR  = ./htslib
@@ -109,11 +109,11 @@ $(ABPOA_NOR_LIB):
 $(ABPOA_ALL): $(ABPOA_LIB)
 
 $(WFA2_LIB):
-	cd $(WFA2_DIR); make setup lib_wfa
+	cd $(WFA2_DIR); make
 $(WFA2_ALL): $(WFA2_LIB)
 
 
-$(BIN): $(OBJS)
+$(BIN): $(OBJS) $(ABPOA_LIB) $(HTSLIB) $(WFA2_LIB)
 	if [ ! -d $(BIN_DIR) ]; then mkdir $(BIN_DIR); fi
 	$(CC) $(OBJS) -o $@ $(LIB) $(PG_FLAG)
 

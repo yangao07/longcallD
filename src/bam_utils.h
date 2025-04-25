@@ -73,7 +73,10 @@ typedef struct bam_chunk_t {
     // intermidiate
     digar_t *digars; uint8_t *is_skipped; // size: m_reads, is_skipped: wrong mapping, low qual, etc.
     // variant-related
-    int n_cand_vars; cand_var_t *cand_vars; int *var_i_to_cate; // size: n_cand_vars; HET/HOM/SOMATIC
+    // n_cand_vars: including candidate germline variants and somatic variants
+    // for germline variants, including clean region and noisy region
+    // for somatic, only non-noisy regions, we don't call somatic variants in noisy regions (for now)
+    int n_cand_vars; cand_var_t *cand_vars; int *var_i_to_cate;
     read_var_profile_t *read_var_profile; cgranges_t *read_var_cr;
     // noisy regions
     // right now: not work with cooridinate > 2G (pow(2,31)), use noisy_reg_beg-reg_beg+1 instead for coordinates > 2G

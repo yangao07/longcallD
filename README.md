@@ -11,20 +11,27 @@
 
 ## Updates (pre-release v0.0.5)
 
-* Add -Oz for compressed VCF output
-* Add INFO/TSD for Alu/L1/SVA INS/DEL
+* Add -s/--somatic to output somatic/mosaic variant
+* Add INFO:TSD/REPNAME for Alu/L1/SVA INS/DEL
+* Add -T/--trans-elem; output transposable element information for INS/DEL
+* Add --exclude-ctg & --all-ctg; --autosome-XY is default now
+* Fix lower case ref base
 * Add support for BAM/cs tag
+* Add -Oz for compressed VCF output
 * Fix compiling in macOS-x64
+<!-- * Add option for ksw2 pairwise alignment -->
+<!-- * Add option for take TRF annotation as input -->
+
 
 ## Getting Started
 ```sh
 # Download pre-built executables and test data (recommended)
 # Linux-x64
-wget https://github.com/yangao07/longcallD/releases/download/v0.0.4/longcallD-v0.0.4_x64-linux.tar.gz
-tar -zxvf longcallD-v0.0.4_x64-linux.tar.gz && cd longcallD-v0.0.4_x64-linux
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.5/longcallD-v0.0.5_x64-linux.tar.gz
+tar -zxvf longcallD-v0.0.5_x64-linux.tar.gz && cd longcallD-v0.0.5_x64-linux
 # MacOS-arm64
-wget https://github.com/yangao07/longcallD/releases/download/v0.0.4/longcallD-v0.0.4_arm64-macos.tar.gz
-tar -zxvf longcallD-v0.0.4_arm64-macos.tar.gz && cd longcallD-v0.0.4_arm64-macos
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.5/longcallD-v0.0.5_arm64-macos.tar.gz
+tar -zxvf longcallD-v0.0.5_arm64-macos.tar.gz && cd longcallD-v0.0.5_arm64-macos
 
 # PacBio HiFi reads
 ./longcallD call ./test_data/chr11_2M.fa ./test_data/HG002_chr11_hifi_test.bam --hifi > HG002_hifi_test.vcf
@@ -63,13 +70,13 @@ LongcallD phases long reads into haplotypes using SNPs and small indels before c
 ### Pre-built executables (recommended)
 **Linux-x64**
 ```
-wget https://github.com/yangao07/longcallD/releases/download/v0.0.4/longcallD-v0.0.4_x64-linux.tar.gz
-tar -zxvf longcallD-v0.0.4_x64-linux.tar.gz
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.5/longcallD-v0.0.5_x64-linux.tar.gz
+tar -zxvf longcallD-v0.0.5_x64-linux.tar.gz
 ```
 **MacOS-arm64**
 ```
-wget https://github.com/yangao07/longcallD/releases/download/v0.0.4/longcallD-v0.0.4_arm64-macos.tar.gz
-tar -zxvf longcallD-v0.0.4_arm64-macos.tar.gz
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.5/longcallD-v0.0.5_arm64-macos.tar.gz
+tar -zxvf longcallD-v0.0.5_arm64-macos.tar.gz
 ```
 
 **Linux-arm64/macOS-x64**
@@ -86,9 +93,9 @@ conda install -c bioconda longcalld
 To compile longcallD from source, ensure you have **GCC/clang(9.0+)** and **zlib/libbz2/liblzma/libcurl** (for htslib) installed. 
 It is recommended to use the [latest release](https://github.com/yangao07/longcallD/releases).
 ```
-wget https://github.com/yangao07/longcallD/releases/download/v0.0.4/longcallD-v0.0.4.tar.gz
-tar -zxvf longcallD-v0.0.4.tar.gz
-cd longcallD-v0.0.4; make
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.5/longcallD-v0.0.5.tar.gz
+tar -zxvf longcallD-v0.0.5.tar.gz
+cd longcallD-v0.0.5; make
 ```
 
 ## Usage

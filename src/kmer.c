@@ -6,6 +6,7 @@
 #include "seq.h"
 #include "utils.h"
 #include "call_var_main.h"
+#include "sdust.h"
 
 #define sort_key_64x(a) ((a).x)
 KRADIX_SORT_INIT(64x, kmer32_t, sort_key_64x, 4) 
@@ -139,7 +140,6 @@ int make_te_kmer_idx(call_var_opt_t *opt) {
     return 0;
 }
 
-
 // collect non-consecutive kmers: 0, k, 2k, ...
 int collect_query_kmer(uint8_t *seq, int seq_len, int seq_id, int k, kmer32_v *a) {
     assert(k > 0 && k <= 16);
@@ -179,6 +179,30 @@ int collect_kmer_hist(kmer32_v *read_kmers, kmer32_hash_t *h) {
         }
     }
     return count;
+}
+
+// for somatic/mosaic SVs
+int check_tandem_dup(uint8_t *cand_query_seq, int cand_qlen, uint8_t *cand_target_seq, int cand_tlen) {
+    int q_count = 0, t_count = 0;
+    // collect all k-mers from cand_target_seq
+    // collect query_kmers from cand_query_seq
+    // check how fraction of query_kmers are in cand_target_seq
+    return 0;
+}
+
+int check_low_complexity(uint8_t *cand_query_seq, int cand_qlen, float low_comp_frac) {
+    if (cand_qlen < 50) return 0;
+    // check if the query sequence is low complexity
+    // return 1 if low complexity, 0 otherwise
+    uint64_t *r; int n=0, T=LONGCALLD_SDUST_T, W=LONGCALLD_SDUST_W;
+    int total_low_comp_len = 0;
+    r = sdust(0, cand_query_seq, cand_qlen, T, W, &n);
+    for (int i = 0; i < n; ++i) {
+        total_low_comp_len += ((int)r[i] - (int)(r[i]>>32));
+    }
+    free(r);
+    if (total_low_comp_len >= cand_qlen * low_comp_frac) return 1;
+    else return 0;
 }
 
 int check_te_seq(const call_var_opt_t *opt, uint8_t *cand_te_seq, int cand_te_len, int *is_rev) {

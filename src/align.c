@@ -16,6 +16,7 @@
 extern int LONGCALLD_VERBOSE;
 
 
+
 // INS/DEL : left-most
 // short   :    XXXXX                      [TSD]XXXXX
 // long    :    XXXXX[TSD]----------[polyA][TSD]XXXXX
@@ -28,71 +29,191 @@ extern int LONGCALLD_VERBOSE;
 // or:
 // short   :    XXXXX[TSD]                      XXXXX
 // long    :    XXXXX[TSD][polyT]----------[TSD]XXXXX
-
-// input  : cons' aln-str, or raw read' aln-str (mosaic variant)
-// return : 0: not have TSD & polyA, 1: have TSD & polyA
-//        tsd_len: length of TSD
-//        tsd_target_pos1/2: position of 1st/2nd TSD on target
-int collect_te_info(const call_var_opt_t *opt, bam_chunk_t *chunk, hts_pos_t ref_pos, int msa_pos, int msa_len, int var_type, int gap_len, uint8_t *ref_msa_seq, uint8_t *cons_msa_seq, 
-                     uint8_t **tsd_seq, hts_pos_t *tsd_pos1, hts_pos_t *tsd_pos2, int *te_seq_i, int *te_is_rev) {
-    xassert(var_type == BAM_CINS || var_type == BAM_CDEL, "Var_type should be INS/DEL\n");
-    int has_tsd = 0, has_polya = 0; *te_seq_i = -1;
+int collect_te_info(const call_var_opt_t *opt, int var_type, uint8_t *gap_seq, uint8_t *flank_ref_seq, int gap_len, hts_pos_t gap_pos,
+                    uint8_t **tsd_seq, hts_pos_t *tsd_pos1, hts_pos_t *tsd_pos2, int *tsd_polya_len, int *te_seq_i, int *te_is_rev) {
+    *tsd_seq = NULL; *tsd_pos1 = -1; *tsd_pos2 = -1; *tsd_polya_len = -1; *te_seq_i = -1; *te_is_rev = 0;
     int min_tsd_len = opt->min_tsd_len, max_tsd_len = opt->max_tsd_len;
     int min_polya_len = opt->min_polya_len; float min_polya_ratio = opt->min_polya_ratio;
-    int max_search_polya_len = 20;
-    // in case flanking sequence in ref_msa_seq is not long enough
-    char *ref_seq = chunk->ref_seq; hts_pos_t ref_beg = chunk->ref_beg, ref_end = chunk->ref_end;
-    uint8_t *long_seq, *cand_te_seq;
-    if (var_type == BAM_CINS) {
-        long_seq = cons_msa_seq;
-        cand_te_seq = cons_msa_seq+msa_pos;
-    } else {
-        long_seq = ref_msa_seq;
-        cand_te_seq = ref_msa_seq+msa_pos;
-    }
-    // int flank_len = 10; fprintf(stderr, "Ref:\n");
-    // for (int i = ref_pos-flank_len; i < ref_pos+gap_len+flank_len; ++i) fprintf(stderr, "%c", ref_seq[i-ref_beg]); fprintf(stderr, "\nCons:\n");
-    // for (int i = msa_pos-flank_len; i < msa_pos+gap_len+flank_len; ++i) fprintf(stderr, "%c", "ACGTN-"[ref_msa_seq[i]]); fprintf(stderr, "\n");
-    // for (int i = msa_pos-flank_len; i < msa_pos+gap_len+flank_len; ++i) fprintf(stderr, "%c", "ACGTN-"[cons_msa_seq[i]]); fprintf(stderr, "\n");
-    int msa_gap_start_i = msa_pos, msa_gap_end_i = msa_pos+gap_len-1; 
-    hts_pos_t ref_gap_end_i = ref_pos-1+ (var_type == BAM_CINS ? 0 : gap_len);
-    // look for left-most TSD + polyA/T
     // compare long_seq[gap_start_i:] with ref_seq[gap_end_i+1:]
-    int tsd_len = 0, i = msa_gap_start_i; hts_pos_t j = ref_gap_end_i+1;
-    for (; i < msa_gap_end_i; i++, j++) {
-        uint8_t base1 = long_seq[i], base2 = get_bseq1(ref_seq, ref_beg, ref_end, j);
-        if (base1 == base2) tsd_len++; else break;
+    int tsd_len = 0, n_mis = 0, max_allow_mis = 1;
+    for (int i = 0; i < gap_len; i++) {
+        uint8_t base1 = gap_seq[i], base2 = flank_ref_seq[i];
+        if (base1 == base2) tsd_len++; else {
+            n_mis++;
+            if (n_mis > max_allow_mis) break;
+        }
         if (tsd_len > max_tsd_len) break;
     }
+    int has_tsd = 0, has_polya = 0, max_search_polya_len = 20;
     if (tsd_len >= min_tsd_len && tsd_len <= max_tsd_len) {
         has_tsd = 1;
-        // look for polyA/T
-        for (int polya_len = 0, polya = 0, i = msa_gap_end_i; i >= msa_gap_start_i; i--) {
+        // look for polyA
+        for (int polya_len = 0, polya = 0, i = gap_len-1; i >= 0; i--) {
             polya_len++;
-            if (long_seq[i] == 0) polya++;
-            if (polya_len >= min_polya_len && polya >= min_polya_ratio*polya_len) {
-                has_polya = 1; break;
-            } else if (polya_len > max_search_polya_len) break;
+            if (gap_seq[i] == 0) { polya++;
+                if (polya_len >= min_polya_len && polya >= min_polya_ratio*polya_len) {
+                    has_polya = 1;
+                    *tsd_polya_len = polya_len; // update tsd_polya_len`
+                }
+            } else if (polya_len > max_search_polya_len) break; // stop searching if too long
         }
         if (has_polya == 0) { // look for polyT
-            for (int polyt_len = 0, polyt = 0, i = msa_gap_start_i+tsd_len; i <= msa_gap_end_i; i++) {
+            for (int polyt_len = 0, polyt = 0, i = tsd_len; i <= gap_len; i++) {
                 polyt_len++;
-                if (long_seq[i] == 3) polyt++;
-                if (polyt_len >= min_polya_len && polyt >= min_polya_ratio*polyt_len) {
-                    has_polya = 1; break;
+                if (gap_seq[i] == 3) {
+                    polyt++;
+                    if (polyt_len >= min_polya_len && polyt >= min_polya_ratio*polyt_len) {
+                        has_polya = 1;
+                        *tsd_polya_len = polyt_len; // update tsd_polya_len`
+                    }
                 } else if (polyt_len > max_search_polya_len) break;
             }
         }
     }
     // check if INS/DEL is TE
-    if (opt->n_te_seqs > 0) *te_seq_i = check_te_seq(opt, cand_te_seq, gap_len, te_is_rev);
     if (has_tsd && has_polya) {
+        if (opt->n_te_seqs > 0) *te_seq_i = check_te_seq(opt, gap_seq, gap_len, te_is_rev);
         *tsd_seq = (uint8_t*)malloc(tsd_len*sizeof(uint8_t));
-        for (int i = 0; i < tsd_len; i++) (*tsd_seq)[i] = get_bseq1(ref_seq, ref_beg, ref_end, ref_gap_end_i+1+i);
-        *tsd_pos1 = ref_pos; 
-        if (var_type == BAM_CDEL) *tsd_pos2 = ref_pos+gap_len; else *tsd_pos2 = -1;
+        for (int i = 0; i < tsd_len; i++) (*tsd_seq)[i] = flank_ref_seq[i];
+        *tsd_pos1 = gap_pos; 
+        if (var_type == BAM_CDEL) *tsd_pos2 = gap_pos+gap_len; else *tsd_pos2 = -1;
         return tsd_len;
     } else return 0;
+}
+
+
+// for somatic TE variant:
+int collect_te_info_from_var(const call_var_opt_t *opt, bam_chunk_t *chunk, cand_var_t *var) {
+    if (var->checked_tsd || var->tsd_len > 0) return 0; // already checked
+    var->checked_tsd = 1; // mark as checked
+    if (!((var->var_type == BAM_CINS && var->alt_len >= LONGCALLD_MIN_SOMATIC_TE_LEN) ||
+        (var->var_type == BAM_CDEL && var->ref_len >= LONGCALLD_MIN_SOMATIC_TE_LEN)))
+        return 0;
+    // check if have TSD & polyA/T
+    char *ref_seq = chunk->ref_seq; hts_pos_t ref_beg = chunk->ref_beg, ref_end = chunk->ref_end;
+    uint8_t *gap_seq, *flank_ref_seq; int gap_len;
+    if (var->var_type == BAM_CINS) {
+        gap_len = var->alt_len;
+        gap_seq = (uint8_t*)malloc(var->alt_len*sizeof(uint8_t));
+        flank_ref_seq = (uint8_t*)malloc(var->alt_len*sizeof(uint8_t));
+        for (int i = 0; i < gap_len; ++i) {
+            gap_seq[i] = var->alt_seq[i];
+            flank_ref_seq[i] = get_bseq1(ref_seq, ref_beg, ref_end, var->pos+i);
+        }
+    } else {
+        gap_len = var->ref_len;
+        gap_seq = (uint8_t*)malloc(var->ref_len*sizeof(uint8_t));
+        flank_ref_seq = (uint8_t*)malloc(var->ref_len*sizeof(uint8_t));
+        for (int i = 0; i < gap_len; ++i) {
+            gap_seq[i] = get_bseq1(ref_seq, ref_beg, ref_end, var->pos+i);
+            flank_ref_seq[i] = get_bseq1(ref_seq, ref_beg, ref_end, var->pos+i+gap_len);
+        }
+    }
+    int tsd_len = 0, tsd_polya_len=0, te_seq_i=-1, te_is_rev=0;
+    uint8_t *tsd_seq=NULL; hts_pos_t tsd_pos1=-1, tsd_pos2=-1; 
+    tsd_len = collect_te_info(opt, var->var_type, gap_seq, flank_ref_seq, gap_len, var->pos,
+                              &tsd_seq, &tsd_pos1, &tsd_pos2, &tsd_polya_len, &te_seq_i, &te_is_rev);
+    free(gap_seq); free(flank_ref_seq);
+    if (tsd_len > 0) { // copy tsd info to var
+        var->tsd_seq = tsd_seq;
+        var->tsd_len = tsd_len;
+        var->polya_len = tsd_polya_len;
+        var->tsd_pos1 = tsd_pos1;
+        var->tsd_pos2 = tsd_pos2;
+        var->te_seq_i = te_seq_i;
+        var->te_is_rev = te_is_rev;
+        return tsd_len;
+    } else {
+        var->tsd_seq = NULL; var->tsd_len = 0; var->tsd_pos1 = -1; var->tsd_pos2 = -1; var->polya_len = 0;
+        var->te_seq_i = -1; var->te_is_rev = 0;
+        return 0;
+    }
+}
+
+// for germline TE variant:
+// input  : cons' aln-str, or raw read' aln-str (mosaic variant)
+// return : 0: not have TSD & polyA, 1: have TSD & polyA
+//        tsd_len: length of TSD
+//        tsd_target_pos1/2: position of 1st/2nd TSD on target
+int collect_te_info_from_cons(const call_var_opt_t *opt, bam_chunk_t *chunk, hts_pos_t gap_ref_start, int msa_gap_start, int var_type, int gap_len, uint8_t *cons_msa_seq, 
+                              uint8_t **tsd_seq, hts_pos_t *tsd_pos1, hts_pos_t *tsd_pos2, int *tsd_polya_len, int *te_seq_i, int *te_is_rev) {
+    xassert(var_type == BAM_CINS || var_type == BAM_CDEL, "Var_type should be INS/DEL\n");
+    // in case flanking sequence in ref_msa_seq is not long enough
+    char *ref_seq = chunk->ref_seq; hts_pos_t ref_beg = chunk->ref_beg, ref_end = chunk->ref_end;
+    uint8_t *gap_seq = (uint8_t*)malloc(gap_len*sizeof(uint8_t));
+    uint8_t *flank_ref_seq = (uint8_t*)malloc(gap_len*sizeof(uint8_t));
+    if (var_type == BAM_CINS) {
+        for (int i = 0; i < gap_len; ++i) {
+            gap_seq[i] = cons_msa_seq[msa_gap_start+i];
+            flank_ref_seq[i] = get_bseq1(ref_seq, ref_beg, ref_end, gap_ref_start+i);
+        }
+    } else {
+        for (int i = 0; i < gap_len; ++i) {
+            gap_seq[i] = get_bseq1(ref_seq, ref_beg, ref_end, gap_ref_start+i);
+            flank_ref_seq[i] = get_bseq1(ref_seq, ref_beg, ref_end, gap_ref_start+i+gap_len);
+        }
+    }
+    int tsd_len = 0;
+    tsd_len = collect_te_info(opt, var_type, gap_seq, flank_ref_seq, gap_len, gap_ref_start,
+                    tsd_seq, tsd_pos1, tsd_pos2, tsd_polya_len, te_seq_i, te_is_rev);
+    free(gap_seq); free(flank_ref_seq);
+    return tsd_len;
+
+    // uint8_t *long_seq, *cand_te_seq;
+    // if (var_type == BAM_CINS) {
+    //     long_seq = cons_msa_seq;
+    //     cand_te_seq = cons_msa_seq+msa_gap_start;
+    // } else {
+    //     long_seq = ref_msa_seq;
+    //     cand_te_seq = ref_msa_seq+msa_gap_start;
+    // }
+    // // int flank_len = 10; fprintf(stderr, "Ref:\n");
+    // // for (int i = ref_pos-flank_len; i < ref_pos+gap_len+flank_len; ++i) fprintf(stderr, "%c", ref_seq[i-ref_beg]); fprintf(stderr, "\nCons:\n");
+    // // for (int i = msa_pos-flank_len; i < msa_pos+gap_len+flank_len; ++i) fprintf(stderr, "%c", "ACGTN-"[ref_msa_seq[i]]); fprintf(stderr, "\n");
+    // // for (int i = msa_pos-flank_len; i < msa_pos+gap_len+flank_len; ++i) fprintf(stderr, "%c", "ACGTN-"[cons_msa_seq[i]]); fprintf(stderr, "\n");
+    // int min_tsd_len = opt->min_tsd_len, max_tsd_len = opt->max_tsd_len;
+    // int min_polya_len = opt->min_polya_len; float min_polya_ratio = opt->min_polya_ratio;
+    // int max_search_polya_len = 20;
+    // int msa_gap_start_i = msa_gap_start, msa_gap_end_i = msa_gap_start+gap_len-1; 
+    // hts_pos_t ref_gap_end_i = gap_ref_start-1+ (var_type == BAM_CINS ? 0 : gap_len);
+    // // look for left-most TSD + polyA/T
+    // // compare long_seq[gap_start_i:] with ref_seq[gap_end_i+1:]
+    // int has_tsd = 0, has_polya = 0;
+    // int tsd_len = 0, i = msa_gap_start_i; hts_pos_t j = ref_gap_end_i+1;
+    // for (; i < msa_gap_end_i; i++, j++) {
+    //     uint8_t base1 = long_seq[i], base2 = get_bseq1(ref_seq, ref_beg, ref_end, j);
+    //     if (base1 == base2) tsd_len++; else break;
+    //     if (tsd_len > max_tsd_len) break;
+    // }
+    // if (tsd_len >= min_tsd_len && tsd_len <= max_tsd_len) {
+    //     has_tsd = 1;
+    //     // look for polyA/T
+    //     for (int polya_len = 0, polya = 0, i = msa_gap_end_i; i >= msa_gap_start_i; i--) {
+    //         polya_len++;
+    //         if (long_seq[i] == 0) polya++;
+    //         if (polya_len >= min_polya_len && polya >= min_polya_ratio*polya_len) {
+    //             has_polya = 1; break;
+    //         } else if (polya_len > max_search_polya_len) break;
+    //     }
+    //     if (has_polya == 0) { // look for polyT
+    //         for (int polyt_len = 0, polyt = 0, i = msa_gap_start_i+tsd_len; i <= msa_gap_end_i; i++) {
+    //             polyt_len++;
+    //             if (long_seq[i] == 3) polyt++;
+    //             if (polyt_len >= min_polya_len && polyt >= min_polya_ratio*polyt_len) {
+    //                 has_polya = 1; break;
+    //             } else if (polyt_len > max_search_polya_len) break;
+    //         }
+    //     }
+    // }
+    // // check if INS/DEL is TE
+    // if (opt->n_te_seqs > 0) *te_seq_i = check_te_seq(opt, cand_te_seq, gap_len, te_is_rev);
+    // if (has_tsd && has_polya) {
+    //     *tsd_seq = (uint8_t*)malloc(tsd_len*sizeof(uint8_t));
+    //     for (int i = 0; i < tsd_len; i++) (*tsd_seq)[i] = get_bseq1(ref_seq, ref_beg, ref_end, ref_gap_end_i+1+i);
+    //     *tsd_pos1 = gap_ref_start; 
+    //     if (var_type == BAM_CDEL) *tsd_pos2 = gap_ref_start+gap_len; else *tsd_pos2 = -1;
+    //     return tsd_len;
+    // } else return 0;
 }
 
 int wfa_collect_pretty_alignment(cigar_t* const cigar,
@@ -603,6 +724,23 @@ int collect_partial_aln_beg_end(int gap_aln, int a, int b, int q, int e, int q2,
     return ret;
 }
 
+int collect_exc_beg_end(const call_var_opt_t *opt, abpoa_t *ab, abpoa_para_t *abpt, int n_reads, char **names, uint8_t **read_seqs, 
+                        int *read_lens, int *read_full_cover, int *exc_begs, int *exc_ends, int *seq_beg_cuts, int *seq_end_cuts) {
+    for (int read_i = 1; read_i < n_reads; ++read_i) {
+        int ref_beg, ref_end, read_beg, read_end, beg_id, end_id;
+        if (collect_partial_aln_beg_end(opt->gap_aln, opt->match, opt->mismatch, opt->gap_open1, opt->gap_ext1, opt->gap_open2, opt->gap_ext2,
+            read_seqs[0], read_lens[0], read_full_cover[0], read_seqs[read_i], read_lens[read_i], read_full_cover[read_i], &ref_beg, &ref_end, &read_beg, &read_end) == 0) {
+            if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "Skipped in POA: %s\n", names[read_i]);
+            exc_begs[read_i] = -1, exc_ends[read_i] = -1;
+            continue;
+        }
+        beg_id = ref_beg+1, end_id = ref_end+1;
+        seq_beg_cuts[read_i] = read_beg - 1, seq_end_cuts[read_i] = read_lens[read_i] - read_end;
+        abpoa_subgraph_nodes(ab, abpt, beg_id, end_id, exc_begs+read_i, exc_ends+read_i);
+    }
+    return 0;
+}
+
 int abpoa_partial_aln_msa_cons(const call_var_opt_t *opt, abpoa_t *ab, int wb, int n_reads, int *read_ids, uint8_t **read_seqs, uint8_t **read_quals, int *read_lens, int *read_full_cover, char **names,
                                int max_n_cons, int *cons_lens, uint8_t **cons_seqs, int *clu_n_seqs, int **clu_read_ids, int *msa_seq_lens, uint8_t **msa_seqs) {
     // abpoa_t *ab = abpoa_init();
@@ -628,6 +766,11 @@ int abpoa_partial_aln_msa_cons(const call_var_opt_t *opt, abpoa_t *ab, int wb, i
     if (LONGCALLD_VERBOSE >= 2) abpt->out_msa = 1;
     abpoa_post_set_para(abpt);
     ab->abs->n_seq = n_reads;
+    int *exc_begs = (int*)malloc(n_reads * sizeof(int)), *exc_ends = (int*)malloc(n_reads * sizeof(int));
+    int *seq_beg_cuts = (int*)malloc(n_reads * sizeof(int)), *seq_end_cuts = (int*)malloc(n_reads * sizeof(int));
+    for (int i = 0; i < n_reads; ++i) {
+        exc_begs[i] = 0; exc_ends[i] = 1, seq_beg_cuts[i] = 0, seq_end_cuts[i] = 0;
+    }
     for (int i = 0; i < n_reads; ++i) {
         if (LONGCALLD_VERBOSE >= 2) {
             int min_qual = 100, min_i=-1, ave_qual = 0;
@@ -645,24 +788,16 @@ int abpoa_partial_aln_msa_cons(const call_var_opt_t *opt, abpoa_t *ab, int wb, i
                 fprintf(stderr, "%c", "ACGTN"[read_seqs[i][j]]);
             } fprintf(stderr, "\n");
         }
+        if (exc_begs[i] < 0 || exc_ends[i] < 0) continue;
         abpoa_res_t res; res.graph_cigar = 0, res.n_cigar = 0;
-        int exc_beg = 0, exc_end = 1, seq_beg_cut = 0, seq_end_cut = 0;
-        if (i != 0) {
-            int ref_beg, ref_end, read_beg, read_end, beg_id, end_id;
-            if (collect_partial_aln_beg_end(opt->gap_aln, opt->match, opt->mismatch, opt->gap_open1, opt->gap_ext1, opt->gap_open2, opt->gap_ext2,
-                                            read_seqs[0], read_lens[0], read_full_cover[0], read_seqs[i], read_lens[i], read_full_cover[i], &ref_beg, &ref_end, &read_beg, &read_end) == 0) {
-                if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "Skipped in POA: %s\n", names[i]);
-                continue;
-            }
-            beg_id = ref_beg+1, end_id = ref_end+1;
-            seq_beg_cut = read_beg - 1, seq_end_cut = read_lens[i] - read_end;
-            abpoa_subgraph_nodes(ab, abpt, beg_id, end_id, &exc_beg, &exc_end);
-        }
-        if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "ExcBeg: %d, ExcEnd: %d, SeqBegCut: %d, SeqEndCut: %d\n", exc_beg, exc_end, seq_beg_cut, seq_end_cut);
-        abpoa_align_sequence_to_subgraph(ab, abpt, exc_beg, exc_end, read_seqs[i]+seq_beg_cut, read_lens[i]-seq_beg_cut-seq_end_cut, &res);
-        abpoa_add_subgraph_alignment(ab, abpt, exc_beg, exc_end, read_seqs[i]+seq_beg_cut, NULL, read_lens[i]-seq_beg_cut-seq_end_cut, NULL, res, i, n_reads, 0);
+        if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "ExcBeg: %d, ExcEnd: %d, SeqBegCut: %d, SeqEndCut: %d, FullCover: %d\n", exc_begs[i], exc_ends[i], seq_beg_cuts[i], seq_end_cuts[i], read_full_cover[i]);
+        abpoa_align_sequence_to_subgraph(ab, abpt, exc_begs[i], exc_ends[i], read_seqs[i]+seq_beg_cuts[i], read_lens[i]-seq_beg_cuts[i]-seq_end_cuts[i], &res);
+        abpoa_add_subgraph_alignment(ab, abpt, exc_begs[i], exc_ends[i], read_seqs[i]+seq_beg_cuts[i], NULL, read_lens[i]-seq_beg_cuts[i]-seq_end_cuts[i], NULL, res, i, n_reads, 0);
+        // collect exc_beg/exc_end for all reads with i>1
+        if (i == 0) collect_exc_beg_end(opt, ab, abpt, n_reads, names, read_seqs, read_lens, read_full_cover, exc_begs, exc_ends, seq_beg_cuts, seq_end_cuts);
         if (res.n_cigar) free(res.graph_cigar);
     }
+    free(exc_begs); free(exc_ends); free(seq_beg_cuts); free(seq_end_cuts);
     if (LONGCALLD_VERBOSE >= 2) abpoa_output(ab, abpt, stderr);
     else abpoa_output(ab, abpt, NULL);
     abpoa_cons_t *abc = ab->abc;

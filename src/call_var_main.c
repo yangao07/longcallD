@@ -32,20 +32,22 @@ const struct option call_var_opt [] = {
     { "ont", 0, NULL, 0},
     { "region-file", 1, NULL, 0},
     { "regions-file", 1, NULL, 0},
-    { "autosome", 0, NULL, 0},
+    { "all-ctg", 0, NULL, 0},
     { "autosome-XY", 0, NULL, 0},
-    { "somatic-snp", 0, NULL, 0},
-    { "methylation", 0, NULL, 0},
+    { "autosome", 0, NULL, 0},
+    { "exclude-ctg", 1, NULL, 'E'},
     // { "ont-hp-prof", 1, NULL, 0},
 
     // short options
     { "ref-idx", 1, NULL, 'r' },
     { "out-vcf", 1, NULL, 'o'},
     { "out-type", 1, NULL, 'O'},
-    { "min-sv-len", 1, NULL, 's'},
+    { "min-sv-len", 1, NULL, 'l'},
     { "out-bam", 1, NULL, 'b' },
     { "out-cram", 1, NULL, 'C' },
     { "no-vcf-header", 0, NULL, 'H'},
+    { "somatic", 0, NULL, 's'},
+    { "methylation", 0, NULL, 'm'},
     { "gap-aln", 1, NULL, 'g'},
     // { "out-bam", 1, NULL, 'b' },
     { "sample-name", 1, NULL, 'n'},
@@ -95,12 +97,12 @@ int get_num_processors() {
 }
 
 void set_hifi_opt(call_var_opt_t *opt) {
-    opt->is_pb_hifi = 1;
+    opt->is_pb_hifi = 1; opt->is_ont = 0;
     opt->noisy_reg_max_xgaps = 5;
 }
 
 void set_ont_opt(call_var_opt_t *opt) {
-    opt->is_ont = 1;
+    opt->is_ont = 1; opt->is_pb_hifi = 0;
     opt->noisy_reg_max_xgaps = 20;
 }
 
@@ -189,8 +191,9 @@ call_var_opt_t *call_var_init_para(void) {
     opt->sample_name = NULL;
     opt->ref_fa_fn = NULL; opt->ref_fa_fai_fn = NULL; opt->reg_bed_fn = NULL;
 
-    opt->is_pb_hifi = 0; opt->is_ont = 0;
-    opt->only_autosome = 0; opt->only_autosome_XY = 0;
+    opt->is_pb_hifi = 1; opt->is_ont = 0;
+    opt->only_autosome = 0; opt->only_autosome_XY = 1; 
+    opt->n_exc_tnames = 0; opt->exc_tnames = NULL;
 
     // opt->region_list = NULL; opt->region_is_file = 0;
     opt->max_ploid = LONGCALLD_DEF_PLOID;
@@ -221,6 +224,8 @@ call_var_opt_t *call_var_init_para(void) {
     opt->min_af = LONGCALLD_MIN_CAND_AF;
     opt->max_af = LONGCALLD_MAX_CAND_AF;
     opt->min_somatic_hap_dp = LONGCALLD_MIN_SOMATIC_HAP_READS;
+    opt->min_somatic_te_dp = LONGCALLD_MIN_SOMATIC_TE_ALT_DP;
+    opt->min_somatic_alt_dp = LONGCALLD_MIN_SOMATIC_ALT_DP;
 
     opt->match = LONGCALLD_MATCH_SCORE;
     opt->mismatch = LONGCALLD_MISMATCH_SCORE;
@@ -240,7 +245,7 @@ call_var_opt_t *call_var_init_para(void) {
     opt->min_polya_len = LONGCALLD_MIN_POLYA_LEN; opt->min_polya_ratio = LONGCALLD_MIN_POLYA_RATIO;
 
     initialize_lgamma_cache(opt);
-    opt->te_seq_fn = NULL; opt->te_kmer_len = 15; opt->te_for_h = NULL; opt->te_rev_h = NULL;
+    opt->te_seq_fn = NULL; opt->n_te_seqs = 0; opt->te_kmer_len = 15; opt->te_for_h = NULL; opt->te_rev_h = NULL;
 
     opt->p_error = 0.001; opt->log_p = -3.0; opt->log_1p = log10(1-opt->p_error); opt->log_2 = 0.301023;
     opt->max_gq = 60; opt->max_qual = 60;
@@ -259,6 +264,10 @@ void call_var_free_para(call_var_opt_t *opt) {
     if (opt->in_bam_fn) free(opt->in_bam_fn);
     if (opt->sample_name) free(opt->sample_name);
     // if (opt->region_list) free(opt->region_list);
+    if (opt->n_exc_tnames > 0) {
+        for (int i = 0; i < opt->n_exc_tnames; ++i) free(opt->exc_tnames[i]);
+        free(opt->exc_tnames);
+    }
     if (opt->ont_hp_profile != NULL) {
         for (int i = 0; i < 4*4*4; ++i) {
             for (int j = 0; j < 50; ++j) {
@@ -371,6 +380,12 @@ static void reg_chunks_realloc(call_var_pl_t *pl) {
     }
 }
 
+void set_exclude_ctg(call_var_opt_t *opt, char *ctg) {
+    opt->exc_tnames = (char**)realloc(opt->exc_tnames, (opt->n_exc_tnames+1) * sizeof(char*));
+    opt->exc_tnames[opt->n_exc_tnames] = strdup(ctg);
+    opt->n_exc_tnames++;
+}
+
 // Enum for chromosome types
 typedef enum {
     AUTOSOME,        // Chromosomes 1-22
@@ -424,10 +439,18 @@ static void reg_chunks_region_realloc(reg_chunks_t *reg_chunks) {
     }
 }
 
+static int exclude_target_ctg(call_var_opt_t *opt, char *tname) {
+    for (int i = 0; i < opt->n_exc_tnames; ++i) {
+        if (strcmp(tname, opt->exc_tnames[i]) == 0) return 1;
+    }
+    return 0;
+}
+
 static int skip_target_region(call_var_opt_t *opt, char *tname) {
     ChromosomeType t = classify_chromosome(tname);
     if (opt->only_autosome && t != AUTOSOME) return 1;
     if (opt->only_autosome_XY && t != AUTOSOME && t != SEX_CHROMOSOME) return 1;
+    if (exclude_target_ctg(opt, tname)) return 1;
     return 0;
 }
 
@@ -711,29 +734,33 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "\n");
 
     fprintf(stderr, "Options:\n");
-    fprintf(stderr, "  Intput and output:\n");
+    fprintf(stderr, "  Intput:\n");
     fprintf(stderr, "    --hifi                HiFi reads [Default]\n");
     fprintf(stderr, "    --ont                 ONT reads [False]\n");
     fprintf(stderr, "    --region-file   FILE  region bed file [NULL]\n");
     fprintf(stderr, "                          each line is a region, e.g., chr1         (whole chromosome)\n");
     fprintf(stderr, "                                                       chr1 100     (chr1:100-END)\n");
     fprintf(stderr, "                                                       chr1 100 200 (chr1:100-200)\n");
-    fprintf(stderr, "    --autosome            Only call variants on autosomes [False]\n");
-    fprintf(stderr, "                          e.g., human: chr{1-22} or 1-22\n");
-    fprintf(stderr, "    --autosome-XY         Only call variants on autosomes and sex chromosomes [False]\n");
+    fprintf(stderr, "    --autosome-XY         only call variants on autosomes and sex chromosomes [Default]\n");
     fprintf(stderr, "                          e.g., human: chr{1-22,XY} or 1-22,XY\n");
+    fprintf(stderr, "    --all-ctg             call variants on all chromosomes/contigs [False]\n");
+    fprintf(stderr, "    --autosome            only call variants on autosomes [False]\n");
+    fprintf(stderr, "                          e.g., human: chr{1-22} or 1-22\n");
+    fprintf(stderr, "    -E --exclude-ctg STR  exclude contig/chromosome [NULL]\n");
+    fprintf(stderr, "                          can be used multiple times, e.g., -E hs37d5 -E chrM\n");
     fprintf(stderr, "    -n --sample-name STR  sample name. 'RG/SM' in BAM header will be used if not provided [NULL]\n");
     fprintf(stderr, "    -r --ref-idx    FILE  .fai index file for reference genome FASTA file, detect automaticaly if not provided [NULL]\n");
     fprintf(stderr, "                          BAM file name will be used if not provided and no 'RG/SM' in BAM header\n");
     fprintf(stderr, "    -T --trans-elem FILE  transposable element sequence [NULL]\n");
+    fprintf(stderr, "  Output:\n");
     fprintf(stderr, "    -o --out-vcf    FILE  output phased VCF file [stdout]\n");
     fprintf(stderr, "    -O --out-type    STR  v/z: un/compressed VCF [v]\n");
-    fprintf(stderr, "    -s --min-sv-len  INT  min. length to be considered as SV [%d]\n", LONGCALLD_MIN_SV_LEN);
+    fprintf(stderr, "    -l --min-sv-len  INT  min. length to be considered as SV [%d]\n", LONGCALLD_MIN_SV_LEN);
     fprintf(stderr, "                          SV-related information will be added to INFO field, e.g., SVLEN/SVTYPE/TSD\n");
-    // fprintf(stderr, "       --somatic-snp    output somatic SNPs [False]\n");
-    // fprintf(stderr, "       --methylation    output methylation site information [False]\n");
-    // fprintf(stderr, "                          if present, MM/ML tags will be used to calculate methylation level\n");
     fprintf(stderr, "    -H --no-vcf-header    do NOT output VCF header [False]\n");
+    fprintf(stderr, "    -s --somatic          output somatic variants [False]\n");
+    // fprintf(stderr, "    -m --methylation    output methylation site information [False]\n");
+    // fprintf(stderr, "                          if present, MM/ML tags will be used to calculate methylation level\n");
     fprintf(stderr, "       --amb-base         output variant with ambiguous base (N) [False]\n");
     fprintf(stderr, "    -b --out-bam    FILE  output phased BAM file [NULL]\n");
     fprintf(stderr, "    -C --out-cram   FILE  output phased CRAM file [NULL]\n");
@@ -782,7 +809,7 @@ int call_var_main(int argc, char *argv[]) {
     // _err_cmd("%s\n", CMD);
     int c, op_idx; call_var_opt_t *opt = call_var_init_para();
     double realtime0 = realtime();
-    while ((c = getopt_long(argc, argv, "r:T:o:O:s:Hb:C:c:d:M:B:a:n:x:w:j:L:f:p:g:Nt:hvV:", call_var_opt, &op_idx)) >= 0) {
+    while ((c = getopt_long(argc, argv, "r:T:E:o:O:sml:Hb:C:c:d:M:B:a:n:x:w:j:L:f:p:g:Nt:hvV:", call_var_opt, &op_idx)) >= 0) {
         switch(c) {
             case 'r': opt->ref_fa_fai_fn = strdup(optarg); break;
             // case 'b': cgp->var_block_size = atoi(optarg); break;
@@ -791,7 +818,7 @@ int call_var_main(int argc, char *argv[]) {
                       else _err_error_exit("\'-O/--out-type\' can only be \'v\' or \'z\'\n");
                       break;
             case 'H': opt->no_vcf_header = 1; break;
-            case 's': opt->min_sv_len = atoi(optarg); break;
+            case 'l': opt->min_sv_len = atoi(optarg); break;
             case 'T': opt->te_seq_fn = strdup(optarg); make_te_kmer_idx(opt); break;
             case 0: if (strcmp(call_var_opt[op_idx].name, "amb-base") == 0) opt->out_amb_base = 1; 
                     else if (strcmp(call_var_opt[op_idx].name, "hifi") == 0) set_hifi_opt(opt);
@@ -799,11 +826,13 @@ int call_var_main(int argc, char *argv[]) {
                     // else if (strcmp(call_var_opt[op_idx].name, "ont-hp-prof") == 0) set_ont_hp_prof(opt, optarg);
                     else if (strcmp(call_var_opt[op_idx].name, "region-file") == 0 || 
                              strcmp(call_var_opt[op_idx].name, "regions-file") == 0) opt->reg_bed_fn = strdup(optarg);
+                    else if (strcmp(call_var_opt[op_idx].name, "all-ctg") == 0) opt->only_autosome = 0, opt->only_autosome_XY=0;
                     else if (strcmp(call_var_opt[op_idx].name, "autosome") == 0) opt->only_autosome = 1;
                     else if (strcmp(call_var_opt[op_idx].name, "autosome-XY") == 0) opt->only_autosome_XY = 1;
-                    else if (strcmp(call_var_opt[op_idx].name, "somatic-snp") == 0) opt->out_somatic = 1;
-                    else if (strcmp(call_var_opt[op_idx].name, "methylation") == 0) opt->out_methylation = 1;
                     break;
+            case 's': opt->out_somatic = 1; break;
+            case 'm': opt->out_methylation = 1; break;
+            case 'E': set_exclude_ctg(opt, optarg); break;
             case 'b': opt->out_bam = hts_open(optarg, "wb"); opt->out_is_cram = 0; break;
             case 'C': opt->out_bam = hts_open(optarg, "wc"); opt->out_is_cram = 1; break;
             case 'c': opt->min_dp = atoi(optarg); break;

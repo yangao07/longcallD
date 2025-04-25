@@ -20,6 +20,7 @@
 #define LONGCALLD_NOISY_CAND_HOM_VAR 0x200 // "h"
 #define LONGCALLD_LOW_AF_VAR         0x400 // "l"
 
+#define LONGCALLD_CAND_GERMLINE_VAR_CATE (LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CAND_HOM_VAR | LONGCALLD_NOISY_CAND_HET_VAR | LONGCALLD_NOISY_CAND_HOM_VAR)
 #define LONGCALLD_VAR_CATE_TYPE(var_cate) LONGCALLD_VAR_CATE_STR[(int)(log2(var_cate))]
 
 #define LONGCALLD_REF_CONS_ALN_STR(clu_aln_strs) clu_aln_strs
@@ -70,7 +71,7 @@ typedef struct cand_var_t {
     int ref_len; uint8_t ref_base; // 1-base ref_base, only used for X
     int alt_len; uint8_t *alt_seq; // only used for mismatch/insertion, deletion:NULL
     // retrotransposon: L1/Alu/SVA
-    uint8_t *tsd_seq; int tsd_len; hts_pos_t tsd_pos1, tsd_pos2; // target site duplication, 2 TSDs for DEL
+    uint8_t *tsd_seq, checked_tsd; int tsd_len, polya_len; hts_pos_t tsd_pos1, tsd_pos2; // target site duplication, 2 TSDs for DEL
     int te_seq_i, te_is_rev;
     // char *rep_name, *rep_family, *rep_class; 
 
