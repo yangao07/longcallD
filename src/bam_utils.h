@@ -45,7 +45,7 @@ typedef struct {
     digar1_t *digars;
     // read-wise noisy region: active region for re-alignment
     cgranges_t *noisy_regs; // merge low_qual digar1_t if they are next to each other
-    uint8_t *bseq, *qual; // copy from bam1_t
+    int qlen; uint8_t *bseq, *qual; // copy from bam1_t
 } digar_t; // detailed CIGAR for each read
 
 typedef struct bam_chunk_t {
@@ -71,7 +71,7 @@ typedef struct bam_chunk_t {
     int *up_ovlp_read_i, *down_ovlp_read_i;
     bam1_t **reads;
     // intermidiate
-    digar_t *digars; uint8_t *is_skipped; // size: m_reads, is_skipped: wrong mapping, low qual, etc.
+    digar_t *digars; uint8_t *is_skipped, *is_skipped_for_somatic; // size: m_reads, is_skipped: wrong mapping, low qual, etc.
     // variant-related
     // n_cand_vars: including candidate germline variants and somatic variants
     // for germline variants, including clean region and noisy region
@@ -129,6 +129,10 @@ static inline int is_overlap_reg(hts_pos_t beg, hts_pos_t end, hts_pos_t reg_beg
     return 1;
 }
 
+digar1_t *push_digar_alt_seq(digar1_t *digar, int *n_digar, int *m_digar, digar1_t d);
+digar1_t *push_digar0(digar1_t *digar, int *n_digar, int *m_digar, digar1_t d);
+void push_digar1(digar_t *digar, digar1_t d);
+void free_digar1(digar1_t *digar1, int n_digar);
 int get_aux_int_from_bam(bam1_t *b, const char *tag);
 char *get_aux_str_from_bam(bam1_t *b, const char *tag);
 void print_digar1(digar1_t *digar, int n_digar, FILE *fp);
@@ -142,7 +146,7 @@ int collect_digar_from_cs_tag(bam_chunk_t *chunk, bam1_t *read, const struct cal
 int collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar);
 int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar);
 int update_cand_vars_from_digar(const struct call_var_opt_t *opt, bam_chunk_t *chunk, digar_t *digar, int n_var_sites, struct var_site_t *var_sites, int start_i, struct cand_var_t *cand_vars);
-void update_read_var_profile_with_allele(int var_i, int allele_i, read_var_profile_t *read_var_profile);
+void update_read_var_profile_with_allele(int var_i, int allele_i, int alt_read_base_pos, int digar_i, read_var_profile_t *read_var_profile);
 int update_read_var_profile_from_digar(const struct call_var_opt_t *opt, bam_chunk_t *chunk, digar_t *digar, int n_cand_vars, struct cand_var_t *cand_vars, int start_var_i, struct read_var_profile_t *read_var_profile);
 
 int collect_ref_seq_bam_main(const struct call_var_pl_t *pl, struct call_var_io_aux_t *io_aux, int reg_chunk_i, int reg_i, bam_chunk_t *chunks);

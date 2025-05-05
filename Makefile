@@ -56,7 +56,7 @@ ABPOA_GDB_LIB = ./abPOA/lib/libabpoa_sse41.a
 ABPOA_NOR_LIB     = ./abPOA/lib/libabpoa.a
 # for gdb
 ifneq ($(gdb),)
-	OPT_FLAGS = -g
+	OPT_FLAGS = -O0 -g
 	ABPOA_LIB = $(ABPOA_GDB_LIB)
 else
 	OPT_FLAGS = -O3
@@ -67,8 +67,9 @@ CFLAGS = $(OPT_FLAGS) $(EXTRA_FLAGS) -DLONGCALLD_VERSION=\"$(LONGCALLD_VERSION)\
 
 # for gprof
 ifneq ($(pg),)
-	PG_FLAG  = -pg
-	CFLAGS  += -pg
+	OPT_FLAGS = -O0
+	PG_FLAG   = -pg
+	CFLAGS   += -pg
 endif
 
 ifneq ($(PREFIX),)

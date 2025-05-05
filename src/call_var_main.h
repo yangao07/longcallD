@@ -17,10 +17,8 @@
 
 #define LONGCALLD_MIN_CAND_MQ 30 // ignore reads with MAPQ < 30
 #define LONGCALLD_MIN_CAND_BQ 10 // ignore bases with BQ < 10
-#define LONGCALLD_MIN_CAND_SOMATIC_BQ 30 // ignor bases with BQ < 30
 #define LONGCALLD_MIN_CAND_DP 5 // total depth < 5: skipped
 #define LONGCALLD_MIN_ALT_DP 2 // max alt depth < 2: skipped
-#define LONGCALLD_MIN_SOMATIC_AF 0.05 // AF < 0.05: filtered out, 0.05~0.25: candidate somatic
 #define LONGCALLD_MIN_CAND_AF 0.20 // AF < 0.20: not germline het.
 #define LONGCALLD_MAX_CAND_AF 0.80 // AF > 0.80: not germline het.
 #define LONGCALLD_DEF_PLOID 2 // diploid
@@ -36,6 +34,7 @@
 #define LONGCALLD_MAX_NOISY_REG_READS 1000 // regions with >1000 reads will be skipped
 #define LONGCALLD_NOISY_END_CLIP 100 // >= 100 bp clipping on both ends will be considered as long clipping
 #define LONGCALLD_NOISY_END_CLIP_WIN 100 // 100 bp next to the long end-clipping will be considered as low-quality region
+#define LONGCALLD_NOISY_REG_MERGE_DIS 500 // 500 bp, merge noisy regions within 500 bp
 #define LONGCALLD_NOISY_REG_FLANK_LEN 10 // during re-alignment, include 10-bp flanking region for both ends of noisy region
 
 #define LONGCALLD_MAX_NOISY_REG_LEN 50000 // >50kb noisy region will be skipped
@@ -46,7 +45,19 @@
 #define LONGCALLD_MIN_HAP_READS 2 // >= 3 reads supporting each haplotype, including partial/clipped reads, call consensus from >= 3 reads
 // #define LONGCALLD_MIN_NO_HAP_FULL_READS 10 // >10 total full reads in noisy region
 #define LONGCALLD_MIN_READ_TO_HAP_CONS_SIM 0.9 // for reads with >= 90% equal bases, assign haplotype
-// MOSAIC SNPs
+// SOMATIC/MOSAIC Var
+#define LONGCALLD_MIN_SOMATIC_BQ 10 // XXX different for hifi and ONT
+#define LONGCALLD_MIN_SOMATIC_ALT_QUAL 20 // >= 10 for somatic variant
+#define LONGCALLD_MIN_SOMATIC_DIS_TO_HET_VAR 5
+#define LONGCALLD_MIN_SOMATIC_DIS_TO_SEQ_ERROR 5
+#define LONGCALLD_MIN_SOMATIC_LOG_BETA_BINOM -3.0 // log10(0.001) for beta-binomial test
+#define LONGCALLD_MIN_SOMATIC_FISHER_PVAL 0.05
+// #define LONGCALLD_MIN_SOMATIC_AF 0.01
+#define LONGCALLD_MAX_SOMATIC_ALT_AF 0.1
+#define LONGCALLD_SOMATIC_BETA_ALPHA 1 // beta prior for somatic variant calling
+#define LONGCALLD_SOMATIC_BETA_BETA 10 // beta prior for somatic variant calling
+#define LONGCALLD_SOMATIC_DENSE_WIN 1000
+#define LONGCALLD_SOMATIC_DENSE_WIN_MAX_VARS 2 // >= 2 somatic vars in a 1000-bp window, consider as artifact, tag both var & read as artifact
 #define LONGCALLD_MIN_SOMATIC_HAP_READS 10 // >= 10 reads supporting each haplotype
 #define LONGCALLD_MIN_SOMATIC_ALT_DP 2 // >= 2 reads supporting somatic variant
 #define LONGCALLD_MIN_SOMATIC_TE_ALT_DP 1 // >= 1 read supporting somatic TE variant
@@ -54,7 +65,7 @@
 
 #define LONGCALLD_MIN_SV_LEN 30 // diff >= 30 bp: classify as SV
 #define LONGCALLD_MIN_TSD_LEN 2 // TSD >= 2 bp
-#define LONGCALLD_MAX_TSD_LEN 25 // TSD <= 25 bp
+#define LONGCALLD_MAX_TSD_LEN 100 // TSD <= 25 bp
 #define LONGCALLD_MIN_POLYA_LEN 10 // polyA >= 10 bp
 #define LONGCALLD_MIN_POLYA_RATIO 0.8 // polyA >= 80% of the total length
 
@@ -62,6 +73,8 @@
 #define LONGCALLD_SDUST_T 5
 #define LONGCALLD_SDUST_W 20
 
+// for math_utils
+#define LONGCALLD_LGAMMA_MAX_I 500
 
 
 
@@ -121,10 +134,15 @@ typedef struct call_var_opt_t {
     // filters for variant calling
     int max_ploid, min_mq, min_bq, min_dp, min_alt_dp;
     double min_af, max_af;
-    int min_somatic_bq, min_somatic_alt_dp, min_somatic_te_dp, min_somatic_hap_dp;
+    // somatic/mosaic variant
+    int min_somatic_dis_to_het_var, min_somatic_bq, min_somatic_alt_qual, min_somatic_dis_to_seq_error, min_somatic_alt_dp, min_somatic_te_dp, min_somatic_hap_dp;
+    double min_somatic_log_beta_binom, min_somatic_fisher_pval, max_somatic_alt_af; // 0.01~0.1
+    int somatic_beta_alpha, somatic_beta_beta; // beta prior for somatic variant calling
+    int somatic_dense_win, somatic_dense_win_max_vars; // somatic variant calling window size, max vars in the window
+
     int noisy_reg_max_xgaps, noisy_reg_slide_win;
     int end_clip_reg, end_clip_reg_flank_win;
-    int noisy_reg_flank_len; // noisy_reg_merge_win; // for re-alignment
+    int noisy_reg_merge_dis, noisy_reg_flank_len; // noisy_reg_merge_win; // for re-alignment
     // filters for noisy region, i.e., coverage/ratio
     int max_noisy_reg_reads, max_noisy_reg_len, min_noisy_reg_reads; 
     double max_var_ratio_per_read, max_noisy_frac_per_read, min_noisy_reg_ratio;
@@ -145,11 +163,11 @@ typedef struct call_var_opt_t {
     // int max_ploidy;
     int pl_threads, n_threads;
     // math utils
-    double lgamma_cache[100]; int min_lgamma_i, max_lgamma_i; // 0, 999
+    double lgamma_cache[LONGCALLD_LGAMMA_MAX_I+1]; int min_lgamma_i, max_lgamma_i; // 0, 999
 
     // output
     int min_sv_len; // classify as SV if length >= min_sv_len (50)
-    htsFile *out_bam; uint8_t out_is_cram; // phased bam
+    htsFile *out_bam; uint8_t out_is_cram; uint8_t refine_bam; // phased bam
     htsFile *out_vcf; bcf_hdr_t *vcf_hdr; char *out_vcf_fn; char out_vcf_type; // u/b/v/z
     double p_error, log_p, log_1p, log_2; int max_gq; int max_qual;
     int8_t no_vcf_header, out_amb_base, out_somatic, out_methylation;

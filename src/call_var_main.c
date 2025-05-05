@@ -35,6 +35,8 @@ const struct option call_var_opt [] = {
     { "all-ctg", 0, NULL, 0},
     { "autosome-XY", 0, NULL, 0},
     { "autosome", 0, NULL, 0},
+    { "mosaic", 0, NULL, 0},
+    { "refine-bam", 0, NULL, 0},
     { "exclude-ctg", 1, NULL, 'E'},
     // { "ont-hp-prof", 1, NULL, 0},
 
@@ -64,6 +66,7 @@ const struct option call_var_opt [] = {
     { "win-size", 1, NULL, 'w'},
     { "noisy-rat", 1, NULL, 'j' },
     { "noisy-flank", 1, NULL, 'f' },
+    { "merge-dis", 1, NULL, 'D'},
     { "end-clip", 1, NULL, 'c' },
     { "clip-flank", 1, NULL, 'F' },
     { "hap-read", 1, NULL, 'p' },
@@ -199,10 +202,29 @@ call_var_opt_t *call_var_init_para(void) {
     opt->max_ploid = LONGCALLD_DEF_PLOID;
     opt->min_mq = LONGCALLD_MIN_CAND_MQ;
     opt->min_bq = LONGCALLD_MIN_CAND_BQ;
-    opt->min_somatic_bq = LONGCALLD_MIN_CAND_SOMATIC_BQ;
     opt->min_dp = LONGCALLD_MIN_CAND_DP;
     opt->min_alt_dp = LONGCALLD_MIN_ALT_DP;
+    opt->min_af = LONGCALLD_MIN_CAND_AF;
+    opt->max_af = LONGCALLD_MAX_CAND_AF;
+    // somatic/mosaic var
 
+    opt->min_somatic_bq = LONGCALLD_MIN_SOMATIC_BQ;
+    opt->min_somatic_alt_qual = LONGCALLD_MIN_SOMATIC_ALT_QUAL;
+    opt->min_somatic_dis_to_het_var = LONGCALLD_MIN_SOMATIC_DIS_TO_HET_VAR;
+    opt->min_somatic_dis_to_seq_error = LONGCALLD_MIN_SOMATIC_DIS_TO_SEQ_ERROR;
+    opt->min_somatic_fisher_pval = LONGCALLD_MIN_SOMATIC_FISHER_PVAL;
+    opt->min_somatic_alt_dp = LONGCALLD_MIN_SOMATIC_ALT_DP;
+    opt->min_somatic_hap_dp = LONGCALLD_MIN_SOMATIC_HAP_READS;
+    opt->min_somatic_te_dp = LONGCALLD_MIN_SOMATIC_TE_ALT_DP;
+    // opt->min_somatic_af = LONGCALLD_MIN_SOMATIC_AF;
+    opt->max_somatic_alt_af = LONGCALLD_MAX_SOMATIC_ALT_AF;
+    opt->min_somatic_log_beta_binom = LONGCALLD_MIN_SOMATIC_LOG_BETA_BINOM;
+    opt->somatic_beta_alpha = LONGCALLD_SOMATIC_BETA_ALPHA;
+    opt->somatic_beta_beta = LONGCALLD_SOMATIC_BETA_BETA;
+    opt->somatic_dense_win = LONGCALLD_SOMATIC_DENSE_WIN;
+    opt->somatic_dense_win_max_vars = LONGCALLD_SOMATIC_DENSE_WIN_MAX_VARS;
+
+    opt->noisy_reg_merge_dis = LONGCALLD_NOISY_REG_MERGE_DIS;
     opt->noisy_reg_flank_len = LONGCALLD_NOISY_REG_FLANK_LEN;
 
     opt->noisy_reg_max_xgaps = LONGCALLD_NOISY_REG_MAX_XGAPS;
@@ -220,12 +242,6 @@ call_var_opt_t *call_var_init_para(void) {
     opt->min_hap_full_reads = LONGCALLD_MIN_HAP_FULL_READS;
     opt->min_hap_reads = LONGCALLD_MIN_HAP_READS;
     // opt->min_no_hap_full_reads = LONGCALLD_MIN_NO_HAP_FULL_READS;
-
-    opt->min_af = LONGCALLD_MIN_CAND_AF;
-    opt->max_af = LONGCALLD_MAX_CAND_AF;
-    opt->min_somatic_hap_dp = LONGCALLD_MIN_SOMATIC_HAP_READS;
-    opt->min_somatic_te_dp = LONGCALLD_MIN_SOMATIC_TE_ALT_DP;
-    opt->min_somatic_alt_dp = LONGCALLD_MIN_SOMATIC_ALT_DP;
 
     opt->match = LONGCALLD_MATCH_SCORE;
     opt->mismatch = LONGCALLD_MISMATCH_SCORE;
@@ -250,7 +266,7 @@ call_var_opt_t *call_var_init_para(void) {
     opt->p_error = 0.001; opt->log_p = -3.0; opt->log_1p = log10(1-opt->p_error); opt->log_2 = 0.301023;
     opt->max_gq = 60; opt->max_qual = 60;
     opt->out_vcf = NULL; opt->vcf_hdr = NULL; opt->out_vcf_fn = NULL; opt->out_vcf_type = 'v'; opt->no_vcf_header = 0; opt->out_amb_base = 0;
-    opt->out_bam = NULL; opt->out_is_cram = 0;
+    opt->out_bam = NULL; opt->out_is_cram = 0; opt->refine_bam = 0;
     opt->out_somatic = 0; opt->out_methylation = 0;
     // opt->verbose = 0;
 
@@ -689,7 +705,7 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
                             //         merge variants from different chunks
                             //         1) merge overlapping variants
                             //         2) update phase set and haplotype (flip if needed)
-        if (LONGCALLD_VERBOSE >= 1) _err_info("Step 2: stitch & make variants.\n");
+        if (LONGCALLD_VERBOSE >= 1) _err_info("Step 2: stitch & make variants\n");
         if (((call_var_step_t*)in)->n_chunks > 0) {
             ((call_var_step_t*)in)->vars = calloc(((call_var_step_t*)in)->n_chunks, sizeof(var_t));
             stitch_var_main((call_var_step_t*)in, ((call_var_step_t*)in)->chunks);
@@ -699,10 +715,10 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
         for (int i = 0; i < ((call_var_step_t*)in)->n_chunks; ++i) {
             n_processed_reads += (((call_var_step_t*)in)->chunks[i].n_reads - ((call_var_step_t*)in)->chunks[i].n_up_ovlp_reads);
         }
-        if (n_processed_reads > 0) _err_info("Processed %" PRIi64 " reads.\n", n_processed_reads);
+        if (n_processed_reads > 0) _err_info("Processed %" PRIi64 " reads\n", n_processed_reads);
         return in;
     } else if (step == 2) { // step 3: write the buffer to output
-        if (LONGCALLD_VERBOSE >= 1) _err_info("Step 3: output variants (& phased bam).\n");
+        if (LONGCALLD_VERBOSE >= 1) _err_info("Step 3: output variants (& phased bam)\n");
         call_var_step_t *s = (call_var_step_t*)in;
         int n_out_vars = 0, n_out_reads = 0;
         for (int i = 0; i < s->n_chunks; ++i) {
@@ -711,10 +727,10 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
             if (pl->opt->out_bam != NULL) n_out_reads += write_read_to_bam(c, pl->opt);
             var_free(s->vars + i);  // free output
         }
-        if (n_out_vars > 0) _err_info("Output %d variants to VCF.\n", n_out_vars);
+        if (n_out_vars > 0) _err_info("Output %d variants to VCF\n", n_out_vars);
         if (n_out_reads > 0) {
-            if (pl->opt->out_is_cram) _err_info("Output %d reads to CRAM.\n", n_out_reads);
-            else _err_info("Output %d reads to BAM.\n", n_out_reads);
+            if (pl->opt->out_is_cram) _err_info("Output %d reads to CRAM\n", n_out_reads);
+            else _err_info("Output %d reads to BAM\n", n_out_reads);
         }
         bam_chunks_post_free(s->chunks, s->n_chunks); // free input
         free(s->vars); free(s);
@@ -758,12 +774,14 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "    -l --min-sv-len  INT  min. length to be considered as SV [%d]\n", LONGCALLD_MIN_SV_LEN);
     fprintf(stderr, "                          SV-related information will be added to INFO field, e.g., SVLEN/SVTYPE/TSD\n");
     fprintf(stderr, "    -H --no-vcf-header    do NOT output VCF header [False]\n");
-    fprintf(stderr, "    -s --somatic          output somatic variants [False]\n");
+    fprintf(stderr, "    -s --somatic/--mosaic output somatic/mosaic variants [False]\n");
     // fprintf(stderr, "    -m --methylation    output methylation site information [False]\n");
     // fprintf(stderr, "                          if present, MM/ML tags will be used to calculate methylation level\n");
     fprintf(stderr, "       --amb-base         output variant with ambiguous base (N) [False]\n");
     fprintf(stderr, "    -b --out-bam    FILE  output phased BAM file [NULL]\n");
     fprintf(stderr, "    -C --out-cram   FILE  output phased CRAM file [NULL]\n");
+    fprintf(stderr, "       --refine-bam       refine alignment in output BAM/CRAM [False]\n");
+    fprintf(stderr, "                          Note: output BAM/CRAM could be unsorted when --refine-bam is set\n");
     // fprintf(stderr, "    -g --gap-aln     STR  put gap on the \'left\' or \'right\' side in alignment [left/l]\n");
     // fprintf(stderr, "                          \'left\':  ATTTG\n");
     // fprintf(stderr, "                                   | |||\n");
@@ -783,6 +801,7 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "    -x --max-xgap    INT  max. number of allowed substitutions/gap-bases in a sliding window(-w/--win-size) [%d]\n", LONGCALLD_NOISY_REG_MAX_XGAPS);
     fprintf(stderr, "                          window with more than -x subs/gap-bases will be considered as noisy region\n");
     fprintf(stderr, "    -w --win-size    INT  window size for searching noisy region [%d]\n", LONGCALLD_NOISY_REG_SLIDE_WIN);
+    // fprintf(stderr, "    -D --merge-dis   INT  default max. distance to merge two potential noisy SV regions [%d]\n", LONGCALLD_NOISY_REG_MERGE_DIS);
     fprintf(stderr, "    -j --noisy-rat FLOAT  min. ratio of noisy reads in a window to call a noisy region [%.2f]\n", LONGCALLD_NOISY_REG_RATIO);
     // fprintf(stderr, "    -f --noisy-flank INT  flanking mask window size for noisy region [%d]\n", LONGCALLD_DENSE_FLANK_WIN);
     // fprintf(stderr, "    -c --end-clip    INT  max. number of clipping bases on both ends [%d]\n", LONGCALLD_NOISY_END_CLIP);
@@ -809,7 +828,7 @@ int call_var_main(int argc, char *argv[]) {
     // _err_cmd("%s\n", CMD);
     int c, op_idx; call_var_opt_t *opt = call_var_init_para();
     double realtime0 = realtime();
-    while ((c = getopt_long(argc, argv, "r:T:E:o:O:sml:Hb:C:c:d:M:B:a:n:x:w:j:L:f:p:g:Nt:hvV:", call_var_opt, &op_idx)) >= 0) {
+    while ((c = getopt_long(argc, argv, "r:T:E:o:O:sml:Hb:C:c:d:M:B:a:n:x:w:D:j:L:f:p:g:Nt:hvV:", call_var_opt, &op_idx)) >= 0) {
         switch(c) {
             case 'r': opt->ref_fa_fai_fn = strdup(optarg); break;
             // case 'b': cgp->var_block_size = atoi(optarg); break;
@@ -829,6 +848,8 @@ int call_var_main(int argc, char *argv[]) {
                     else if (strcmp(call_var_opt[op_idx].name, "all-ctg") == 0) opt->only_autosome = 0, opt->only_autosome_XY=0;
                     else if (strcmp(call_var_opt[op_idx].name, "autosome") == 0) opt->only_autosome = 1;
                     else if (strcmp(call_var_opt[op_idx].name, "autosome-XY") == 0) opt->only_autosome_XY = 1;
+                    else if (strcmp(call_var_opt[op_idx].name, "mosaic") == 0) opt->out_somatic = 1;
+                    else if (strcmp(call_var_opt[op_idx].name, "refine-bam") == 0) opt->refine_bam = 1;
                     break;
             case 's': opt->out_somatic = 1; break;
             case 'm': opt->out_methylation = 1; break;
@@ -845,6 +866,7 @@ int call_var_main(int argc, char *argv[]) {
             case 'w': opt->noisy_reg_slide_win = atoi(optarg); break;
             case 'p': opt->min_hap_full_reads = atoi(optarg); break;
             // case 'f': opt->min_no_hap_full_reads = atoi(optarg); break;
+            // case 'D': opt->noisy_reg_merge_dis = atoi(optarg); break;
             case 'j': opt->min_noisy_reg_ratio = atof(optarg); break;
             case 'L': opt->max_noisy_reg_len = atoi(optarg); break;
             // case 'c': opt->end_clip_reg = atoi(optarg); break;

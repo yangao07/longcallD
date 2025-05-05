@@ -4,8 +4,8 @@
 #include "call_var_main.h"
 
 void initialize_lgamma_cache(call_var_opt_t *opt) {
-    opt->min_lgamma_i = 0, opt->max_lgamma_i = 99;
-    for (int i = 0; i < 99; i++) {
+    opt->min_lgamma_i = 0, opt->max_lgamma_i = LONGCALLD_LGAMMA_MAX_I;
+    for (int i = opt->min_lgamma_i; i <= opt->max_lgamma_i; i++) {
         opt->lgamma_cache[i] = lgamma(i);
     }
 }
@@ -21,6 +21,24 @@ int log_likelilood(double prob) {
     if (prob < 0.00001) return -1000000;
     else if (prob > 0.99999) return 1000000;
     return log(prob);
+}
+
+// compare_int
+int compare_int(const void *a, const void *b) {
+    return (*(int *)a - *(int *)b);
+}
+
+int median_int(int *arr, int n) {
+    if (n <= 0) return 0; // handle empty array case
+    // sort arr
+    qsort(arr, n, sizeof(int), (int (*)(const void *, const void *))compare_int);
+    int med = n / 2;
+    if (n % 2 == 0) {
+        // return (arr[med - 1] + arr[med]) / 2; // average of two middle elements
+        return arr[med - 1]; // return the lower middle element for even length
+    } else {
+        return arr[med]; // middle element
+    }
 }
 
 // XXX pre-compute lgamma(alpha/beta/alpha+beta) for efficiency
@@ -53,6 +71,7 @@ double log_binom_pmf(int k, int n, double theta, const call_var_opt_t *opt) {
 
 // Log-Beta-Binomial PMF: log(P(k | n, α, β))
 double log_betabinom_pmf(int k, int n, int alpha, int beta, const call_var_opt_t *opt) {
+    // fprintf(stderr, "log_betabinom_pmf: k=%d, n=%d, alpha=%d, beta=%d\n", k, n, alpha, beta);
     return fast_lgamma(n + 1, opt) - fast_lgamma(k + 1, opt) - fast_lgamma(n - k + 1, opt)
            + log_beta(k + alpha, n - k + beta, opt) - log_beta(alpha, beta, opt);
 }

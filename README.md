@@ -11,15 +11,15 @@
 
 ## Updates (pre-release v0.0.5)
 
-* Add -s/--somatic to output somatic/mosaic variant
-* Add INFO:TSD/REPNAME for Alu/L1/SVA INS/DEL
-* Add -T/--trans-elem; output transposable element information for INS/DEL
-* Add --exclude-ctg & --all-ctg; --autosome-XY is default now
-* Fix lower case ref base
-* Add support for BAM/cs tag
+* Significant speed improvement (compiling mistake in last release)
+* Add --refine-bam: refine read alignment based on MSA in output BAM/CRAM
 * Add -Oz for compressed VCF output
+<!-- * Add -s/--somatic to output somatic/mosaic variant -->
+* Add --exclude-ctg & --all-ctg; --autosome-XY is default now
+* Add -T/--trans-elem; output transposable element information for INS/DEL
+* Add INFO:TSD;REPNAME in VCF for Alu/L1/SVA INS/DEL
+* Fix lower case ref base
 * Fix compiling in macOS-x64
-<!-- * Add option for ksw2 pairwise alignment -->
 <!-- * Add option for take TRF annotation as input -->
 
 
@@ -52,7 +52,7 @@ man ./longcallD.1
   - [Bioconda](#bioconda)
   - [Build from source](#build-from-source)
 - [Usage](#usage)
-  - [Variant calling with HiFi/Nanopore long reads](#variant-calling-with-hifinanopore-long-reads)
+  - [Variant calling with PacBio HiFi/Nanopore long reads](#variant-calling-with-pacbio-hifinanopore-long-reads)
   - [Region-specific variant calling](#region-specific-variant-calling)
   - [Variant calling and output phased long reads](#variant-calling-and-output-phased-long-reads)
   - [Variant calling from remote files](#variant-calling-from-remote-files)
@@ -100,7 +100,7 @@ cd longcallD-v0.0.5; make
 
 ## Usage
 LongcallD requires a **reference genome (FASTA)** and a **long-read BAM/CRAM** file as inputs. It outputs **phased variant calls in VCF format**.
-### Variant calling with HiFi/Nanopore long reads
+### Variant calling with PacBio HiFi/Nanopore long reads
 ```
 longcallD call -t16 ref.fa hifi.bam > hifi.vcf         # default for PacBio HiFi reads (--hifi)
 longcallD call -t16 ref.fa ont.bam --ont > ont.vcf     # for ONT reads

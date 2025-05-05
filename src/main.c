@@ -11,7 +11,7 @@ const char DESCRIP[100] = "local-haplotagging-based small and structural variant
 #ifndef LONGCALLD_VERSION
 const char LONGCALLD_VERSION[20] = "0.0.5";
 #endif
-const char CONTACT[30] = "yangao@ds.dfci.harvard.edu";
+const char CONTACT[50] = "yangao@ds.dfci.harvard.edu";
 int LONGCALLD_VERBOSE = 0;
 char *CMD;
 
@@ -23,10 +23,11 @@ static int usage(void) {//main usage
     fprintf(stderr, "Usage:   %s <command> [options]\n\n", PROG);
 
     fprintf(stderr, "Command: \n");
-    fprintf(stderr, "         call          call variants from long-read BAM\n");
+    fprintf(stderr, "         call          call variants from long-read BAM/CRAM\n");
     // fprintf(stderr, "         joint         joint variant calling for multiple samples\n");
     // fprintf(stderr, "         genotype      call genotype for given VCF\n");
     // fprintf(stderr, "         phase         phase given VCF based on long-read BAM\n");
+    // fprintf(stderr, "         realn         refine base-level alignment\n");
 
     fprintf(stderr, "\n");
     return 1;

@@ -42,7 +42,8 @@ cand_var_t *init_cand_vars_based_on_sites(int n_var_sites, var_site_t *var_sites
         } else cand_vars[i].alt_seq = NULL;
         // dynamic information, allocate and update during haplotype assignment
         cand_vars[i].hap_to_alle_profile = NULL; cand_vars[i].hap_to_cons_alle = NULL;
-        // TSD/TE information
+        // somatic/TSD/TE information
+        cand_vars[i].somatic_aux_info = NULL; // unset
         cand_vars[i].te_seq_i = -1; // unset
     }
     return cand_vars;
@@ -56,6 +57,7 @@ void free_cand_vars1(cand_var_t *cand_vars) {
         } free(cand_vars->strand_to_alle_covs);
     }
     if (cand_vars->alt_seq != NULL) free(cand_vars->alt_seq);
+    if (cand_vars->somatic_aux_info != NULL) free_somatic_var_aux_info(cand_vars->somatic_aux_info);
     if (cand_vars->tsd_len > 0) free(cand_vars->tsd_seq);
     if (cand_vars->hap_to_alle_profile != NULL) {
         for (int j = 0; j <= LONGCALLD_DEF_PLOID; ++j) {
@@ -147,7 +149,7 @@ int var_is_strand_bias(cand_var_t *var) {
 int var_is_homopolymer(const call_var_opt_t *opt, char *ref_seq, hts_pos_t ref_beg, hts_pos_t ref_end, cand_var_t *var) {
     // fprintf(stderr, "%d-%d: %s\n", ref_beg, ref_end, ref_seq);
     hts_pos_t start_pos, end_pos; // = var->pos, end_pos = var->pos;
-    int xid = opt->noisy_reg_max_xgaps;
+    int xid = opt->noisy_reg_max_xgaps; // XXX xid
     if (var->var_type == BAM_CDIFF) {
         start_pos = var->pos-1; end_pos = var->pos+1;
     } else if (var->var_type == BAM_CINS) {
@@ -201,7 +203,7 @@ int var_is_homopolymer(const call_var_opt_t *opt, char *ref_seq, hts_pos_t ref_b
 // XXX skip detection for long ins/del
 int var_is_repeat_region(const call_var_opt_t *opt, char *ref_seq, hts_pos_t ref_beg, hts_pos_t ref_end, cand_var_t *var) {
     hts_pos_t pos = var->pos; int ref_len = var->ref_len; int var_type = var->var_type;
-    uint8_t *ref_bseq, *alt_bseq; int len = 0, xid = opt->noisy_reg_max_xgaps;
+    uint8_t *ref_bseq, *alt_bseq; int len = 0, xid = opt->noisy_reg_max_xgaps; // XXX xid
     int is_repeat = 1;
     if (var_type == BAM_CDEL) { // [pos, pos+del_len*N] vs [pos+del_len, pos+del_len*(N+1)]
         // nst_nt4_table['A'] -> 0, 'C' -> 1, 'G' -> 2, 'T' -> 3, 'N' -> 4
@@ -264,7 +266,7 @@ int classify_var_cate(const call_var_opt_t *opt, char *ref_seq, hts_pos_t ref_be
     // remaining categories: CLEAN_HET(SNP/INDEL), CLEAN_HOM(SNP/INDEL), NOISY_REG_VAR (others)
     if (alt_af < min_af_thres) return LONGCALLD_LOW_AF_VAR; // needs to further check
     if ((double) var->low_qual_cov / (var->low_qual_cov + var->total_cov) >= min_noisy_reg_ratio) return LONGCALLD_NOISY_REG_VAR; // too many low-qual bases, needs to further check
-    if (alt_af > max_af_thres) return LONGCALLD_CAND_HOM_VAR; // unlikely germline het., likely hom or somatic, require full phasing info
+    if (alt_af > max_af_thres) return LONGCALLD_CLEAN_HOM_VAR; // unlikely germline het., likely hom or somatic, require full phasing info
     // snps & indels in homo/repeat regions
     if ((var->var_type == BAM_CINS || var->var_type == BAM_CDEL) && 
         (var_is_homopolymer(opt, ref_seq, ref_beg, ref_end, var) || var_is_repeat_region(opt, ref_seq, ref_beg, ref_end, var)))
@@ -371,7 +373,7 @@ void pre_process_noisy_regs(bam_chunk_t *chunk, call_var_opt_t *opt) {
             fprintf(stderr, "NoisyReg: %s:%d-%d %d\n", chunk->tname, cr_start(chunk->chunk_noisy_regs, i), cr_end(chunk->chunk_noisy_regs, i), cr_label(chunk->chunk_noisy_regs, i));
         }
     }
-    chunk->chunk_noisy_regs = cr_merge(chunk->chunk_noisy_regs, -1);
+    chunk->chunk_noisy_regs = cr_merge(chunk->chunk_noisy_regs, -1, opt->noisy_reg_merge_dis, opt->min_sv_len);
     if (LONGCALLD_VERBOSE >= 2) {
         fprintf(stderr, "After merge: %s:%" PRIi64 "-%" PRIi64 " %" PRIi64 " noisy regions\n", chunk->tname, chunk->reg_beg, chunk->reg_end, chunk->chunk_noisy_regs->n_r);
         for (int i = 0; i < chunk->chunk_noisy_regs->n_r; ++i) {
@@ -451,7 +453,7 @@ void post_process_noisy_regs(bam_chunk_t *chunk, call_var_opt_t *opt, int *var_i
         cr_add(noisy_regs, "cr", noisy_reg_start[reg_i], noisy_reg_end[reg_i], cr_label(chunk->chunk_noisy_regs, reg_i));
     }
     cr_index(noisy_regs); cr_destroy(chunk->chunk_noisy_regs);
-    chunk->chunk_noisy_regs = cr_merge(noisy_regs, 0);
+    chunk->chunk_noisy_regs = cr_merge(noisy_regs, 0, -1, -1);
     free(noisy_reg_start); free(noisy_reg_end);
 }
 
@@ -498,11 +500,10 @@ int var_is_low_comp(bam_chunk_t *chunk, const call_var_opt_t *opt, cand_var_t *v
 // SV:  n_reads >= 2 || n_reads >= 1 && is_TE
 // no somatic small indel
 int var_is_cand_somatic(bam_chunk_t *chunk, const call_var_opt_t *opt, cand_var_t *var) {
+    // if (var_is_low_comp(chunk, opt, var)) return 0;
     if (var->var_type == BAM_CDIFF) {
-        // return 0; // XXX NO SNVs
         if (var->alle_covs[1] >= opt->min_somatic_alt_dp) return 1;
     } else { // INDEL
-        // if (var_is_low_comp(chunk, opt, var)) return 0;
         if (var->alt_len >= opt->min_sv_len || var->ref_len >= opt->min_sv_len) {
             if (var->alle_covs[1] >= opt->min_somatic_alt_dp) return 1;
             else if (var->alle_covs[1] >= opt->min_somatic_te_dp && collect_te_info_from_var(opt, chunk, var) > 0) return 1;
@@ -582,7 +583,7 @@ int classify_cand_vars(bam_chunk_t *chunk, int n_var_sites, call_var_opt_t *opt)
     }
     if (noisy_var_cr->n_r > 0) {
         cr_index(noisy_var_cr);
-        cgranges_t *tmp_cr = cr_merge2(chunk->chunk_noisy_regs, noisy_var_cr, -1);
+        cgranges_t *tmp_cr = cr_merge2(chunk->chunk_noisy_regs, noisy_var_cr, -1, opt->noisy_reg_merge_dis, opt->min_sv_len);
         cr_destroy(chunk->chunk_noisy_regs);
         chunk->chunk_noisy_regs = tmp_cr;
     }
@@ -800,7 +801,7 @@ int merge_var_profile(bam_chunk_t *chunk, int n_reads_with_new_var, int n_new_va
                 read_var_profile_t *old_p1 = old_p + i;
                 read_var_profile_t *merged_p1 = merged_p + i;
                 if (old_p1->start_var_idx > old_var_i || old_p1->end_var_idx < old_var_i) continue;
-                update_read_var_profile_with_allele(merged_var_i, old_p1->alleles[old_var_i-old_p1->start_var_idx], merged_p1);
+                update_read_var_profile_with_allele(merged_var_i, old_p1->alleles[old_var_i-old_p1->start_var_idx], old_p1->alt_base_pos[old_var_i-old_p1->start_var_idx], old_p1->digar_i[old_var_i-old_p1->start_var_idx], merged_p1);
             }
             merged_var_i_to_cate[merged_var_i] = chunk->var_i_to_cate[old_var_i];
             merged_vars[merged_var_i++] = old_vars[old_var_i++];
@@ -810,7 +811,7 @@ int merge_var_profile(bam_chunk_t *chunk, int n_reads_with_new_var, int n_new_va
                 read_var_profile_t *new_p1 = new_p + i;
                 read_var_profile_t *merged_p1 = merged_p + i;
                 if (new_p1->start_var_idx > new_var_i || new_p1->end_var_idx < new_var_i) continue;
-                update_read_var_profile_with_allele(merged_var_i, new_p1->alleles[new_var_i-new_p1->start_var_idx], merged_p1);
+                update_read_var_profile_with_allele(merged_var_i, new_p1->alleles[new_var_i-new_p1->start_var_idx], new_p1->alt_base_pos[new_var_i-new_p1->start_var_idx], new_p1->digar_i[new_var_i-new_p1->start_var_idx], merged_p1);
             }
             merged_var_i_to_cate[merged_var_i] = new_var_cate[new_var_i]; //
             merged_vars[merged_var_i++] = new_vars[new_var_i++];
@@ -821,7 +822,7 @@ int merge_var_profile(bam_chunk_t *chunk, int n_reads_with_new_var, int n_new_va
                 read_var_profile_t *old_p1 = old_p + i;
                 read_var_profile_t *merged_p1 = merged_p + i;
                 if (old_p1->start_var_idx > old_var_i || old_p1->end_var_idx < old_var_i) continue;
-                update_read_var_profile_with_allele(merged_var_i, old_p1->alleles[old_var_i-old_p1->start_var_idx], merged_p1);
+                update_read_var_profile_with_allele(merged_var_i, old_p1->alleles[old_var_i-old_p1->start_var_idx], old_p1->alt_base_pos[old_var_i-old_p1->start_var_idx], old_p1->digar_i[old_var_i-old_p1->start_var_idx], merged_p1);
             }
             merged_var_i_to_cate[merged_var_i] = chunk->var_i_to_cate[old_var_i];
             merged_vars[merged_var_i++] = old_vars[old_var_i++];
@@ -835,7 +836,7 @@ int merge_var_profile(bam_chunk_t *chunk, int n_reads_with_new_var, int n_new_va
             read_var_profile_t *old_p1 = old_p + i;
             read_var_profile_t *merged_p1 = merged_p + i;
             if (old_p1->start_var_idx > old_var_i || old_p1->end_var_idx < old_var_i) continue;
-            update_read_var_profile_with_allele(merged_var_i, old_p1->alleles[old_var_i-old_p1->start_var_idx], merged_p1);
+            update_read_var_profile_with_allele(merged_var_i, old_p1->alleles[old_var_i-old_p1->start_var_idx], old_p1->alt_base_pos[old_var_i-old_p1->start_var_idx], old_p1->digar_i[old_var_i-old_p1->start_var_idx], merged_p1);
         }
         merged_var_i_to_cate[merged_var_i] = chunk->var_i_to_cate[old_var_i];
         merged_vars[merged_var_i++] = old_vars[old_var_i];
@@ -846,7 +847,7 @@ int merge_var_profile(bam_chunk_t *chunk, int n_reads_with_new_var, int n_new_va
             read_var_profile_t *new_p1 = new_p + i;
             read_var_profile_t *merged_p1 = merged_p + i;
             if (new_p1->start_var_idx > new_var_i || new_p1->end_var_idx < new_var_i) continue;
-            update_read_var_profile_with_allele(merged_var_i, new_p1->alleles[new_var_i-new_p1->start_var_idx], merged_p1);
+            update_read_var_profile_with_allele(merged_var_i, new_p1->alleles[new_var_i-new_p1->start_var_idx], new_p1->alt_base_pos[new_var_i-new_p1->start_var_idx], new_p1->digar_i[new_var_i-new_p1->start_var_idx], merged_p1);
         }
         merged_var_i_to_cate[merged_var_i] = new_var_cate[new_var_i];
         merged_vars[merged_var_i++] = new_vars[new_var_i];
@@ -897,7 +898,10 @@ read_var_profile_t *collect_read_var_profile(const call_var_opt_t *opt, bam_chun
                 fprintf(stderr, "Read: %s, start_var_i: %d, end_var_i: %d\n", bam_get_qname(read), p[i].start_var_idx, p[i].end_var_idx);
                 for (int j = 0; j <= p[i].end_var_idx-p[i].start_var_idx; ++j) {
                     fprintf(stderr, "P\tVar: (%d) %" PRId64 " %c", j, cand_vars[j+p[i].start_var_idx].pos, LONGCALLD_VAR_CATE_TYPE(var_i_to_cate[j+p[i].start_var_idx]));
-                    fprintf(stderr, " %d-%c-%d, allele: %d\n", cand_vars[j+p[i].start_var_idx].ref_len, BAM_CIGAR_STR[cand_vars[j+p[i].start_var_idx].var_type], cand_vars[j+p[i].start_var_idx].alt_len, p[i].alleles[j]);
+                    int alt_pos = p[i].alt_base_pos[j];
+                    int alt_qual = -1;
+                    if (alt_pos != -1) alt_qual = chunk->digars[i].qual[alt_pos];
+                    fprintf(stderr, " %d-%c-%d, allele: %d, alt_pos: %d, alt_qual: %d\n", cand_vars[j+p[i].start_var_idx].ref_len, BAM_CIGAR_STR[cand_vars[j+p[i].start_var_idx].var_type], cand_vars[j+p[i].start_var_idx].alt_len, p[i].alleles[j], alt_pos, alt_qual);
                 }
             }
         }
@@ -950,7 +954,7 @@ int make_variants(const call_var_opt_t *opt, bam_chunk_t *chunk, var_t **_var) {
     int64_t ovlp_n, *ovlp_b = 0, max_b = 0;
     var->vars = (var1_t*)malloc(n_cand_vars * sizeof(var1_t));
     int i = 0, is_hom, hom_alt_is_set, hom_alle, hap1_alle, hap2_alle;
-    int target_var_cate = LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CAND_HOM_VAR | LONGCALLD_NOISY_CAND_HET_VAR | LONGCALLD_NOISY_CAND_HOM_VAR;
+    int target_var_cate = LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CLEAN_HOM_VAR | LONGCALLD_NOISY_CAND_HET_VAR | LONGCALLD_NOISY_CAND_HOM_VAR;
     if (opt->out_somatic == 1) target_var_cate |= LONGCALLD_CAND_SOMATIC_VAR;
     for (int cand_i = 0; cand_i < n_cand_vars; ++cand_i) {
         if ((chunk->var_i_to_cate[cand_i] & target_var_cate) == 0) continue;
@@ -1475,7 +1479,7 @@ void update_cand_var_profile_from_cons_aln_str(aln_str_t *cons_aln_str, hts_pos_
         if (full_cover) {
             vars[i].total_cov++;
             if (allele_i != -1) vars[i].alle_covs[allele_i]++;
-            update_read_var_profile_with_allele(i, allele_i, p);
+            update_read_var_profile_with_allele(i, allele_i, -1, -1, p); // XXX read_base_pos: -1
         }
         if (vars[i].var_type == BAM_CINS) delta_ref_alt -= var_alt_len;
         else if (vars[i].var_type == BAM_CDEL) delta_ref_alt += var_ref_len;
@@ -1522,7 +1526,7 @@ void update_cand_var_profile_from_cons_aln_str21(int clu_idx, aln_str_t *cons_al
         if (full_cover) {
             vars[i].total_cov++;
             if (allele_i != -1) vars[i].alle_covs[allele_i]++;
-            update_read_var_profile_with_allele(i, allele_i, p);
+            update_read_var_profile_with_allele(i, allele_i, -1, -1, p); // XXX read_base_pos: -1
         }
         // update delta_ref_alt for both cons/var
         if (vars[i].var_type == BAM_CINS) {
@@ -1581,7 +1585,7 @@ int update_cand_var_profile_from_cons_aln_str2(bam_chunk_t *chunk, int *clu_n_se
         for (int j = 0; j < clu_n_seqs[i]; ++j) {
             int read_id = clu_read_ids[i][j];
             read_var_profile_t *p1 = *p + read_id;
-            if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "read: %s\n", bam_get_qname(chunk->reads[read_id]));
+            if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "%d: %s\n", read_id, bam_get_qname(chunk->reads[read_id]));
             aln_str_t *cons_aln_str = LONGCALLD_CONS_READ_ALN_STR(clu_aln_str, j);
             update_cand_var_profile_from_cons_aln_str21(i+1, cons_aln_str, noisy_reg_beg, *noisy_vars, n_vars, var_from_cons_idx, p1);
         }
@@ -1864,7 +1868,7 @@ int collect_somatic_var(bam_chunk_t *chunk, const call_var_opt_t *opt) {
             }
         }
     }
-    assign_somatic_hap_based_on_phased_reads(chunk, LONGCALLD_CAND_SOMATIC_VAR, opt);
+    assign_somatic_hap_based_on_phased_reads(opt, chunk, LONGCALLD_CAND_SOMATIC_VAR);
     return n_somatic_vars;
 }
 
@@ -1882,8 +1886,8 @@ void collect_var_main(const call_var_pl_t *pl, bam_chunk_t *chunk) {
         // collect reference and alternative alleles for all var sites
         // all cand vars, including true/false germline/somatic variants
         // XXX for noisy/repeat regions, we need to carefully pick the candidate variants, based on supporting counts & re-alignments
-        collect_cand_vars(opt, chunk, n_var_sites, var_sites); free(var_sites);
-    }
+        collect_cand_vars(opt, chunk, n_var_sites, var_sites);
+    } free(var_sites);
 
     // pre-process noisy regions (>5 XIDs in 100 win), not including low-complexity regions
     pre_process_noisy_regs(chunk, opt);
@@ -1900,11 +1904,11 @@ void collect_var_main(const call_var_pl_t *pl, bam_chunk_t *chunk) {
 
         // process candidate variants in the following order
         // within each round, use previously obtained phasing/haplotype information as intialization
-        //   1. LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CAND_HOM_VAR
-        //   2. LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CAND_HOM_VAR | LONGCALLD_NOISY_CAND_HET_VAR | LONGCALLD_NOISY_CAND_HOM_VAR
+        //   1. LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CLEAN_HOM_VAR
+        //   2. LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CLEAN_HOM_VAR | LONGCALLD_NOISY_CAND_HET_VAR | LONGCALLD_NOISY_CAND_HOM_VAR
         //   3. LONGCALLD_CAND_SOMATIC_VAR
         // 6. co-phasing and variant calling using clean region SNPs + indels
-        assign_hap_based_on_het_vars_kmeans(chunk, LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CAND_HOM_VAR, opt);
+        assign_hap_based_on_het_vars_kmeans(opt, chunk, LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CLEAN_HOM_VAR);
     }
     // 7. iteratively call variants in noisy regions and variant/read phasing
     if (chunk->chunk_noisy_regs != NULL && chunk->chunk_noisy_regs->n_r > 0) {
@@ -1923,15 +1927,15 @@ void collect_var_main(const call_var_pl_t *pl, bam_chunk_t *chunk) {
                     if (ret > 0) {
                         new_var = 1;
                         // update phasing/haplotype information every time a noisy region is processed
-                        // assign_hap_based_on_het_vars(chunk, LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CAND_HOM_VAR | LONGCALLD_NOISY_CAND_HET_VAR | LONGCALLD_NOISY_CAND_HOM_VAR, pl->opt);
-                        // assign_hap_based_on_het_vars_kmeans(chunk, LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CAND_HOM_VAR | LONGCALLD_NOISY_CAND_HET_VAR | LONGCALLD_NOISY_CAND_HOM_VAR, pl->opt);
+                        // assign_hap_based_on_het_vars(chunk, LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CLEAN_HOM_VAR | LONGCALLD_NOISY_CAND_HET_VAR | LONGCALLD_NOISY_CAND_HOM_VAR, pl->opt);
+                        // assign_hap_based_on_het_vars_kmeans(chunk, LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CLEAN_HOM_VAR | LONGCALLD_NOISY_CAND_HET_VAR | LONGCALLD_NOISY_CAND_HOM_VAR, pl->opt);
                     } else {
                         if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "No var: %s:%d-%d\n", chunk->tname, cr_start(chunk->chunk_noisy_regs, noisy_reg_i), cr_end(chunk->chunk_noisy_regs, noisy_reg_i));
                     }
                 } // unable to resolve the region
             }
             if (new_var) {
-                assign_hap_based_on_het_vars_kmeans(chunk, LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CAND_HOM_VAR | LONGCALLD_NOISY_CAND_HET_VAR | LONGCALLD_NOISY_CAND_HOM_VAR, opt);
+                assign_hap_based_on_het_vars_kmeans(opt, chunk, LONGCALLD_CAND_GERMLINE_VAR_CATE);
             }
             if (new_region_is_done == 0) break;
         }
