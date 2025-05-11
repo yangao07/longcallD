@@ -7,8 +7,6 @@
 
 extern int LONGCALLD_VERBOSE;
 
-char test_read_name[1024];
-char test_chr[1024];
 
 read_var_profile_t *init_read_var_profile(int n_reads, int n_total_vars) {
     read_var_profile_t *p = (read_var_profile_t*)malloc(n_reads * sizeof(read_var_profile_t));
@@ -16,12 +14,10 @@ read_var_profile_t *init_read_var_profile(int n_reads, int n_total_vars) {
         p[i].read_id = i;
         p[i].start_var_idx = -1; p[i].end_var_idx = -2;
         p[i].alleles = (int*)malloc(n_total_vars * sizeof(int));
-        p[i].alt_base_pos = (int*)malloc(n_total_vars * sizeof(int));
-        p[i].digar_i = (int*)malloc(n_total_vars * sizeof(int));
+        p[i].alt_qi = (int*)malloc(n_total_vars * sizeof(int));
         for (int j = 0; j < n_total_vars; ++j) {
             p[i].alleles[j] = -1; // init as unused
-            p[i].alt_base_pos[j] = -1; // init as unused
-            p[i].digar_i[j] = -1; // init as unused
+            p[i].alt_qi[j] = -1; // init as unused
         }
     }
     return p;
@@ -33,12 +29,10 @@ read_var_profile_t *init_read_var_profile_with_ids(int n_reads, int *read_ids, i
         p[i].read_id = read_ids[i];
         p[i].start_var_idx = -1; p[i].end_var_idx = -2;
         p[i].alleles = (int*)malloc(n_total_vars * sizeof(int));
-        p[i].alt_base_pos = (int*)malloc(n_total_vars * sizeof(int));
-        p[i].digar_i = (int*)malloc(n_total_vars * sizeof(int));
+        p[i].alt_qi = (int*)malloc(n_total_vars * sizeof(int));
         for (int j = 0; j < n_total_vars; ++j) {
             p[i].alleles[j] = -1; // init as unused
-            p[i].alt_base_pos[j] = -1; // init as unused
-            p[i].digar_i[j] = -1; // init as unused
+            p[i].alt_qi[j] = -1; // init as unused
         }
     }
     return p;
@@ -47,8 +41,7 @@ read_var_profile_t *init_read_var_profile_with_ids(int n_reads, int *read_ids, i
 void free_read_var_profile(read_var_profile_t *p, int n_reads) {
     for (int i = 0; i < n_reads; ++i) {
         if (p[i].alleles) free(p[i].alleles);
-        if (p[i].alt_base_pos) free(p[i].alt_base_pos);
-        if (p[i].digar_i) free(p[i].digar_i);
+        if (p[i].alt_qi) free(p[i].alt_qi);
     }
     free(p);
 }
@@ -132,7 +125,6 @@ xid_queue_t *init_xid_queue(int max_sites, int max_s, int win) {
 
 void realloc_xid_queue(xid_queue_t *q) {
     if (q->rear+1 >= q->size_m) {
-        fprintf(stderr, "realloc xid_queue: %s %s\n", test_chr, test_read_name);
         q->size_m *= 2;
         q->pos = (hts_pos_t*)realloc(q->pos, q->size_m * sizeof(hts_pos_t));
         q->counts = (int*)realloc(q->counts, q->size_m * sizeof(int));
@@ -226,14 +218,13 @@ void update_var_site_with_allele(cand_var_t *cand_var, int is_low_qual, uint8_t 
     cand_var->strand_to_alle_covs[strand][allele_i] += 1; // strand-wise: 0:forward/1:reverse -> allele_i -> read count
 }
 
-void update_read_var_profile_with_allele(int var_i, int allele_i, int alt_read_base_pos, int digar_i, read_var_profile_t *read_var_profile) {
+void update_read_var_profile_with_allele(int var_i, int allele_i, int alt_qi, read_var_profile_t *read_var_profile) {
     // even allele_i is -1/-2, we still set it XXX
     if (read_var_profile->start_var_idx == -1) read_var_profile->start_var_idx = var_i;
     read_var_profile->end_var_idx = var_i;
     int _var_i = var_i - read_var_profile->start_var_idx;
     read_var_profile->alleles[_var_i] = allele_i; // ref:0, alt:1~n, or -1: not ref/alt
-    read_var_profile->alt_base_pos[_var_i] = alt_read_base_pos; // position of alt base in read, -1 if not alt
-    read_var_profile->digar_i[_var_i] = digar_i; // index of digar in digar_t
+    read_var_profile->alt_qi[_var_i] = alt_qi; // position of alt base in read, -1 if not alt
 }
 
 
@@ -347,7 +338,7 @@ int update_read_var_profile_from_digar(const call_var_opt_t *opt, bam_chunk_t *c
         ret = comp_ovlp_var_site(&var_site0, &digar_var_site, &is_ovlp);
         if (is_ovlp == 0) { // no overlapping
             if (ret < 0) { // var_site < digar_var_site: ref_allele
-                update_read_var_profile_with_allele(var_i, 0, -1, -1, read_var_profile); //is_in_noisy_reg(var_site0.pos, digar->noisy_regs));
+                update_read_var_profile_with_allele(var_i, 0, -1, read_var_profile); //is_in_noisy_reg(var_site0.pos, digar->noisy_regs));
                 var_i++;
             } else if (ret > 0) { // var_site > digar_var_site
                 digar_i++;
@@ -359,10 +350,10 @@ int update_read_var_profile_from_digar(const call_var_opt_t *opt, bam_chunk_t *c
             if (ret == 0) { // exact the same with var_site
                 allele_i = get_alt_allele_idx(cand_vars+var_i, digar->digars+digar_i, digar->bseq);
                 if (ave_qual < opt->min_bq) allele_i = -2;
-                update_read_var_profile_with_allele(var_i, allele_i, var_read_pos, digar_i, read_var_profile); // is_in_noisy_reg(var_site0.pos, digar->noisy_regs));
+                update_read_var_profile_with_allele(var_i, allele_i, var_read_pos, read_var_profile); // is_in_noisy_reg(var_site0.pos, digar->noisy_regs));
                 var_i++;
             } else {
-                update_read_var_profile_with_allele(var_i, -1, -1, -1, read_var_profile); // is_in_noisy_reg(var_site0.pos, digar->noisy_regs));
+                update_read_var_profile_with_allele(var_i, -1, -1, read_var_profile); // is_in_noisy_reg(var_site0.pos, digar->noisy_regs));
                 var_i++;
             }
         }
@@ -370,7 +361,7 @@ int update_read_var_profile_from_digar(const call_var_opt_t *opt, bam_chunk_t *c
     for (; var_i < n_cand_vars; ++var_i) {
         if (cand_vars[var_i].pos > pos_end) break;
         if (is_in_noisy_reg(cand_vars[var_i].pos, digar->noisy_regs)) continue;
-        update_read_var_profile_with_allele(var_i, 0, -1, -1, read_var_profile); // is_in_noisy_reg(cand_vars[var_i].pos, digar->noisy_regs));
+        update_read_var_profile_with_allele(var_i, 0, -1, read_var_profile); // is_in_noisy_reg(cand_vars[var_i].pos, digar->noisy_regs));
     }
     return cur_start_i;
 }
@@ -460,6 +451,7 @@ int collect_noisy_region_len(cgranges_t *noisy_reg) {
     return len;
 }
 
+// XXX for ONT palindrome, ignore the long clipping
 // if [sa_pos, sa_end] overlaps with [primary_pos, primary_end] by over 90% of the length, return 1, else return 0
 int check_ont_palindrome(hts_pos_t primary_pos, hts_pos_t primary_end, hts_pos_t sa_pos, hts_pos_t sa_end) {
     hts_pos_t primary_len = primary_end - primary_pos + 1, sa_len = sa_end - sa_pos + 1;
@@ -476,21 +468,24 @@ int check_ont_palindrome(hts_pos_t primary_pos, hts_pos_t primary_end, hts_pos_t
 }
 
 // return 
-//   1: if clipping is potentially noisy
-//   0: if clipping is supplementary alignment (palindrome for ont)
-int check_noisy_end_clip(const call_var_opt_t *opt, bam1_t *read) {
+//   1: palindrome
+//   0: not
+int is_ont_palindrome_clip(const call_var_opt_t *opt, bam1_t *read) {
+    int res = 0; char *sa_value = NULL;
     if (opt->is_ont)  { // check SA tag
         hts_pos_t primary_pos = read->core.pos+1, primary_end = bam_endpos(read);
         uint8_t *sa_tag = bam_aux_get(read, "SA");  // Get SA tag
         if (sa_tag) { // collect mapping chrom, pos, strand, end pos, MAPQ, NM
-            char *sa_value = bam_aux2Z(sa_tag);
+            // fprintf(stderr, "is_ont_palindrome_clip: %s\n", bam_get_qname(read));
+            char *sa = bam_aux2Z(sa_tag);
+            sa_value = strdup(sa);
             char *sa_entry = strtok(sa_value, ";");
             while (sa_entry) {
-                char rname[100], cigar[100], strand;
-                int pos, mapq, flag;
-                
+                int sa_entry_len = strlen(sa_entry);
+                char *rname = (char*)malloc((sa_entry_len+1) * sizeof(char));
+                char *cigar = (char*)malloc((sa_entry_len+1) * sizeof(char));
+                char strand; int pos, mapq, flag;
                 sscanf(sa_entry, "%[^,],%d,%c,%[^,],%d,%d", rname, &pos, &strand, cigar, &mapq, &flag);
-
                 // Estimate end position from CIGAR
                 int32_t sa_end_pos = pos;
                 char *cptr = cigar;
@@ -501,16 +496,19 @@ int check_noisy_end_clip(const call_var_opt_t *opt, bam1_t *read) {
                     }
                     cptr++;
                 }
+                free(cigar); free(rname);
                 sa_entry = strtok(NULL, ";");
                 // if any SA entry is a palindrome, then it is not a noisy region
                 if (check_ont_palindrome(primary_pos, primary_end, pos, sa_end_pos)) {
                     if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "palindrome: %s %" PRIi64 "-%" PRIi64 ", sa: %s %d-%d\n", bam_get_qname(read), primary_pos, primary_end, rname, pos, sa_end_pos);
-                    return 0;
+                    res = 1;
+                    break;
                 }
             }
         }
     }
-    return 1;
+    if (sa_value != NULL) free(sa_value);
+    return res;
 }
 
 // is_low_qual: low base quality
@@ -536,6 +534,11 @@ int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct 
     hts_pos_t noisy_start = -1, noisy_end = -1; int cr_q_start = -1, cr_q_end = -1;
     int n_total_cand_vars = 0;
 
+    int is_palindrome = is_ont_palindrome_clip(opt, read); int left_clip_is_palindrome = 0, right_clip_is_palindrome = 0;
+    if (is_palindrome) {
+        if (digar->is_rev) left_clip_is_palindrome = 1;
+        else right_clip_is_palindrome = 1;
+    }
     for (int i = 0; i < n_cigar; i++) {
         int op = bam_cigar_op(cigar[i]), len = bam_cigar_oplen(cigar[i]);
         if (op == BAM_CDIFF) {
@@ -583,15 +586,16 @@ int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct 
             qi += len;
         } else if (op == BAM_CSOFT_CLIP || op == BAM_CHARD_CLIP) {
             _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
-            set_digar(_digars+_n_digar, pos, op, len, qi, 0, NULL); // clipping
+            if ((i == 0 && left_clip_is_palindrome) || (i != 0 && right_clip_is_palindrome))
+                set_digar(_digars+_n_digar, pos, BAM_CHARD_CLIP, len, qi, 0, NULL); // palindrome
+            else set_digar(_digars+_n_digar, pos, op, len, qi, 0, NULL); // clipping
             _n_digar++; // push_xid_queue(q, pos, 0, 0);
             if (len > end_clip_reg) {
-                if (check_noisy_end_clip(opt, read)) {
-                    if (i == 0) {
-                        if (pos > 1) cr_add(digar->noisy_regs, "cr", pos-1, pos+end_clip_reg_flank_win, 0); // left end
-                    } else {
-                        if (pos < tlen) cr_add(digar->noisy_regs, "cr", pos-1-end_clip_reg_flank_win, pos, 0); // right end
-                    }
+                if (i == 0 && !left_clip_is_palindrome) {
+                    if (pos > 1) cr_add(digar->noisy_regs, "cr", pos-1, pos+end_clip_reg_flank_win, 0); // left end
+                    n_total_cand_vars++;
+                } else if (i != 0 && !right_clip_is_palindrome) {
+                    if (pos < tlen) cr_add(digar->noisy_regs, "cr", pos-1-end_clip_reg_flank_win, pos, 0); // right end
                     n_total_cand_vars++;
                 }
             }
@@ -677,18 +681,23 @@ int collect_digar_from_cs_tag(bam_chunk_t *chunk, bam1_t *read, const struct cal
     hts_pos_t noisy_start = -1, noisy_end = -1; int cr_q_start = -1, cr_q_end = -1;
     int n_total_cand_vars = 0;
 
+    int is_palindrome = is_ont_palindrome_clip(opt, read); int left_clip_is_palindrome = 0, right_clip_is_palindrome = 0;
+    if (is_palindrome) {
+        if (digar->is_rev) left_clip_is_palindrome = 1;
+        else right_clip_is_palindrome = 1;
+    }
+
     // left-end clipping
     if (bam_cigar_op(cigar[0]) == BAM_CSOFT_CLIP || bam_cigar_op(cigar[0]) == BAM_CHARD_CLIP) {
         int len = bam_cigar_oplen(cigar[0]);
         _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
-        set_digar(_digars+_n_digar, pos, bam_cigar_op(cigar[0]), len, qi, 0, NULL); // clipping
+        if (left_clip_is_palindrome) set_digar(_digars+_n_digar, pos, BAM_CHARD_CLIP, len, qi, 0, NULL); // palindrome
+        else set_digar(_digars+_n_digar, pos, bam_cigar_op(cigar[0]), len, qi, 0, NULL); // clipping
         _n_digar++; // push_xid_queue(q, pos, 0, 0);
-        if (len > end_clip_reg) {
-            if (check_noisy_end_clip(opt, read)) {
-                if (pos > 1) cr_add(digar->noisy_regs, "cr", pos-1, pos+end_clip_reg_flank_win, 0); // left end
-                // if (pos < tlen) cr_add(digar->noisy_regs, "cr", pos-1-end_clip_reg_flank_win, pos, 0); // right end
-                n_total_cand_vars++;
-            }
+        if (len > end_clip_reg && !left_clip_is_palindrome) {
+            if (pos > 1) cr_add(digar->noisy_regs, "cr", pos-1, pos+end_clip_reg_flank_win, 0); // left end
+            // if (pos < tlen) cr_add(digar->noisy_regs, "cr", pos-1-end_clip_reg_flank_win, pos, 0); // right end
+            n_total_cand_vars++;
         }
         if (bam_cigar_op(cigar[0]) == BAM_CSOFT_CLIP) qi += len;
     }
@@ -760,13 +769,12 @@ int collect_digar_from_cs_tag(bam_chunk_t *chunk, bam1_t *read, const struct cal
     if (bam_cigar_op(cigar[n_cigar-1]) == BAM_CSOFT_CLIP || bam_cigar_op(cigar[n_cigar-1]) == BAM_CHARD_CLIP) {
         int len = bam_cigar_oplen(cigar[n_cigar-1]);
         _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
-        set_digar(_digars+_n_digar, pos, bam_cigar_op(cigar[n_cigar-1]), len, qi, 0, NULL); // clipping
+        if (right_clip_is_palindrome) set_digar(_digars+_n_digar, pos, BAM_CHARD_CLIP, len, qi, 0, NULL); // palindrome
+        else set_digar(_digars+_n_digar, pos, bam_cigar_op(cigar[n_cigar-1]), len, qi, 0, NULL); // clipping
         _n_digar++; // push_xid_queue(q, pos, 0, 0);
-        if (len > end_clip_reg) {
-            if (check_noisy_end_clip(opt, read)) {
-                if (pos < tlen) cr_add(digar->noisy_regs, "cr", pos-1-end_clip_reg_flank_win, pos, 0); // right end
-                n_total_cand_vars++;
-            }
+        if (len > end_clip_reg && !right_clip_is_palindrome) {
+            if (pos < tlen) cr_add(digar->noisy_regs, "cr", pos-1-end_clip_reg_flank_win, pos, 0); // right end
+            n_total_cand_vars++;
         }
         if (bam_cigar_op(cigar[n_cigar-1]) == BAM_CSOFT_CLIP) qi += len;
     }
@@ -833,6 +841,12 @@ int collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct cal
     xid_queue_t *q = init_xid_queue(rlen, max_s, win);
     hts_pos_t noisy_start = -1, noisy_end = -1; int cr_q_start = -1, cr_q_end = -1;
     int n_total_cand_vars = 0;
+
+    int is_palindrome = is_ont_palindrome_clip(opt, read); int left_clip_is_palindrome = 0, right_clip_is_palindrome = 0;
+    if (is_palindrome) {
+        if (digar->is_rev) left_clip_is_palindrome = 1;
+        else right_clip_is_palindrome = 1;
+    }
 
     int last_eq_len = 0;
     for (int i = 0; i < n_cigar; ++i) {
@@ -918,15 +932,16 @@ int collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct cal
             qi += len;
         } else if (op == BAM_CSOFT_CLIP || op == BAM_CHARD_CLIP) {
             _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
-            set_digar(_digars+_n_digar, pos, op, len, qi, 0, NULL); // clipping
+            if ((i == 0 && left_clip_is_palindrome) || (i != 0 && right_clip_is_palindrome))
+                set_digar(_digars+_n_digar, pos, BAM_CHARD_CLIP, len, qi, 0, NULL); // palindromic: using HARD_CLIP
+            else set_digar(_digars+_n_digar, pos, op, len, qi, 0, NULL); // normal clipping
             _n_digar++; // push_xid_queue(q, pos, 0, 0);
             if (len > end_clip_reg) {
-                if (check_noisy_end_clip(opt, read)) {
-                    if (i == 0) {
-                        if (pos > 1) cr_add(digar->noisy_regs, "cr", pos-1, pos+end_clip_reg_flank_win, 0); // left end
-                    } else {
-                        if (pos < tlen) cr_add(digar->noisy_regs, "cr", pos-1-end_clip_reg_flank_win, pos, 0); // right end
-                    }
+                if (i == 0 && !left_clip_is_palindrome) {
+                    if (pos > 1) cr_add(digar->noisy_regs, "cr", pos-1, pos+end_clip_reg_flank_win, 0); // left end
+                    n_total_cand_vars++;
+                } else if (i != 0 && !right_clip_is_palindrome) {
+                    if (pos < tlen) cr_add(digar->noisy_regs, "cr", pos-1-end_clip_reg_flank_win, pos, 0); // right end
                     n_total_cand_vars++;
                 }
             }
@@ -998,8 +1013,11 @@ int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct ca
     hts_pos_t noisy_start = -1, noisy_end = -1; int cr_q_start = -1, cr_q_end = -1;
     int n_total_cand_vars = 0;
 
-    strcpy(test_read_name, bam_get_qname(read));
-    strcpy(test_chr, chunk->tname);
+    int is_palindrome = is_ont_palindrome_clip(opt, read); int left_clip_is_palindrome = 0, right_clip_is_palindrome = 0;
+    if (is_palindrome) {
+        if (digar->is_rev) left_clip_is_palindrome = 1;
+        else right_clip_is_palindrome = 1;
+    }
 
     for (int i = 0; i < n_cigar; ++i) {
         int op = bam_cigar_op(cigar[i]);
@@ -1069,15 +1087,16 @@ int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct ca
             qi += len;
         } else if (op == BAM_CSOFT_CLIP || op == BAM_CHARD_CLIP) {
             _uni_realloc(_digars, _n_digar, _m_digar, digar1_t);
-            set_digar(_digars+_n_digar, pos, BAM_CSOFT_CLIP, len, qi, 0, NULL); // clipping 
+            if ((i == 0 && left_clip_is_palindrome) || (i != 0 && right_clip_is_palindrome))
+                set_digar(_digars+_n_digar, pos, BAM_CHARD_CLIP, len, qi, 0, NULL); // palindromic: using HARD_CLIP
+            else set_digar(_digars+_n_digar, pos, op, len, qi, 0, NULL); // clipping 
             _n_digar++; //push_xid_queue(q, pos, 0, 0);
             if (len > end_clip_reg) {
-                if (check_noisy_end_clip(opt, read)) {
-                    if (i == 0) {
-                        if (pos > 1) cr_add(digar->noisy_regs, "cr", pos-1, pos+end_clip_reg_flank_win, 0); // left end
-                    } else {
-                        if (pos < tlen) cr_add(digar->noisy_regs, "cr", pos-1-end_clip_reg_flank_win, pos, 0); // right end
-                    }
+                if (i == 0 && !left_clip_is_palindrome) {
+                    if (pos > 1) cr_add(digar->noisy_regs, "cr", pos-1, pos+end_clip_reg_flank_win, 0); // left end
+                    n_total_cand_vars++;
+                } else if (i != 0 && !right_clip_is_palindrome) {
+                    if (pos < tlen) cr_add(digar->noisy_regs, "cr", pos-1-end_clip_reg_flank_win, pos, 0); // right end
                     n_total_cand_vars++;
                 }
             }
@@ -1483,7 +1502,7 @@ int update_bam1_tags(bam1_t *b, digar1_t *digar, int n_digar, const char *ref_se
         // fprintf(stderr, "MD1: %s\n", MD->s);
         // fprintf(stderr, "MD2: %s\n", (char*)bam_aux2Z(md_tag));
         if (strcmp(MD->s, (char*)bam_aux2Z(md_tag)) != 0) {
-            fprintf(stderr, "MD tag is not identical %s: %s != %s\n", bam_get_qname(b), MD->s, (char*)bam_aux2Z(md_tag));
+            // fprintf(stderr, "MD tag is not identical %s: %s != %s\n", bam_get_qname(b), MD->s, (char*)bam_aux2Z(md_tag));
             bam_aux_del(b, md_tag);
             bam_aux_append(b, "MD", 'Z', MD->l+1, (uint8_t*)MD->s);
         }
@@ -1493,7 +1512,7 @@ int update_bam1_tags(bam1_t *b, digar1_t *digar, int n_digar, const char *ref_se
     if (cs_tag != NULL) {
         kstring_t *cs = get_cs_from_digar(digar, n_digar, ref_seq, ref_beg, ref_end);
         if (strcmp(cs->s, (char*)bam_aux2Z(cs_tag)) != 0) {
-            fprintf(stderr, "CS tag is not identical %s: %s != %s\n", bam_get_qname(b), cs->s, (char*)bam_aux2Z(cs_tag));
+            // fprintf(stderr, "CS tag is not identical %s: %s != %s\n", bam_get_qname(b), cs->s, (char*)bam_aux2Z(cs_tag));
             bam_aux_del(b, cs_tag);
             bam_aux_append(b, "cs", 'Z', cs->l+1, (uint8_t*)cs->s);
         }
@@ -1520,6 +1539,13 @@ int refine_bam1(bam_chunk_t *chunk, int read_i, bam1_t *b) {
         new_cigar = longcalld_push_cigar(&new_n_cigar, &new_m_cigar, new_cigar,
                              chunk->digars[read_i].digars[i].type,
                              chunk->digars[read_i].digars[i].len);
+    }
+    // XXX currently, no supp alignment will be processed/generated
+    // fix CLIP in CIGAR, change HARD_CLIP in primary CIGAR to SOFT_CLIP
+    if (!(b->core.flag & BAM_FSUPPLEMENTARY)) {
+        if ((new_cigar[0] & BAM_CIGAR_MASK) == BAM_CHARD_CLIP) new_cigar[0] = (new_cigar[0] & ~BAM_CIGAR_MASK) | BAM_CSOFT_CLIP;
+        if ((new_cigar[new_n_cigar-1] & BAM_CIGAR_MASK) == BAM_CHARD_CLIP) new_cigar[new_n_cigar-1] = (new_cigar[new_n_cigar-1] & ~BAM_CIGAR_MASK) | BAM_CSOFT_CLIP;
+    } else { // TODO: handle supplementary alignments
     }
     uint32_t *old_cigar = bam_get_cigar(b); int old_n_cigar = b->core.n_cigar;
     if (cigar_is_idential(old_cigar, old_n_cigar, new_cigar, new_n_cigar)) {

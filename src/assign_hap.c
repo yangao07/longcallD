@@ -209,6 +209,7 @@ int assign_read_hap_based_on_cons_alle(int read_i, cand_var_t *cand_vars, read_v
     else if (max_score == 0 && min_score == 0) return 0; // tied
     else if (max_score > 0) {
         // fprintf(stderr, "Error, should not go to this line. n_clean_reject: %d,%d, hap_scores: %d,%d, max_hap: %d, %d\n", n_clean_reject[0], n_clean_reject[1], hap_scores[1], hap_scores[2], max_hap, max_score);
+        // XXX for ONT this is not good!!!
         if (n_clean_reject[max_hap-1] >= 2) return -1; // reject if both haplotype have too many clean rejects
         else return max_hap;
     } else {
@@ -391,7 +392,7 @@ int iter_update_var_hap_cons_phase_set(bam_chunk_t *chunk, int *var_idx, read_va
 }
 
 // update read's haps & var's hap_to_cons_alle
-int iter_update_var_hap_to_cons_alle(bam_chunk_t *chunk, int *var_idx, int n_cand_vars, read_var_profile_t *p, cand_var_t *cand_vars, int *var_i_to_cate, int target_var_cate) {
+int iter_update_var_hap_to_cons_alle(const call_var_opt_t *opt, bam_chunk_t *chunk, int *var_idx, int n_cand_vars, read_var_profile_t *p, cand_var_t *cand_vars, int *var_i_to_cate, int target_var_cate) {
     int **cur_hap_to_cons_alle = (int**)malloc(n_cand_vars * sizeof(int*));
     for (int _var_i = 0; _var_i < n_cand_vars; ++_var_i) {
         int var_i = var_idx[_var_i]; cand_var_t *var = cand_vars+var_i;
@@ -405,8 +406,9 @@ int iter_update_var_hap_to_cons_alle(bam_chunk_t *chunk, int *var_idx, int n_can
     var_init_hap_to_alle_profile(cand_vars, var_idx, n_cand_vars);
     for (int read_i = 0; read_i < chunk->n_reads; ++read_i) {
         if (chunk->is_skipped[read_i]) continue;
-        // hap == -1 XXX
-        int hap = assign_read_hap_based_on_cons_alle(read_i, cand_vars, p, var_i_to_cate, target_var_cate);
+        int hap;
+        if (opt->is_ont) hap = init_assign_read_hap_based_on_cons_alle(read_i, cand_vars, p, var_i_to_cate, target_var_cate);
+        else hap = assign_read_hap_based_on_cons_alle(read_i, cand_vars, p, var_i_to_cate, target_var_cate);
         if (hap == -1) hap = 0;
         chunk->haps[read_i] = hap;
         update_var_hap_profile_based_on_read_hap(read_i, hap, cand_vars, p, var_i_to_cate, target_var_cate);
@@ -499,7 +501,7 @@ int assign_hap_based_on_het_vars_kmeans(const call_var_opt_t *opt, bam_chunk_t *
         // update var->hap_to_cons_alle & var->phase_set
         int changed_hap1 = iter_update_var_hap_cons_phase_set(chunk, valid_var_idx, p, cand_vars, n_valid_vars, var_i_to_cate);
         // update
-        int changed_hap2 = iter_update_var_hap_to_cons_alle(chunk, valid_var_idx, n_valid_vars, p, cand_vars, var_i_to_cate, target_var_cate);
+        int changed_hap2 = iter_update_var_hap_to_cons_alle(opt, chunk, valid_var_idx, n_valid_vars, p, cand_vars, var_i_to_cate, target_var_cate);
         if (changed_hap1 == 0 && changed_hap2 == 0) break;
         else {
             if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "changed_hap1: %d changed_hap2: %d\n", changed_hap1, changed_hap2);
@@ -602,11 +604,11 @@ int get_min_dis_to_het_var(bam_chunk_t *chunk, int var_i) {
     return min_dis;
 }
 
-int get_read_win_min_qual(const call_var_opt_t *opt, digar_t *digar, int read_base_pos) {
+int get_read_win_min_qual(const call_var_opt_t *opt, digar_t *digar, int alt_qi) {
     uint8_t *qual = digar->qual; int qlen = digar->qlen;
     int flank_win_size = 3; // XXX opt->read_win_size; 5? 3+1+3
-    int start = MAX(0, read_base_pos - flank_win_size);
-    int end = MIN(read_base_pos + flank_win_size, qlen - 1);
+    int start = MAX(0, alt_qi - flank_win_size);
+    int end = MIN(alt_qi + flank_win_size, qlen - 1);
     int min_qual = INT32_MAX; // default min qual
     for (int i = start; i <= end; ++i) {
         if (qual[i] < min_qual) min_qual = qual[i];
@@ -634,34 +636,26 @@ int digar_is_var(bam_chunk_t *chunk, int var_i, digar1_t *digar1) {
 
 // check if the read has indel error which is not a candidate variant
 // XXX add digar_i to read_var_allele_profile???
-int get_dis_to_seq_error(bam_chunk_t *chunk, int var_i, int digar_i, digar_t *digar, int read_base_pos, int only_indel) {
-    cand_var_t *var = chunk->cand_vars + var_i;
+int get_dis_to_seq_error(bam_chunk_t *chunk, int var_i, digar_t *digar, int var_type, int var_len, int alt_qi, int only_indel) {
     int dis_to_seq_error = 10; // maximum distance to indel error
-    int qi = digar->digars[digar_i].qi; // read base position in the digar
-    for (int i = digar_i+1; i < digar->n_digar; ++i) {
+    for (int i = 0; i < digar->n_digar; ++i) {
         digar1_t *digar1 = digar->digars + i;
-        if (digar1->qi - qi > dis_to_seq_error) break; // no need to check further
         if (only_indel && digar1->type != BAM_CINS && digar1->type != BAM_CDEL) continue; // only check indels
-        if (!only_indel && digar1->type == BAM_CEQUAL) continue; // skip equal bases
+        if (!only_indel && digar1->type != BAM_CINS && digar1->type != BAM_CDEL && digar1->type != BAM_CDIFF) continue; // skip equal bases
+        if (alt_qi - digar1->qi > dis_to_seq_error) continue;
+        if (alt_qi == digar1->qi && digar1->type == var_type && digar1->len == var_len) continue; // skip itself
+        if (digar1->qi - alt_qi > dis_to_seq_error) break; // no need to check further
         if (digar_is_var(chunk, var_i, digar1)) continue;
-        dis_to_seq_error = MIN(dis_to_seq_error, digar1->qi - qi);
-    }
-    for (int i = digar_i-1; i >= 0; --i) {
-        digar1_t *digar1 = digar->digars + i;
-        if (qi - digar1->qi > dis_to_seq_error) break; // no need to check further
-        if (only_indel && digar1->type != BAM_CINS && digar1->type != BAM_CDEL) continue; // only check indels
-        if (!only_indel && digar1->type == BAM_CEQUAL) continue; // skip equal bases
-        if (digar_is_var(chunk, var_i, digar1)) continue;
-        dis_to_seq_error = MIN(dis_to_seq_error, qi - digar1->qi);
+        dis_to_seq_error = MIN(dis_to_seq_error, ABS(digar1->qi - alt_qi));
     }
     return dis_to_seq_error;
 }
 // int_cmp
 
-int get_read_win_median_qual(digar_t *d, int read_base_pos, int len) {
+int get_read_win_median_qual(digar_t *d, int alt_qi, int len) {
     int *quals = (int*)malloc(len * sizeof(int));
     for (int i = 0; i < len; ++i) {
-        int pos = read_base_pos + i;
+        int pos = alt_qi + i;
         if (pos < 0 || pos >= d->qlen) {
             quals[i] = 0; // default min qual
         } else {
@@ -673,10 +667,11 @@ int get_read_win_median_qual(digar_t *d, int read_base_pos, int len) {
     return median_qual;
 }
 
-int get_alt_qual(digar_t *d, int digar_i, int read_base_pos) {
-    if (d->digars[digar_i].type == BAM_CDIFF) return d->qual[read_base_pos];
-    else if (d->digars[digar_i].type == BAM_CINS) return get_read_win_median_qual(d, read_base_pos, d->digars[digar_i].len);
-    else return get_read_win_median_qual(d, read_base_pos-1, 2);
+int get_alt_qual(digar_t *d, int var_type, int var_len, int alt_qi) {
+    if (var_type == BAM_CDIFF) return d->qual[alt_qi];
+    else if (var_type == BAM_CINS) return get_read_win_median_qual(d, alt_qi, var_len);
+    else if (var_type == BAM_CDEL) return get_read_win_median_qual(d, alt_qi-1, 2);
+    else return d->qual[alt_qi];
 }
 
 // consider both SNV and INDEL
@@ -694,17 +689,17 @@ cand_somatic_var_aux_info_t *collect_somatic_var_aux_info(const call_var_opt_t *
         int hap = chunk->haps[read_i]; hts_pos_t phase_set = chunk->phase_sets[read_i];
         if (hap != alt_hap || phase_set != ps) continue; // only collect reads with the same haplotype and phase set
         read_var_profile_t *p1 = p + read_i; int var_idx = var_i - p1->start_var_idx; int alle_i = p1->alleles[var_idx];
-        int read_base_pos = p1->alt_base_pos[var_idx]; int digar_i = p1->digar_i[var_idx];
+        int alt_qi = p1->alt_qi[var_idx];
         digar_t *d = chunk->digars + read_i;
         // if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "read %s %" PRIi64 " hap: %d phase_set: %" PRId64 " alle_i: %d\n", bam_get_qname(chunk->reads[read_i]), var->pos, hap, phase_set, alle_i);
         aux_info->hap_total_dp += 1;
-        if (alle_i == 1 && read_base_pos != -1) { // read_base_pos == -1: noisy region
+        if (alle_i == 1 && alt_qi != -1) {
             if (d->is_rev) aux_info->hap_alt_rev_cov += 1; else aux_info->hap_alt_for_cov += 1;
             aux_info->alt_read_ids[alt_i] = read_i;
             aux_info->hap_alt_dp += 1;
-            aux_info->alt_quals[alt_i] = get_alt_qual(d, digar_i, read_base_pos);
-            aux_info->min_win_quals[alt_i] = get_read_win_min_qual(opt, d, read_base_pos);
-            aux_info->dis_to_indel_error[alt_i] = get_dis_to_seq_error(chunk, var_i, digar_i, d, read_base_pos, 1);
+            aux_info->alt_quals[alt_i] = get_alt_qual(d, var->var_type, var->alt_len, alt_qi);
+            aux_info->min_win_quals[alt_i] = get_read_win_min_qual(opt, d, alt_qi);
+            aux_info->dis_to_indel_error[alt_i] = get_dis_to_seq_error(chunk, var_i, d, var->var_type, var->alt_len, alt_qi, 1);
             // dis_to_homopolymer
             alt_i++;
         } else { // ref
@@ -723,11 +718,11 @@ int var_is_somatic(const call_var_opt_t *opt, bam_chunk_t *chunk, int var_i, can
     // fprintf(stderr, "chr\tpos\ttotal_dp\thap_total_dp\thap_alt_dp\thap_ref_for_cov\thap_ref_rev_cov\thap_alt_for_cov\thap_alt_rev_cov\tstrand_fisher\t");
     // fprintf(stderr, "dis_to_het_var\tmedian_alt_qual\tmedian_min_win_qual\tmedian_dis_to_indel_error\n");
 
-    fprintf(stderr, "%s\t%" PRIi64 "\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%.4f\t%.4f\t%d\t%d\t%d\t%d\n", chunk->tname, var->pos,
+    fprintf(stderr, "%s\t%" PRIi64 "\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%.4f\t%d\t%d\t%d\t%d\n", chunk->tname, var->pos,
             aux_info->total_dp, aux_info->hap_total_dp, aux_info->hap_alt_dp, 
             aux_info->hap_ref_for_cov, aux_info->hap_ref_rev_cov, aux_info->hap_alt_for_cov, aux_info->hap_alt_rev_cov,
             log_betabinom_pmf(aux_info->hap_alt_dp, aux_info->hap_total_dp, opt->somatic_beta_alpha, opt->somatic_beta_beta, opt),
-            fisher_exact_test(aux_info->hap_ref_for_cov, aux_info->hap_ref_rev_cov, aux_info->hap_alt_for_cov, aux_info->hap_alt_rev_cov, opt),
+            // fisher_exact_test(aux_info->hap_ref_for_cov, aux_info->hap_ref_rev_cov, aux_info->hap_alt_for_cov, aux_info->hap_alt_rev_cov, opt),
             aux_info->min_dis_to_het_var, median_int(aux_info->alt_quals, aux_info->hap_alt_dp), median_int(aux_info->min_win_quals, aux_info->hap_alt_dp), median_int(aux_info->dis_to_indel_error, aux_info->hap_alt_dp));
 
     // if (aux_info->hap_total_dp * opt->max_somatic_alt_af < aux_info->hap_alt_dp) return 0;
@@ -735,7 +730,8 @@ int var_is_somatic(const call_var_opt_t *opt, bam_chunk_t *chunk, int var_i, can
     if (median_int(aux_info->alt_quals, aux_info->hap_alt_dp) < opt->min_somatic_alt_qual) return 0;
     if (median_int(aux_info->min_win_quals, aux_info->hap_alt_dp) < opt->min_somatic_bq) return 0;
     if (median_int(aux_info->dis_to_indel_error, aux_info->hap_alt_dp) < opt->min_somatic_dis_to_seq_error) return 0;
-    if (log_betabinom_pmf(aux_info->hap_alt_dp, aux_info->hap_total_dp, opt->somatic_beta_alpha, opt->somatic_beta_beta, opt) < opt->min_somatic_log_beta_binom) return 0;
+    // for INDELs, not check beta-binomial
+    if (var->var_type == BAM_CDIFF && log_betabinom_pmf(aux_info->hap_alt_dp, aux_info->hap_total_dp, opt->somatic_beta_alpha, opt->somatic_beta_beta, opt) < opt->min_somatic_log_beta_binom) return 0;
     // if (fisher_exact_test(aux_info->hap_ref_for_cov, aux_info->hap_ref_rev_cov, aux_info->hap_alt_for_cov, aux_info->hap_alt_rev_cov, opt) < opt->min_somatic_fisher_pval) return 0;
     return is_somatic;
 }
@@ -815,14 +811,26 @@ void mark_skip_somatic_reads(bam_chunk_t *chunk, int var_i) {
     }
 }
 
+void mark_invalid_somatic(int somatic_dense_win, int somatic_dense_max_var, hts_pos_t *somatic_var_pos, int n_somatic_vars, int *is_invalid_somatic) {
+    if (n_somatic_vars < somatic_dense_max_var) return; // no need to mark somatic variants
+    // for any sliding window of size somatic_dense_win, if there are more than somatic_dense_max_var somatic variants, mark them as invalid
+    for (int i = 0; i <= n_somatic_vars - somatic_dense_max_var; ++i) {
+        int j = i + somatic_dense_max_var - 1;
+        if (somatic_var_pos[j] - somatic_var_pos[i] < somatic_dense_win) {
+            for (int k = i; k <= j; ++k) {
+                is_invalid_somatic[k] = 1; // mark as invalid
+            }
+        }
+    }
+}
+
 void mark_somatic_reads(const call_var_opt_t *opt, bam_chunk_t *chunk, int target_var_cate) {
     int *var_i_to_cate = chunk->var_i_to_cate; cand_var_t *cand_vars = chunk->cand_vars;
-    int somatic_dense_win = opt->somatic_dense_win; // 1000-bp window
-    // XXX allow multiple somatic variants in a dense window???
-    // int somatic_dense_max_var = opt->somatic_dense_win_max_vars; // maximum number of somatic variants in a dense window
+    int somatic_dense_win = opt->somatic_dense_win; // default 1000-bp window
+    int somatic_dense_max_var = opt->somatic_dense_win_max_vars; // maximum number of somatic variants in a dense window
     hts_pos_t *somatic_var_pos = (hts_pos_t*)malloc(chunk->n_cand_vars * sizeof(hts_pos_t));
     int *somatic_var_i = (int*)malloc(chunk->n_cand_vars * sizeof(int));
-    int *is_marked = (int*)calloc(chunk->n_cand_vars, sizeof(int)); // mark somatic variants
+    int *is_invalid_somatic = (int*)calloc(chunk->n_cand_vars, sizeof(int)); // mark somatic variants
     int n_somatic_vars = 0;
     for (int var_i = 0; var_i < chunk->n_cand_vars; ++var_i) {
         if ((var_i_to_cate[var_i] & target_var_cate) == 0) continue; // skip non-target variants
@@ -830,18 +838,13 @@ void mark_somatic_reads(const call_var_opt_t *opt, bam_chunk_t *chunk, int targe
         if (var->hap_to_cons_alle[1] == 0 && var->hap_to_cons_alle[2] == 0) continue; // skip variants without alt alleles
         somatic_var_i[n_somatic_vars] = var_i; // collect somatic variant indices
         somatic_var_pos[n_somatic_vars++] = var->pos; // collect somatic variant positions
-        if (n_somatic_vars > 1 && var->pos - somatic_var_pos[n_somatic_vars-1] < somatic_dense_win) {
-            if (is_marked[somatic_var_i[n_somatic_vars-1]] == 0) {
-                mark_skip_somatic_reads(chunk, somatic_var_i[n_somatic_vars-1]);
-                is_marked[somatic_var_i[n_somatic_vars-1]] = 1; // mark as somatic
-            }
-            if (is_marked[var_i] == 0) {
-                mark_skip_somatic_reads(chunk, var_i);
-                is_marked[var_i] = 1; // mark as somatic
-            }
-        }
     }
-    free(somatic_var_pos); free(somatic_var_i); free(is_marked);
+    mark_invalid_somatic(somatic_dense_win, somatic_dense_max_var, somatic_var_pos, n_somatic_vars, is_invalid_somatic);
+    for (int i = 0; i < n_somatic_vars; ++i) {
+        int var_i = somatic_var_i[i];
+        if (is_invalid_somatic[i] == 1) mark_skip_somatic_reads(chunk, var_i);
+    }
+    free(somatic_var_pos); free(somatic_var_i); free(is_invalid_somatic);
 }
 
 void mark_somatic_vars(bam_chunk_t *chunk, int target_var_cate) {
@@ -882,6 +885,8 @@ int assign_somatic_hap_based_on_phased_reads(const call_var_opt_t *opt, bam_chun
     for (int var_i = 0; var_i < chunk->n_cand_vars; ++var_i) {
         if ((var_i_to_cate[var_i] & target_var_cate) == 0) continue;
         cand_var_t *var = cand_vars+var_i;
+        if (LONGCALLD_VERBOSE >= 2)
+            fprintf(stderr, "CandSomaticVar: %s\t%" PRIi64 "\t%d\t%d\t%d\t%d\n", chunk->tname, var->pos, var->ref_len, var->var_type, var->alt_len, var->total_cov);
         var_init_hap_profile_cons_allele1(var);
         read_var_profile_t *p = chunk->read_var_profile;
         // collect phase_set for somatic variant calling
@@ -896,6 +901,6 @@ int assign_somatic_hap_based_on_phased_reads(const call_var_opt_t *opt, bam_chun
         }
     }
     // post-process somatic variants
-    // post_process_somatic_vars(opt, chunk, target_var_cate);
+    post_process_somatic_vars(opt, chunk, target_var_cate);
     return 0;
 }

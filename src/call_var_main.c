@@ -36,7 +36,10 @@ const struct option call_var_opt [] = {
     { "autosome-XY", 0, NULL, 0},
     { "autosome", 0, NULL, 0},
     { "mosaic", 0, NULL, 0},
-    { "refine-bam", 0, NULL, 0},
+    { "refine-aln", 0, NULL, 0},
+    { "alpha", 1, NULL, 0},
+    { "beta", 1, NULL, 0},
+
     { "exclude-ctg", 1, NULL, 'E'},
     // { "ont-hp-prof", 1, NULL, 0},
 
@@ -45,6 +48,7 @@ const struct option call_var_opt [] = {
     { "out-vcf", 1, NULL, 'o'},
     { "out-type", 1, NULL, 'O'},
     { "min-sv-len", 1, NULL, 'l'},
+    { "out-sam", 1, NULL, 'S' },
     { "out-bam", 1, NULL, 'b' },
     { "out-cram", 1, NULL, 'C' },
     { "no-vcf-header", 0, NULL, 'H'},
@@ -217,7 +221,7 @@ call_var_opt_t *call_var_init_para(void) {
     opt->min_somatic_hap_dp = LONGCALLD_MIN_SOMATIC_HAP_READS;
     opt->min_somatic_te_dp = LONGCALLD_MIN_SOMATIC_TE_ALT_DP;
     // opt->min_somatic_af = LONGCALLD_MIN_SOMATIC_AF;
-    opt->max_somatic_alt_af = LONGCALLD_MAX_SOMATIC_ALT_AF;
+    // opt->max_somatic_alt_af = LONGCALLD_MAX_SOMATIC_ALT_AF;
     opt->min_somatic_log_beta_binom = LONGCALLD_MIN_SOMATIC_LOG_BETA_BINOM;
     opt->somatic_beta_alpha = LONGCALLD_SOMATIC_BETA_ALPHA;
     opt->somatic_beta_beta = LONGCALLD_SOMATIC_BETA_BETA;
@@ -779,9 +783,10 @@ static void call_var_usage(void) {//main usage
     // fprintf(stderr, "                          if present, MM/ML tags will be used to calculate methylation level\n");
     fprintf(stderr, "       --amb-base         output variant with ambiguous base (N) [False]\n");
     fprintf(stderr, "    -b --out-bam    FILE  output phased BAM file [NULL]\n");
+    fprintf(stderr, "    -S --out-sam    FILE  output phased SAM file [NULL]\n");
     fprintf(stderr, "    -C --out-cram   FILE  output phased CRAM file [NULL]\n");
-    fprintf(stderr, "       --refine-bam       refine alignment in output BAM/CRAM [False]\n");
-    fprintf(stderr, "                          Note: output BAM/CRAM could be unsorted when --refine-bam is set\n");
+    fprintf(stderr, "    --refine-aln          refine alignment in output BAM/CRAM [False]\n");
+    fprintf(stderr, "                          Note: output BAM/CRAM could be unsorted when --refine-aln is set\n");
     // fprintf(stderr, "    -g --gap-aln     STR  put gap on the \'left\' or \'right\' side in alignment [left/l]\n");
     // fprintf(stderr, "                          \'left\':  ATTTG\n");
     // fprintf(stderr, "                                   | |||\n");
@@ -797,12 +802,15 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "    -M --min-mapq    INT  min. mapping quality for long-read alignment to be used [%d]\n", LONGCALLD_MIN_CAND_MQ);
     // fprintf(stderr, "    -B --min-bq      INT  filter out base with base quality < -B/--min-bq [%d]\n", LONGCALLD_MIN_CAND_BQ);
     // fprintf(stderr, "    -p --max-ploidy  INT  max. ploidy [%d]\n", LONGCALLD_DEF_PLOID);
-    fprintf(stderr, "  Variant calling in noisy regions:\n");
-    fprintf(stderr, "    -x --max-xgap    INT  max. number of allowed substitutions/gap-bases in a sliding window(-w/--win-size) [%d]\n", LONGCALLD_NOISY_REG_MAX_XGAPS);
-    fprintf(stderr, "                          window with more than -x subs/gap-bases will be considered as noisy region\n");
-    fprintf(stderr, "    -w --win-size    INT  window size for searching noisy region [%d]\n", LONGCALLD_NOISY_REG_SLIDE_WIN);
+    fprintf(stderr, "  Somatic/mosaic variant calling: (effective when -s/--somatic/mosaic is used)\n");
+    fprintf(stderr, "    --alpha          INT  alpha value of beta-binomial distribution [%d]\n", LONGCALLD_SOMATIC_BETA_ALPHA);
+    fprintf(stderr, "    --beta           INT  beta value of beta-binomial distribution [%d]\n", LONGCALLD_SOMATIC_BETA_BETA);
+    // fprintf(stderr, "  Variant calling in noisy regions:\n");
+    // fprintf(stderr, "    -x --max-xgap    INT  max. number of allowed substitutions/gap-bases in a sliding window(-w/--win-size) [%d]\n", LONGCALLD_NOISY_REG_MAX_XGAPS);
+    // fprintf(stderr, "                          window with more than -x subs/gap-bases will be considered as noisy region\n");
+    // fprintf(stderr, "    -w --win-size    INT  window size for searching noisy region [%d]\n", LONGCALLD_NOISY_REG_SLIDE_WIN);
     // fprintf(stderr, "    -D --merge-dis   INT  default max. distance to merge two potential noisy SV regions [%d]\n", LONGCALLD_NOISY_REG_MERGE_DIS);
-    fprintf(stderr, "    -j --noisy-rat FLOAT  min. ratio of noisy reads in a window to call a noisy region [%.2f]\n", LONGCALLD_NOISY_REG_RATIO);
+    // fprintf(stderr, "    -j --noisy-rat FLOAT  min. ratio of noisy reads in a window to call a noisy region [%.2f]\n", LONGCALLD_NOISY_REG_RATIO);
     // fprintf(stderr, "    -f --noisy-flank INT  flanking mask window size for noisy region [%d]\n", LONGCALLD_DENSE_FLANK_WIN);
     // fprintf(stderr, "    -c --end-clip    INT  max. number of clipping bases on both ends [%d]\n", LONGCALLD_NOISY_END_CLIP);
     // fprintf(stderr, "                          end-clipping region with more than -c bases will be considered as noisy clipping region\n");
@@ -828,7 +836,7 @@ int call_var_main(int argc, char *argv[]) {
     // _err_cmd("%s\n", CMD);
     int c, op_idx; call_var_opt_t *opt = call_var_init_para();
     double realtime0 = realtime();
-    while ((c = getopt_long(argc, argv, "r:T:E:o:O:sml:Hb:C:c:d:M:B:a:n:x:w:D:j:L:f:p:g:Nt:hvV:", call_var_opt, &op_idx)) >= 0) {
+    while ((c = getopt_long(argc, argv, "r:T:E:o:O:sml:Hb:C:S:c:d:M:B:a:n:x:w:D:j:L:f:p:g:Nt:hvV:", call_var_opt, &op_idx)) >= 0) {
         switch(c) {
             case 'r': opt->ref_fa_fai_fn = strdup(optarg); break;
             // case 'b': cgp->var_block_size = atoi(optarg); break;
@@ -849,13 +857,16 @@ int call_var_main(int argc, char *argv[]) {
                     else if (strcmp(call_var_opt[op_idx].name, "autosome") == 0) opt->only_autosome = 1;
                     else if (strcmp(call_var_opt[op_idx].name, "autosome-XY") == 0) opt->only_autosome_XY = 1;
                     else if (strcmp(call_var_opt[op_idx].name, "mosaic") == 0) opt->out_somatic = 1;
-                    else if (strcmp(call_var_opt[op_idx].name, "refine-bam") == 0) opt->refine_bam = 1;
+                    else if (strcmp(call_var_opt[op_idx].name, "alpha") == 0) opt->somatic_beta_alpha = atoi(optarg);
+                    else if (strcmp(call_var_opt[op_idx].name, "beta") == 0) opt->somatic_beta_beta = atoi(optarg);
+                    else if (strcmp(call_var_opt[op_idx].name, "refine-aln") == 0) opt->refine_bam = 1;
                     break;
             case 's': opt->out_somatic = 1; break;
             case 'm': opt->out_methylation = 1; break;
             case 'E': set_exclude_ctg(opt, optarg); break;
             case 'b': opt->out_bam = hts_open(optarg, "wb"); opt->out_is_cram = 0; break;
             case 'C': opt->out_bam = hts_open(optarg, "wc"); opt->out_is_cram = 1; break;
+            case 'S': opt->out_bam = hts_open(optarg, "w"); opt->out_is_cram = 0; break;
             case 'c': opt->min_dp = atoi(optarg); break;
             case 'd': opt->min_alt_dp = atoi(optarg); break;
             case 'a': opt->min_af = atof(optarg); break;

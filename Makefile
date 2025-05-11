@@ -53,14 +53,19 @@ ifneq ($(debug),)
 endif
 
 ABPOA_GDB_LIB = ./abPOA/lib/libabpoa_sse41.a
-ABPOA_NOR_LIB     = ./abPOA/lib/libabpoa.a
+ABPOA_NOR_LIB = ./abPOA/lib/libabpoa.a
+WFA_GDB_LIB   = ./WFA2-lib/lib/libwfa_gdb.a
+WFA_NOR_LIB   = ./WFA2-lib/lib/libwfa.a
+
 # for gdb
 ifneq ($(gdb),)
 	OPT_FLAGS = -O0 -g
 	ABPOA_LIB = $(ABPOA_GDB_LIB)
+	WFA2_LIB  = $(WFA_GDB_LIB)
 else
 	OPT_FLAGS = -O3
 	ABPOA_LIB = $(ABPOA_NOR_LIB)
+	WFA2_LIB  = $(WFA_NOR_LIB)
 endif
 
 CFLAGS = $(OPT_FLAGS) $(EXTRA_FLAGS) -DLONGCALLD_VERSION=\"$(LONGCALLD_VERSION)\"
@@ -110,7 +115,7 @@ $(ABPOA_NOR_LIB):
 $(ABPOA_ALL): $(ABPOA_LIB)
 
 $(WFA2_LIB):
-	cd $(WFA2_DIR); make
+	cd $(WFA2_DIR); make setup lib_wfa CC_FLAGS="$(CC_FLAGS) -O3" 
 $(WFA2_ALL): $(WFA2_LIB)
 
 

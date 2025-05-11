@@ -53,18 +53,18 @@ int collect_te_info(const call_var_opt_t *opt, int var_type, uint8_t *gap_seq, u
             if (gap_seq[i] == 0) { polya++;
                 if (polya_len >= min_polya_len && polya >= min_polya_ratio*polya_len) {
                     has_polya = 1;
-                    *tsd_polya_len = polya_len; // update tsd_polya_len`
+                    *tsd_polya_len = polya_len; // update tsd_polya_len
                 }
             } else if (polya_len > max_search_polya_len) break; // stop searching if too long
         }
         if (has_polya == 0) { // look for polyT
-            for (int polyt_len = 0, polyt = 0, i = tsd_len; i <= gap_len; i++) {
+            for (int polyt_len = 0, polyt = 0, i = tsd_len; i < gap_len; i++) {
                 polyt_len++;
                 if (gap_seq[i] == 3) {
                     polyt++;
                     if (polyt_len >= min_polya_len && polyt >= min_polya_ratio*polyt_len) {
                         has_polya = 1;
-                        *tsd_polya_len = polyt_len; // update tsd_polya_len`
+                        *tsd_polya_len = -polyt_len; // update tsd_polya_len
                     }
                 } else if (polyt_len > max_search_polya_len) break;
             }
@@ -309,6 +309,7 @@ int wfa_heuristic_aln(uint8_t *pattern, int plen, uint8_t *text, int tlen,
     return score;
 }
 
+// XXX may produce ext-alignment with very low quality, shoudl be used with caution
 // XXX not using gap_aln right now
 int wfa_ext_aln(int ext_direction, uint8_t *pattern, int plen, uint8_t *text, int tlen, 
                 int a, int b, int q, int e, int q2, int e2, uint32_t **cigar_buf, int *cigar_length,
@@ -543,8 +544,8 @@ int wfa_end2end_aln(uint8_t *pattern, int plen, uint8_t *text, int tlen,
 // trim query bases if longer than target
 // update query_beg/query_end if query is shorter than target
 void wfa_trim_aln_str(int full_cover, aln_str_t *aln_str, int tlen, int qlen) {
-    if (full_cover == 0 || full_cover == 3) return;
-    if (full_cover == 1) { // left-cover: collect all aln_str until the very last = opertion
+    if (LONGCALLD_NOISY_IS_NOT_COVER(full_cover) || LONGCALLD_NOISY_IS_BOTH_COVER(full_cover)) return;
+    if (LONGCALLD_NOISY_IS_LEFT_COVER(full_cover)) { // left-cover: collect all aln_str until the very last = opertion
         int target_end = -1, query_end = -1;
         for (int i = aln_str->aln_len-1; i >= 0; --i) {
             if (query_end == -1) {
@@ -567,7 +568,7 @@ void wfa_trim_aln_str(int full_cover, aln_str_t *aln_str, int tlen, int qlen) {
         for (int i = query_end+1; i < aln_str->aln_len; ++i) {
             aln_str->query_aln[i] = 5;
         }
-    } else { // right-cover: collect all aln_str until the very first = opertion
+    } else if (LONGCALLD_NOISY_IS_RIGHT_COVER(full_cover)) { // right-cover: collect all aln_str until the very first = opertion
         int query_start = -1, target_start = -1;
         for (int i = 0; i < aln_str->aln_len; ++i) {
             if (query_start == -1) {
@@ -605,17 +606,17 @@ void wfa_trim_aln_str(int full_cover, aln_str_t *aln_str, int tlen, int qlen) {
 
 // for read with full_cover as 1 or 2, collect beg/end positions of read mapped to target
 int wfa_collect_aln_str(const call_var_opt_t *opt, uint8_t *target, int tlen, uint8_t *query, int qlen, int full_cover, aln_str_t *aln_str) {
-    if (full_cover == 0) return 0;
+    if (LONGCALLD_NOISY_IS_NOT_COVER(full_cover)) return 0;
     aln_str->target_aln = 0; aln_str->query_aln = 0; aln_str->aln_len = 0;
     int gap_aln = opt->gap_aln, a = opt->match, b = opt->mismatch, q = opt->gap_open1, e = opt->gap_ext1, q2 = opt->gap_open2, e2 = opt->gap_ext2;
-    if (full_cover == 3) {
+    if (LONGCALLD_NOISY_IS_BOTH_COVER(full_cover)) {
         wfa_end2end_aln(target, tlen, query, qlen, gap_aln, a, b, q, e, q2, e2,
                         NULL, NULL, &aln_str->target_aln, &aln_str->query_aln, &aln_str->aln_len);
         aln_str->target_beg = 0; aln_str->target_end = aln_str->aln_len-1;
         aln_str->query_beg = 0; aln_str->query_end = aln_str->aln_len-1;
     } else { // trim aln_str if query is longer than target; 
              // update query_beg/query_end if query is shorter than target
-        int ext_direction = (full_cover == 1) ? LONGCALLD_EXT_ALN_LEFT_TO_RIGHT : LONGCALLD_EXT_ALN_RIGHT_TO_LEFT;
+        int ext_direction = (LONGCALLD_NOISY_IS_LEFT_COVER(full_cover)) ? LONGCALLD_EXT_ALN_LEFT_TO_RIGHT : LONGCALLD_EXT_ALN_RIGHT_TO_LEFT;
         wfa_ext_aln(ext_direction, target, tlen, query, qlen, a, b, q, e, q2, e2,
                     NULL, NULL, &aln_str->target_aln, &aln_str->query_aln, &aln_str->aln_len);
         wfa_trim_aln_str(full_cover, aln_str, tlen, qlen);
@@ -702,23 +703,24 @@ int collect_partial_aln_beg_end(int gap_aln, int a, int b, int q, int e, int q2,
                                 int *target_beg, int *target_end, int *query_beg, int *query_end) {
     *target_beg = 1, *target_end = tlen, *query_beg = 1, *query_end = qlen;
     int ret = 1;
-    if (target_full_cover == 3) { // ref is full cover
-        if (query_full_cover == 3) {
+    assert(LONGCALLD_NOISY_IS_BOTH_COVER(target_full_cover) != 0);
+    if (LONGCALLD_NOISY_IS_BOTH_COVER(target_full_cover)) { // ref is full cover
+        if (LONGCALLD_NOISY_IS_BOTH_COVER(query_full_cover) || 
+           (LONGCALLD_NOISY_IS_LEFT_COVER(query_full_cover) && LONGCALLD_NOISY_IS_RIGHT_GAP(query_full_cover)) ||
+           (LONGCALLD_NOISY_IS_RIGHT_COVER(query_full_cover) && LONGCALLD_NOISY_IS_LEFT_GAP(query_full_cover))) {
             return 1;
         } else {
-            if (query_full_cover == 1) {
+            if (LONGCALLD_NOISY_IS_LEFT_COVER(query_full_cover)) {
                 ret = cal_wfa_partial_aln_beg_end(LONGCALLD_EXT_ALN_LEFT_TO_RIGHT, gap_aln, a, b, q, e, q2, e2, target, tlen, query, qlen, target_beg, target_end, query_beg, query_end);
-            } else if (query_full_cover == 2) {
+            } else if (LONGCALLD_NOISY_IS_RIGHT_COVER(query_full_cover)) {
                 ret = cal_wfa_partial_aln_beg_end(LONGCALLD_EXT_ALN_RIGHT_TO_LEFT, gap_aln, a, b, q, e, q2, e2, target, tlen, query, qlen, target_beg, target_end, query_beg, query_end);
             }
         }
-    } else if (target_full_cover == 1) { // ref is left-cover
-        if (query_full_cover != 1) _err_error_exit("Target is left-cover but read is not left-cover\n");
-        // assert(read_full_cover == 1);
+    } else if (LONGCALLD_NOISY_IS_LEFT_COVER(target_full_cover)) { // ref is left-cover
+        if (LONGCALLD_NOISY_IS_LEFT_COVER(query_full_cover) == 0) _err_error_exit("Target is left-cover but read is not left-cover\n");
         ret = cal_wfa_partial_aln_beg_end(LONGCALLD_EXT_ALN_LEFT_TO_RIGHT, gap_aln, a, b, q, e, q2, e2, target, tlen, query, qlen, target_beg, target_end, query_beg, query_end);
-    } else if (target_full_cover == 2) { // ref is right-cover
-        if (query_full_cover != 2) _err_error_exit("Ref is right-cover but read is not right-cover\n");
-        // assert(read_full_cover == 2);
+    } else if (LONGCALLD_NOISY_IS_RIGHT_COVER(target_full_cover)) { // ref is right-cover
+        if (LONGCALLD_NOISY_IS_RIGHT_COVER(query_full_cover) == 0) _err_error_exit("Ref is right-cover but read is not right-cover\n");
         ret = cal_wfa_partial_aln_beg_end(LONGCALLD_EXT_ALN_RIGHT_TO_LEFT, gap_aln, a, b, q, e, q2, e2, target, tlen, query, qlen, target_beg, target_end, query_beg, query_end);
     } else _err_error_exit("Target is not left or right-cover\n");
     return ret;
@@ -754,7 +756,7 @@ int abpoa_partial_aln_msa_cons(const call_var_opt_t *opt, abpoa_t *ab, int n_rea
     abpt->inc_path_score = 1;
     if (cons_lens != NULL && cons_seqs != NULL) abpt->out_cons = 1; else abpt->out_cons = 0;
     if (msa_seq_lens != NULL && msa_seqs != NULL) abpt->out_msa = 1; else abpt->out_msa = 0;
-    abpt->max_n_cons = max_n_cons;
+    abpt->max_n_cons = max_n_cons; abpt->min_freq = opt->min_af;
     abpt->match = opt->match; abpt->mismatch = opt->mismatch;
     abpt->gap_open1 = opt->gap_open1; abpt->gap_ext1 = opt->gap_ext1;
     abpt->gap_open2 = opt->gap_open2; abpt->gap_ext2 = opt->gap_ext2;
@@ -847,7 +849,7 @@ int abpoa_partial_aln_msa_cons(const call_var_opt_t *opt, abpoa_t *ab, int n_rea
     abpt->sub_aln = 1;
     abpt->inc_path_score = 1;
     abpt->out_cons = 1; abpt->out_msa = 0;
-    abpt->max_n_cons = max_n_cons;
+    abpt->max_n_cons = max_n_cons; abpt->min_freq = opt->min_af;
     abpt->match = opt->match; abpt->mismatch = opt->mismatch;
     abpt->gap_open1 = opt->gap_open1; abpt->gap_ext1 = opt->gap_ext1;
     abpt->gap_open2 = opt->gap_open2; abpt->gap_ext2 = opt->gap_ext2;
@@ -915,7 +917,7 @@ int abpoa_partial_aln_msa_cons(const call_var_opt_t *opt, abpoa_t *ab, int n_rea
     if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "Append ref sequence to the msa\n");
     abpoa_res_t res; res.graph_cigar = 0, res.n_cigar = 0;
     ab->abs->n_seq = n_reads + 1; // add ref sequence
-    abpt->out_msa = 1; abpt->out_cons = 0; abpoa_post_set_para(abpt);
+    abpt->out_msa = 1; abpt->out_cons = 0; abpoa_post_set_para(abpt); // XXX must be re-set after change out_msa/out_cons, cause "_dl_xxx" error in valgrind
     abpoa_align_sequence_to_subgraph(ab, abpt, 0, 1, ref_seq, ref_len, &res);
     abpoa_add_subgraph_alignment(ab, abpt, 0, 1, ref_seq, NULL, ref_len, NULL, res, n_reads, n_reads+1, 0);
     if (res.n_cigar) free(res.graph_cigar);
@@ -945,7 +947,7 @@ int abpoa_partial_aln_msa_cons(const call_var_opt_t *opt, abpoa_t *ab, int n_rea
     abpt->out_msa = 0; abpt->out_cons = 1;
     if (LONGCALLD_VERBOSE >= 2) abpt->out_msa = 1;
     abpt->cons_algrm = ABPOA_MF;
-    abpt->max_n_cons = max_n_cons;
+    abpt->max_n_cons = max_n_cons; abpt->min_freq = opt->min_af;
     abpt->match = opt->match; abpt->mismatch = opt->mismatch;
     abpt->gap_open1 = opt->gap_open1; abpt->gap_ext1 = opt->gap_ext1;
     abpt->gap_open2 = opt->gap_open2; abpt->gap_ext2 = opt->gap_ext2;
@@ -1012,7 +1014,7 @@ int abpoa_aln_msa_cons_append_ref(const call_var_opt_t *opt, int n_reads, int *r
     abpt->inc_path_score = 1;
     abpt->out_msa = 0; abpt->out_cons = 1;
     abpt->cons_algrm = ABPOA_MF;
-    abpt->max_n_cons = max_n_cons;
+    abpt->max_n_cons = max_n_cons; abpt->min_freq = opt->min_af;
     abpt->match = opt->match; abpt->mismatch = opt->mismatch;
     abpt->gap_open1 = opt->gap_open1; abpt->gap_ext1 = opt->gap_ext1;
     abpt->gap_open2 = opt->gap_open2; abpt->gap_ext2 = opt->gap_ext2;
@@ -1072,6 +1074,10 @@ int abpoa_aln_msa_cons_append_ref(const call_var_opt_t *opt, int n_reads, int *r
                 for (int k = 0; k < abc->msa_len; ++k)
                     msa_seq[i][j][k] = abc->msa_base[clu_read_ids[i][j]][k];
             }
+            // append ref sequence to the msa
+            msa_seq[i][clu_n_seqs[i]] = (uint8_t*)malloc(msize);
+            for (int j = 0; j < abc->msa_len; ++j)
+                msa_seq[i][clu_n_seqs[i]][j] = abc->msa_base[n_reads][j];
         }
     }
     abpoa_free_para(abpt); abpoa_free(ab); 
@@ -1102,10 +1108,21 @@ int collect_reg_ref_bseq(bam_chunk_t *chunk, hts_pos_t *reg_beg, hts_pos_t *reg_
     return (*reg_end - *reg_beg + 1);
 }
 
+int full_cover_cmp(int cover1, int cover2) {
+    if (cover1 == cover2) return 0;
+    if (LONGCALLD_NOISY_IS_BOTH_COVER(cover1)) return 1;
+    else if (LONGCALLD_NOISY_IS_BOTH_COVER(cover2)) return -1;
+    if (LONGCALLD_NOISY_IS_LEFT_COVER(cover1) && LONGCALLD_NOISY_IS_LEFT_COVER(cover2)) return 0;
+    if (LONGCALLD_NOISY_IS_RIGHT_COVER(cover1) && LONGCALLD_NOISY_IS_RIGHT_COVER(cover2)) return 0;
+    return cover1-cover2;
+}
+
 void sort_by_full_cover_and_length(int n_reads, int *read_ids, int *read_lens, uint8_t **read_seqs, uint8_t **read_quals, uint8_t *strands, int *full_covers, char **names, int *haps, hts_pos_t *phase_sets) {
     for (int i = 0; i < n_reads-1; ++i) {
         for (int j = i+1; j < n_reads; ++j) {
-            if (full_covers[i] < full_covers[j] || (full_covers[i] == full_covers[j] && read_lens[i] < read_lens[j])) {
+            int cover_cmp = full_cover_cmp(full_covers[i], full_covers[j]);
+            if (cover_cmp < 0 || (cover_cmp == 0 && read_lens[i] < read_lens[j])) {
+            // if (full_covers[i] < full_covers[j] || (full_covers[i] == full_covers[j] && read_lens[i] < read_lens[j])) {
                 int tmp_full_cover = full_covers[i]; full_covers[i] = full_covers[j]; full_covers[j] = tmp_full_cover;
                 int tmp_id = read_ids[i]; read_ids[i] = read_ids[j]; read_ids[j] = tmp_id;
                 int tmp_len = read_lens[i]; read_lens[i] = read_lens[j]; read_lens[j] = tmp_len;
@@ -1137,12 +1154,12 @@ int determine_hap_based_on_hap_cons(const call_var_opt_t *opt, int *cons_lens, u
     int scores[2] = {0, 0}; int n_eqs[2] = {0, 0}; int n_xids[2] = {0, 0};
     for (int i = 0; i < n_cons; ++i) { // 0'th cons -> HAP1, 1'th cons -> HAP2
         int score = INT32_MIN, n_eq = 0, n_xid = 0;
-        if (full_cover == 3) {
+        if (LONGCALLD_NOISY_IS_BOTH_COVER(full_cover)) {
             score = wfa_heuristic_aln(cons_seqs[i], cons_lens[i], read_seq, read_len, a, b, q, e, q2, e2, &n_eq, &n_xid);
-        } else if (full_cover == 1) {
+        } else if (LONGCALLD_NOISY_IS_LEFT_COVER(full_cover)) {
             int len = MIN_OF_TWO(cons_lens[i], read_len);
             score = wfa_heuristic_aln(cons_seqs[i], len, read_seq, len, a, b, q, e, q2, e2, &n_eq, &n_xid);
-        } else if (full_cover == 2) {
+        } else if (LONGCALLD_NOISY_IS_RIGHT_COVER(full_cover)) {
             int len = MIN_OF_TWO(cons_lens[i], read_len);
             score = wfa_heuristic_aln(cons_seqs[i]+cons_lens[i]-len, len, read_seq+read_len-len, len, a, b, q, e, q2, e2, &n_eq, &n_xid);
         }
@@ -1195,7 +1212,7 @@ int wfa_collect_noisy_aln_str_no_ps_hap(const call_var_opt_t *opt, int n_reads, 
     int *full_fully_covers = (int*)malloc((n_reads+2) * sizeof(int));
     int n_full_reads = 0;
     for (int i = 0; i < n_reads; ++i) {
-        if (lens[i] <= 0 || fully_covers[i] != 3) continue;
+        if (lens[i] <= 0 || LONGCALLD_NOISY_IS_BOTH_COVER(fully_covers[i]) == 0) continue;
         full_fully_covers[n_full_reads] = fully_covers[i];
         full_read_ids[n_full_reads] = i;
         full_read_lens[n_full_reads] = lens[i];
@@ -1224,7 +1241,7 @@ int wfa_collect_noisy_aln_str_no_ps_hap(const call_var_opt_t *opt, int n_reads, 
     // re-do POA with ref_seq and cons
     for (int i = 0; i < n_cons; ++i) {
         aln_str_t *clu_aln_str = aln_strs[i];
-        wfa_collect_aln_str(opt, ref_seq, ref_seq_len, cons_seqs[i], cons_lens[i], 3, LONGCALLD_REF_CONS_ALN_STR(clu_aln_str));
+        wfa_collect_aln_str(opt, ref_seq, ref_seq_len, cons_seqs[i], cons_lens[i], LONGCALLD_NOISY_BOTH_COVER, LONGCALLD_REF_CONS_ALN_STR(clu_aln_str));
         n_full_reads = 0;
         // full_read_ids[n_full_reads] = -1; full_fully_covers[n_full_reads] = 3; full_read_lens[n_full_reads] = ref_seq_len; full_read_seqs[n_full_reads] = ref_seq; full_read_names[n_full_reads++] = "REF";
         // full_read_ids[n_full_reads] = -2; full_fully_covers[n_full_reads] = 3; full_read_lens[n_full_reads] = cons_lens[i]; full_read_seqs[n_full_reads] = cons_seqs[i]; full_read_names[n_full_reads++] = "CONS";
@@ -1299,12 +1316,12 @@ hts_pos_t collect_phase_set_with_both_haps(int n_reads, int *read_haps, int *rea
     for (int i = 0; i < n_reads; ++i) {
         if (read_haps[i] == 0) continue;
         phase_set_i = add_phase_set(phase_sets[i], uniq_phase_sets, &n_uniq_phase_sets);
-        if (fully_covers[i] == 3) {
+        if (LONGCALLD_NOISY_IS_BOTH_COVER(fully_covers[i])) {
             phase_set_to_hap_full_read_count[phase_set_i][read_haps[i]-1]++;
             phase_set_to_hap_all_read_count[phase_set_i][read_haps[i]-1]++;
             if (phase_set_to_hap_min_full_read_len[phase_set_i][read_haps[i]-1] > read_lens[i]) 
                 phase_set_to_hap_min_full_read_len[phase_set_i][read_haps[i]-1] = read_lens[i];
-        } else if (fully_covers[i] == 1 || fully_covers[i] == 2) {
+        } else if (LONGCALLD_NOISY_IS_LEFT_COVER(fully_covers[i]) || LONGCALLD_NOISY_IS_RIGHT_COVER(fully_covers[i])) {
             if (read_lens[i] >= phase_set_to_hap_min_full_read_len[phase_set_i][read_haps[i]-1]) {
                 phase_set_to_hap_all_read_count[phase_set_i][read_haps[i]-1]++;
             }
@@ -1460,7 +1477,7 @@ int wfa_collect_noisy_aln_str_with_ps_hap(const call_var_opt_t *opt, int n_reads
         n_ps_hap_reads = 0;
         for (int i = 0; i < n_reads; ++i) {
             if (lens[i] <= 0 || phase_sets[i] != ps || haps[i] != hap) continue;
-            if (use_non_full == 0 && fully_covers[i] != 3) continue;
+            if (use_non_full == 0 && LONGCALLD_NOISY_IS_BOTH_COVER(fully_covers[i]) == 0) continue;
             ps_hap_read_ids[n_ps_hap_reads] = noisy_read_ids[i];
             ps_hap_read_lens[n_ps_hap_reads] = lens[i];
             ps_hap_read_seqs[n_ps_hap_reads] = seqs[i];
@@ -1515,11 +1532,11 @@ int wfa_collect_noisy_aln_str_with_ps_hap(const call_var_opt_t *opt, int n_reads
         for (int hap=1; hap<=2; ++hap) {
             // ref vs cons
             aln_str_t *clu_aln_str = aln_strs[hap-1];
-            wfa_collect_aln_str(opt, ref_seq, ref_seq_len, cons_seqs[hap-1], cons_lens[hap-1], 3, LONGCALLD_REF_CONS_ALN_STR(clu_aln_str));
+            wfa_collect_aln_str(opt, ref_seq, ref_seq_len, cons_seqs[hap-1], cons_lens[hap-1], LONGCALLD_NOISY_BOTH_COVER, LONGCALLD_REF_CONS_ALN_STR(clu_aln_str));
             n_ps_hap_reads = 0;
             for (int i = 0; i < n_reads; ++i) {
                 if (lens[i] <= 0 || phase_sets[i] != ps || haps[i] != hap) continue;
-                if (use_non_full == 0 && fully_covers[i] != 3) continue;
+                if (use_non_full == 0 && LONGCALLD_NOISY_IS_BOTH_COVER(fully_covers[i]) == 0) continue;
                 // cons vs read
                 wfa_collect_aln_str(opt, cons_seqs[hap-1], cons_lens[hap-1], seqs[i], lens[i], fully_covers[i], LONGCALLD_CONS_READ_ALN_STR(clu_aln_str, n_ps_hap_reads));
                 n_ps_hap_reads++;
@@ -1551,17 +1568,19 @@ int collect_noisy_read_info(const call_var_opt_t *opt, bam_chunk_t *chunk, hts_p
     *phase_sets = (hts_pos_t*)calloc(n_noisy_reg_reads, sizeof(hts_pos_t));
 
     for (int i = 0; i < n_noisy_reg_reads; ++i) {
-        int read_i = noisy_reg_reads[i];
-        digar_t *read_digars = chunk->digars+read_i; int n_digar = read_digars->n_digar; digar1_t *digars = read_digars->digars;
+        int read_id = noisy_reg_reads[i];
+        digar_t *read_digars = chunk->digars+read_id; int n_digar = read_digars->n_digar; digar1_t *digars = read_digars->digars;
         hts_pos_t reg_digar_beg = -1, reg_digar_end = -1;
         int reg_read_beg = 0, reg_read_end = digar2qlen(read_digars)-1;
-        if (LONGCALLD_VERBOSE >= 2) (*read_names)[i] = bam_get_qname(chunk->reads[read_i]);
+        if (read_digars->digars[0].type == BAM_CHARD_CLIP) reg_read_beg = read_digars->digars[0].len;
+        if (read_digars->digars[n_digar-1].type == BAM_CHARD_CLIP) reg_read_end = read_digars->digars[n_digar-1].qi - 1;
+        if (LONGCALLD_VERBOSE >= 2) (*read_names)[i] = bam_get_qname(chunk->reads[read_id]);
         else (*read_names)[i] = NULL;
         (*strands)[i] = read_digars->is_rev;
-        int beg_is_del = 0, end_is_del = 0;
-        for (int i = 0; i < n_digar; ++i) {
-            hts_pos_t digar_beg = digars[i].pos, digar_end;
-            int op = digars[i].type, len = digars[i].len, qi = digars[i].qi;
+        int beg_is_del = 0, end_is_del = 0, cover = 0;
+        for (int digar_i = 0; digar_i < n_digar; ++digar_i) {
+            hts_pos_t digar_beg = digars[digar_i].pos, digar_end;
+            int op = digars[digar_i].type, len = digars[digar_i].len, qi = digars[digar_i].qi;
             if (op == BAM_CSOFT_CLIP || op == BAM_CHARD_CLIP) continue;
             if (op == BAM_CDIFF || op == BAM_CEQUAL || op == BAM_CDEL) digar_end = digar_beg + len - 1;
             else digar_end = digar_beg;
@@ -1571,6 +1590,7 @@ int collect_noisy_read_info(const call_var_opt_t *opt, bam_chunk_t *chunk, hts_p
                 if (op == BAM_CDEL) {
                     reg_digar_beg = reg_beg;
                     reg_read_beg = qi; // qi is on the right side of the DEL
+                    if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "%s noisyReg left boundary is DEL %s:%" PRId64 "-%" PRId64 "\n", (*read_names)[i], chunk->tname, reg_beg, reg_end);
                     if (len > opt->noisy_reg_flank_len) beg_is_del = 1;
                 } else {
                     reg_digar_beg = reg_beg;
@@ -1581,6 +1601,7 @@ int collect_noisy_read_info(const call_var_opt_t *opt, bam_chunk_t *chunk, hts_p
                 if (op == BAM_CDEL) {
                     reg_digar_end = reg_end;
                     reg_read_end = qi-1; // qi is the one the left side of the DEL
+                    if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "%s noisyReg right boundary is DEL %s:%" PRId64 "-%" PRId64 "\n", (*read_names)[i], chunk->tname, reg_beg, reg_end);
                     if (len > opt->noisy_reg_flank_len) end_is_del = 1;
                 } else {
                     reg_digar_end = reg_end;
@@ -1589,17 +1610,17 @@ int collect_noisy_read_info(const call_var_opt_t *opt, bam_chunk_t *chunk, hts_p
             }
         }
         if (reg_digar_beg == reg_beg && reg_digar_end == reg_end) {
-            if (beg_is_del == 0 && end_is_del == 0) (*fully_covers)[i] = 3;
-            else if (beg_is_del == 0 && end_is_del == 1) (*fully_covers)[i] = 1;
-            else if (beg_is_del == 1 && end_is_del == 0) (*fully_covers)[i] = 2;
-            else (*fully_covers)[i] = 0;
+            if (beg_is_del == 0 && end_is_del == 0) cover = LONGCALLD_NOISY_LEFT_COVER | LONGCALLD_NOISY_RIGHT_COVER; // (*fully_covers)[i] = 3;
+            else if (beg_is_del == 0 && end_is_del == 1) cover = LONGCALLD_NOISY_LEFT_COVER | LONGCALLD_NOISY_RIGHT_GAP; // (*fully_covers)[i] = 1;
+            else if (beg_is_del == 1 && end_is_del == 0) cover = LONGCALLD_NOISY_LEFT_GAP | LONGCALLD_NOISY_RIGHT_COVER; // (*fully_covers)[i] = 2;
+            else cover = LONGCALLD_NOISY_LEFT_GAP | LONGCALLD_NOISY_RIGHT_GAP; // (*fully_covers)[i] = 0;
         } else if (reg_digar_beg == reg_beg) {
-            if (beg_is_del) (*fully_covers)[i] = 0;
-            else (*fully_covers)[i] = 1;
+            if (beg_is_del) cover = LONGCALLD_NOISY_LEFT_GAP; // (*fully_covers)[i] = 0;
+            else cover = LONGCALLD_NOISY_LEFT_COVER; // (*fully_covers)[i] = 1;
         } else if (reg_digar_end == reg_end) {
-            if (end_is_del) (*fully_covers)[i] = 0;
-            else (*fully_covers)[i] = 2;
-        } else (*fully_covers)[i] = 0;
+            if (end_is_del) cover = LONGCALLD_NOISY_RIGHT_GAP; // (*fully_covers)[i] = 0;
+            else cover = LONGCALLD_NOISY_RIGHT_COVER; // (*fully_covers)[i] = 2;
+        } else cover = 0; // (*fully_covers)[i] = 0;
         // if (2*(reg_read_end-reg_read_beg+1) < (reg_end-reg_beg+1)) return 0;
         (*read_seqs)[i] = (uint8_t*)malloc((reg_read_end - reg_read_beg + 1) * sizeof(uint8_t));
         (*read_quals)[i] = (uint8_t*)malloc((reg_read_end - reg_read_beg + 1) * sizeof(uint8_t));
@@ -1608,109 +1629,154 @@ int collect_noisy_read_info(const call_var_opt_t *opt, bam_chunk_t *chunk, hts_p
             (*read_quals)[i][j-reg_read_beg] = read_digars->qual[j];
         }
         (*read_lens)[i] = reg_read_end - reg_read_beg + 1;
-        (*read_haps)[i] = chunk->haps[read_i];
-        (*phase_sets)[i] = chunk->phase_sets[read_i];
-        (*read_id_to_full_covers)[read_i] = (*fully_covers)[i];
-        (*read_reg_beg)[read_i] = reg_read_beg; (*read_reg_end)[read_i] = reg_read_end;
+        (*read_haps)[i] = chunk->haps[read_id];
+        (*phase_sets)[i] = chunk->phase_sets[read_id];
+        (*fully_covers)[i] = cover;
+        (*read_id_to_full_covers)[read_id] = cover;
+        (*read_reg_beg)[read_id] = reg_read_beg; (*read_reg_end)[read_id] = reg_read_end;
     }
     return 0;
 }
 
-digar1_t *collect_left_digars(digar_t *digar, int read_beg, int *n_left_digars) {
+digar1_t *collect_left_digars(digar_t *digar, int read_noisy_beg, hts_pos_t ref_noisy_beg, int *n_left_digars) {
     digar1_t *left_digars = NULL;
     *n_left_digars = 0; int m_left_digar = 0;
     for (int i = 0; i < digar->n_digar; ++i) {
-        int op = digar->digars[i].type, qi = digar->digars[i].qi;
-        if (qi == read_beg && op == BAM_CDEL) { // DEL is on the left side of [read_beg, read_end]
-            left_digars = push_digar0(left_digars, n_left_digars, &m_left_digar, digar->digars[i]);
-            break;
-        } else if (qi >= read_beg) break; // outside of noisy region
-        if (op != BAM_CDIFF && op != BAM_CEQUAL && op != BAM_CINS) { // not a query sequence
+        int op = digar->digars[i].type, qi = digar->digars[i].qi, digar_qi_end; 
+        hts_pos_t digar_ref_beg = digar->digars[i].pos, digar_ref_end;
+        // collect left clipping
+        if (i == 0 && (op == BAM_CSOFT_CLIP || op == BAM_CHARD_CLIP)) {
             left_digars = push_digar0(left_digars, n_left_digars, &m_left_digar, digar->digars[i]);
             continue;
-        } // else: query sequence(=XI), qi < read_beg
-        int qi_end = qi + digar->digars[i].len - 1;
-        if (qi_end < read_beg) // full digar
+        }
+
+        if (op == BAM_CDIFF || op == BAM_CEQUAL || op == BAM_CINS) digar_qi_end = qi + digar->digars[i].len - 1;
+        else digar_qi_end = qi;
+        if (op == BAM_CDIFF || op == BAM_CEQUAL || op == BAM_CDEL) digar_ref_end = digar->digars[i].pos + digar->digars[i].len - 1;
+        else digar_ref_end = digar->digars[i].pos;
+        if (qi >= read_noisy_beg && digar_ref_beg >= ref_noisy_beg) break; // reach noisy region
+
+        if (digar_qi_end < read_noisy_beg && digar_ref_end < ref_noisy_beg) // full digar
             left_digars = push_digar0(left_digars, n_left_digars, &m_left_digar, digar->digars[i]);
-        else { // partial digar, (INS/EQUAL), qi_end >= read_beg
-            assert(op == BAM_CINS || op == BAM_CEQUAL);
-            digar1_t d = digar->digars[i]; d.len = read_beg - d.qi; // chop digar
-            left_digars = push_digar0(left_digars, n_left_digars, &m_left_digar, d);
+        else if (digar_qi_end >= read_noisy_beg || digar_ref_end >= ref_noisy_beg) { // partial digar, chop X=ID
+            if (op == BAM_CINS || op == BAM_CEQUAL || op == BAM_CDIFF) {
+                digar1_t d = digar->digars[i]; d.len = read_noisy_beg - d.qi; // chop digar
+                left_digars = push_digar0(left_digars, n_left_digars, &m_left_digar, d);
+            } else if (op == BAM_CDEL) {
+                digar1_t d = digar->digars[i]; d.len = ref_noisy_beg - d.pos; // chop digar
+                left_digars = push_digar0(left_digars, n_left_digars, &m_left_digar, d);
+            }
             break;
+        } else {
+            fprintf(stderr, "Error: digar_ref_end: %" PRId64 " ref_noisy_beg: %" PRId64 "\n", digar_ref_end, ref_noisy_beg);
+            exit(1);
         }
     }
     return left_digars;
 }
 
-digar1_t *collect_right_digars(digar_t *digar, int read_end, int *n_right_digars) {
+digar1_t *collect_right_digars(digar_t *digar, int read_noisy_end, hts_pos_t ref_noisy_end, int *n_right_digars) {
     digar1_t *right_digars = NULL; *n_right_digars = 0; int m_right_digar = 0;
     for (int i = 0; i < digar->n_digar; ++i) {
-        int qi = digar->digars[i].qi, op = digar->digars[i].type; int qi_end = qi;
-        if (op == BAM_CDIFF || op == BAM_CEQUAL || op == BAM_CINS) qi_end += digar->digars[i].len - 1;
-        if (qi-1 == read_end && op == BAM_CDEL) {
+        int qi = digar->digars[i].qi, op = digar->digars[i].type, digar_qi_end;
+        hts_pos_t digar_ref_beg = digar->digars[i].pos, digar_ref_end;
+        // collect right clipping
+        if (i == digar->n_digar-1 && (op == BAM_CSOFT_CLIP || op == BAM_CHARD_CLIP)) {
             right_digars = push_digar0(right_digars, n_right_digars, &m_right_digar, digar->digars[i]);
             continue;
-        } else if (qi_end <= read_end) continue; // outside of noisy region
-        if (op != BAM_CDIFF && op != BAM_CEQUAL && op != BAM_CINS) { // not a query sequence
+        }
+        if (op == BAM_CDIFF || op == BAM_CEQUAL || op == BAM_CINS) digar_qi_end = qi + digar->digars[i].len - 1;
+        else digar_qi_end = qi;
+        if (op == BAM_CDIFF || op == BAM_CEQUAL || op == BAM_CDEL) digar_ref_end = digar->digars[i].pos + digar->digars[i].len - 1;
+        else digar_ref_end = digar->digars[i].pos;
+        if (digar_qi_end <= read_noisy_end && digar_ref_end <= ref_noisy_end) continue; // left side of noisy region
+
+        if (qi > read_noisy_end && digar_ref_beg > ref_noisy_end) // full digar
             right_digars = push_digar0(right_digars, n_right_digars, &m_right_digar, digar->digars[i]);
-            continue;
-        } // else: query sequence(=XI), qi_end > read_end
-        if (qi > read_end) { // full digar
-            right_digars = push_digar0(right_digars, n_right_digars, &m_right_digar, digar->digars[i]);
-        } else { // partial digar (INS/EQUAL)
-            assert(op == BAM_CINS || op == BAM_CEQUAL);
-            digar1_t d = digar->digars[i]; 
-            if (op == BAM_CINS) {
-                uint8_t *new_alt_seq = (uint8_t*)malloc((qi_end - read_end) * sizeof(uint8_t));
-                for (int j = 0; j < qi_end - read_end; ++j) {
-                    new_alt_seq[j] = digar->digars[i].alt_seq[j+read_end+1-qi];
-                }
-                free(d.alt_seq);
-                d.alt_seq = new_alt_seq; // chop alt_seq
+        else if (qi <= read_noisy_end || digar_ref_beg <= ref_noisy_end) { // partial digar, chop IDX
+            if (op == BAM_CINS || op == BAM_CEQUAL || op == BAM_CDIFF) {
+                digar1_t d = digar->digars[i]; d.len = digar_qi_end - read_noisy_end; // chop digar
+                d.qi = read_noisy_end + 1; // chop qi
+                if (op == BAM_CINS) {
+                    uint8_t *new_alt_seq = (uint8_t*)malloc(d.len * sizeof(uint8_t));
+                    for (int j = 0; j < d.len; ++j) {
+                        new_alt_seq[j] = digar->digars[i].alt_seq[j+read_noisy_end+1-qi];
+                    }
+                    free(d.alt_seq); d.alt_seq = new_alt_seq; // chop alt_seq
+                } else d.pos = ref_noisy_end + 1; // chop pos
+                right_digars = push_digar0(right_digars, n_right_digars, &m_right_digar, d);
+            } else if (op == BAM_CDEL) {
+                digar1_t d = digar->digars[i]; d.len = digar_ref_end - ref_noisy_end; // chop digar
+                d.pos = ref_noisy_end + 1; // chop pos
+                right_digars = push_digar0(right_digars, n_right_digars, &m_right_digar, d);
             }
-            d.qi = read_end + 1; d.len = qi_end - read_end;
-            right_digars = push_digar0(right_digars, n_right_digars, &m_right_digar, d);
+        } else {
+            fprintf(stderr, "Error: digar_ref_end: %" PRId64 " ref_noisy_end: %" PRId64 "\n", digar_ref_end, ref_noisy_end);
+            exit(1);
         }
     }
     return right_digars;
 }
 
-digar1_t *collect_msa_digars(int read_beg, int read_end, hts_pos_t ref_beg, int full_cover, int msa_len, uint8_t *read_str, uint8_t *ref_str, int *n_msa_digars) {
+digar1_t *collect_full_msa_digars(int read_beg, int read_end, hts_pos_t ref_beg, int msa_len, uint8_t *read_str, uint8_t *ref_str, int *n_msa_digars) {
     digar1_t *msa_digars = NULL;
     *n_msa_digars = 0; int m_msa_digars = 0;
     if (msa_len <= 0) return NULL;
     int read_pos = read_beg, read_end_pos = read_end; hts_pos_t ref_pos = ref_beg;
-    int left_read_start = 0, right_read_end = msa_len - 1; // for full_cover == 3
-    if (full_cover == 2) {
-        // set read_pos && left_read_start
-        read_pos = read_end+1; int is_covered_by_ref = 0;
-        for (int i = 0; i < msa_len; ++i) {
-            if (ref_str[i] != 5) is_covered_by_ref = 1;
-            if (is_covered_by_ref && read_str[i] != 5) {
-                left_read_start = i; // find the first non-5 base
-                break;
+    int left_read_start = 0, right_read_end = msa_len - 1;
+    for (int i = 0; i < msa_len; ++i) {
+        if (read_str[i] == 5 && ref_str[i] == 5) continue; // both are non-ACGTN
+        if (read_str[i] != 5 && ref_str[i] != 5) {
+            if (i >= left_read_start && i <= right_read_end) {
+                if (read_str[i] == ref_str[i]) { // =
+                    digar1_t d = (digar1_t){.pos = ref_pos, .qi = read_pos, .type = BAM_CEQUAL, .len = 1, .alt_seq = NULL, .is_low_qual = 0};
+                    msa_digars = push_digar0(msa_digars, n_msa_digars, &m_msa_digars, d);
+                } else { // X
+                    digar1_t d = (digar1_t){.pos = ref_pos, .qi = read_pos, .type = BAM_CDIFF, .len = 1, .alt_seq = NULL, .is_low_qual = 0};
+                    d.alt_seq = (uint8_t*)malloc(1 * sizeof(uint8_t));
+                    d.alt_seq[0] = read_str[i];
+                    msa_digars = push_digar0(msa_digars, n_msa_digars, &m_msa_digars, d);
+                }
             }
-        }
-        for (int i = msa_len-1; i>=0; --i) {
-            if (read_str[i] != 5) read_pos--;
-        }
-    } else if (full_cover == 1) {
-        // set read_end_pos right_read_end
-        read_end_pos = read_pos-1; int is_covered_by_ref = 0;
-        for (int i = msa_len-1; i >= 0; --i) {
-            if (ref_str[i] != 5) is_covered_by_ref = 1;
-            if (is_covered_by_ref && read_str[i] != 5) {
-                right_read_end = i; // find the last non-5 base
-                break;
+            read_pos++; ref_pos++;
+        } else if (read_str[i] != 5) { // INS: ref_str[i] == 5
+            if (i >= left_read_start && i <= right_read_end) {
+                digar1_t d = (digar1_t){.pos = ref_pos, .qi = read_pos, .type = BAM_CINS, .len = 1, .alt_seq = NULL, .is_low_qual = 0};
+                d.alt_seq = (uint8_t*)malloc(1 * sizeof(uint8_t));
+                d.alt_seq[0] = read_str[i];
+                msa_digars = push_digar0(msa_digars, n_msa_digars, &m_msa_digars, d);
             }
-        }
-        for (int i = 0; i < msa_len; ++i) {
-            if (read_str[i] != 5) read_end_pos++;
+            read_pos++;
+        } else { // DEL read_str[i] == 5, ref_str[i] != 5
+            if (i >= left_read_start && i <= right_read_end) {
+                digar1_t d = (digar1_t){.pos = ref_pos, .qi = read_pos, .type = BAM_CDEL, .len = 1, .alt_seq = NULL, .is_low_qual = 0};
+                msa_digars = push_digar0(msa_digars, n_msa_digars, &m_msa_digars, d);
+            }
+            ref_pos++;
         }
     }
-    if (full_cover == 2 && read_pos > 0) { // push front S digar
-        digar1_t d = (digar1_t){.pos = ref_pos, .qi = 0, .type = BAM_CSOFT_CLIP, .len = read_pos, .alt_seq = NULL, .is_low_qual = 0};
-        msa_digars = push_digar0(msa_digars, n_msa_digars, &m_msa_digars, d);
+    return msa_digars;
+}
+
+digar1_t *collect_left_msa_digars(int read_beg, int read_end, int qlen, hts_pos_t ref_beg, int msa_len, uint8_t *read_str, uint8_t *ref_str, int *n_msa_digars) {
+    digar1_t *msa_digars = NULL;
+    *n_msa_digars = 0; int m_msa_digars = 0;
+    if (msa_len <= 0) return NULL;
+    int read_pos = read_beg, read_end_pos = read_end; hts_pos_t ref_pos = ref_beg;
+    int left_read_start = 0, right_read_end = msa_len - 1, right_skipped_read_base = 0;
+    // set read_end_pos right_read_end
+    read_end_pos = read_pos-1; int is_covered_by_ref = 0;
+    for (int i = msa_len-1; i >= 0; --i) {
+        if (ref_str[i] != 5) is_covered_by_ref = 1;
+        if (is_covered_by_ref && read_str[i] != 5) {
+            right_read_end = i; // find the last non-5 base
+            break;
+        } else if (!is_covered_by_ref && read_str[i] != 5) {
+            right_skipped_read_base++;
+        }
+    }
+    for (int i = 0; i < msa_len; ++i) {
+        if (read_str[i] != 5) read_end_pos++;
     }
     for (int i = 0; i < msa_len; ++i) {
         if (read_str[i] == 5 && ref_str[i] == 5) continue; // both are non-ACGTN
@@ -1743,50 +1809,110 @@ digar1_t *collect_msa_digars(int read_beg, int read_end, hts_pos_t ref_beg, int 
             ref_pos++;
         }
     }
-    if (full_cover == 1 && read_end_pos < read_end) {
-        // push back S digar
-        digar1_t d = (digar1_t){.pos = ref_pos, .qi = read_end_pos+1, .type = BAM_CSOFT_CLIP, .len = read_end - read_end_pos, .alt_seq = NULL, .is_low_qual = 0};
+    if (read_end_pos < qlen-1 || right_skipped_read_base > 0) {
+        // push back S digar XXX do extend alignment
+        digar1_t d = (digar1_t){.pos = ref_pos, .qi = read_end_pos+1, .type = BAM_CSOFT_CLIP, .len = qlen-1-read_end_pos + right_skipped_read_base, .alt_seq = NULL, .is_low_qual = 0};
         msa_digars = push_digar0(msa_digars, n_msa_digars, &m_msa_digars, d);
+    }
+    return msa_digars;
+}
+
+digar1_t *collect_right_msa_digars(int read_beg, int read_end, hts_pos_t ref_beg, hts_pos_t ref_end, int msa_len, uint8_t *read_str, uint8_t *ref_str, int *n_msa_digars) {
+    digar1_t *msa_digars = NULL;
+    *n_msa_digars = 0; int m_msa_digars = 0;
+    if (msa_len <= 0) return NULL;
+    int read_pos = read_beg, read_end_pos = read_end; hts_pos_t _ref_pos, ref_pos;
+    int left_read_start = 0, right_read_end = msa_len - 1, left_skipped_read_base = 0;
+        // set read_pos && left_read_start
+    read_pos = read_end+1; _ref_pos = ref_end+1; ref_pos = ref_beg;
+    int is_covered_by_ref = 0;
+    for (int i = 0; i < msa_len; ++i) {
+        if (ref_str[i] != 5) is_covered_by_ref = 1;
+        if (is_covered_by_ref && read_str[i] != 5) {
+            left_read_start = i; // find the first non-5 base
+            break;
+        } else if (!is_covered_by_ref && read_str[i] != 5) {
+            left_skipped_read_base++;
+        }
+    }
+    for (int i = msa_len-1; i>=0; --i) {
+        if (ref_str[i] != 5) _ref_pos--;
+        if (read_str[i] != 5) {
+            read_pos--;
+            ref_pos = _ref_pos;
+        }
+    }
+    if (read_pos > 0 || left_skipped_read_base > 0) { // push front S digar XXX do extend alignment
+        digar1_t d = (digar1_t){.pos = ref_pos, .qi = 0, .type = BAM_CSOFT_CLIP, .len = read_pos+left_skipped_read_base, .alt_seq = NULL, .is_low_qual = 0};
+        msa_digars = push_digar0(msa_digars, n_msa_digars, &m_msa_digars, d);
+    }
+    // for (int i = 0; i < msa_len; ++i) {
+    for (int i = left_read_start; i <= right_read_end; ++i) {
+        if (read_str[i] == 5 && ref_str[i] == 5) continue; // both are non-ACGTN
+        if (read_str[i] != 5 && ref_str[i] != 5) {
+            if (read_str[i] == ref_str[i]) { // =
+                digar1_t d = (digar1_t){.pos = ref_pos, .qi = read_pos, .type = BAM_CEQUAL, .len = 1, .alt_seq = NULL, .is_low_qual = 0};
+                msa_digars = push_digar0(msa_digars, n_msa_digars, &m_msa_digars, d);
+            } else { // X
+                digar1_t d = (digar1_t){.pos = ref_pos, .qi = read_pos, .type = BAM_CDIFF, .len = 1, .alt_seq = NULL, .is_low_qual = 0};
+                d.alt_seq = (uint8_t*)malloc(1 * sizeof(uint8_t));
+                d.alt_seq[0] = read_str[i];
+                msa_digars = push_digar0(msa_digars, n_msa_digars, &m_msa_digars, d);
+            }
+            read_pos++; ref_pos++;
+        } else if (read_str[i] != 5) { // INS: ref_str[i] == 5
+            digar1_t d = (digar1_t){.pos = ref_pos, .qi = read_pos, .type = BAM_CINS, .len = 1, .alt_seq = NULL, .is_low_qual = 0};
+            d.alt_seq = (uint8_t*)malloc(1 * sizeof(uint8_t));
+            d.alt_seq[0] = read_str[i];
+            msa_digars = push_digar0(msa_digars, n_msa_digars, &m_msa_digars, d);
+            read_pos++;
+        } else { // DEL read_str[i] == 5, ref_str[i] != 5
+            digar1_t d = (digar1_t){.pos = ref_pos, .qi = read_pos, .type = BAM_CDEL, .len = 1, .alt_seq = NULL, .is_low_qual = 0};
+            msa_digars = push_digar0(msa_digars, n_msa_digars, &m_msa_digars, d);
+            ref_pos++;
+        }
     }
     return msa_digars;
 }
 
 void update_digars_from_msa1(digar_t *digar, int msa_len, uint8_t *read_str, uint8_t *ref_str, int full_cover, hts_pos_t noisy_reg_beg, hts_pos_t noisy_reg_end, int read_beg, int read_end) {
     int new_n_digars = 0, new_m_digar = 0; digar1_t *new_digars = NULL;
-    if (full_cover == 0) return;
-    else if (full_cover == 3) { // both left & right: only update digar 
+    int old_left_n_digars, old_right_n_digars, msa_n_digars;
+    digar1_t *old_left_digars=NULL, *old_right_digars=NULL, *msa_digars=NULL;
+    if (LONGCALLD_NOISY_IS_NOT_COVER(full_cover)) return;
+    else if (LONGCALLD_NOISY_IS_BOTH_COVER(full_cover) ||  // both left & right
+             (LONGCALLD_NOISY_IS_LEFT_COVER(full_cover) && LONGCALLD_NOISY_IS_RIGHT_GAP(full_cover)) ||
+             (LONGCALLD_NOISY_IS_RIGHT_COVER(full_cover) && LONGCALLD_NOISY_IS_LEFT_GAP(full_cover))) {
         // chop digar
-        int old_left_n_digars, old_right_n_digars, msa_n_digars; digar1_t *old_left_digars = NULL, *old_right_digars = NULL, *msa_digars;
-        old_left_digars = collect_left_digars(digar, read_beg, &old_left_n_digars);
-        old_right_digars = collect_right_digars(digar, read_end, &old_right_n_digars);
-        // print_digar1(old_right_digars, old_right_n_digars, stderr);
-        msa_digars = collect_msa_digars(read_beg, read_end, noisy_reg_beg, full_cover, msa_len, read_str, ref_str, &msa_n_digars);
+        old_left_digars = collect_left_digars(digar, read_beg, noisy_reg_beg, &old_left_n_digars);
+        old_right_digars = collect_right_digars(digar, read_end, noisy_reg_end, &old_right_n_digars);
+        msa_digars = collect_full_msa_digars(read_beg, read_end, noisy_reg_beg, msa_len, read_str, ref_str, &msa_n_digars);
         // push to new digar
         for (int i = 0; i < old_left_n_digars; ++i) new_digars = push_digar_alt_seq(new_digars, &new_n_digars, &new_m_digar, old_left_digars[i]);
         for (int i = 0; i < msa_n_digars; ++i) new_digars = push_digar0(new_digars, &new_n_digars, &new_m_digar, msa_digars[i]);
         for (int i = 0; i < old_right_n_digars; ++i) new_digars = push_digar_alt_seq(new_digars, &new_n_digars, &new_m_digar, old_right_digars[i]);
-        if (old_left_digars) free(old_left_digars); if (old_right_digars) free(old_right_digars); if (msa_digars) free(msa_digars);
-    } else if (full_cover == 1) { // left-cover: update digar
+    } else if (LONGCALLD_NOISY_IS_LEFT_COVER(full_cover)) { // left-cover: update digar
         // chop digar
-        int old_left_n_digars, msa_n_digars; digar1_t *old_left_digars = NULL, *msa_digars;
-        old_left_digars = collect_left_digars(digar, read_beg, &old_left_n_digars);
-        msa_digars = collect_msa_digars(read_beg, read_end, noisy_reg_beg, full_cover, msa_len, read_str, ref_str, &msa_n_digars);
+        old_left_digars = collect_left_digars(digar, read_beg, noisy_reg_beg, &old_left_n_digars);
+        msa_digars = collect_left_msa_digars(read_beg, read_end, digar->qlen, noisy_reg_beg, msa_len, read_str, ref_str, &msa_n_digars);
         // push to new digar
         for (int i = 0; i < old_left_n_digars; ++i) new_digars = push_digar_alt_seq(new_digars, &new_n_digars, &new_m_digar, old_left_digars[i]);
         for (int i = 0; i < msa_n_digars; ++i) new_digars = push_digar0(new_digars, &new_n_digars, &new_m_digar, msa_digars[i]);
-        if (old_left_digars) free(old_left_digars); if (msa_digars) free(msa_digars);
-    } else if (full_cover == 2) { // right-cover: update digar and start pos
+    } else if (LONGCALLD_NOISY_IS_RIGHT_COVER(full_cover)) { // right-cover: update digar and start pos
         // chop digar
-        int msa_n_digars, old_right_n_digars; digar1_t *msa_digars = NULL, *old_right_digars = NULL;
-        old_right_digars = collect_right_digars(digar, read_end, &old_right_n_digars);
-        msa_digars = collect_msa_digars(read_beg, read_end, noisy_reg_beg, full_cover, msa_len, read_str, ref_str, &msa_n_digars);
+        old_right_digars = collect_right_digars(digar, read_end, noisy_reg_end, &old_right_n_digars);
+        msa_digars = collect_right_msa_digars(read_beg, read_end, noisy_reg_beg, noisy_reg_end, msa_len, read_str, ref_str, &msa_n_digars);
         // push to new digar
         for (int i = 0; i < msa_n_digars; ++i) new_digars = push_digar0(new_digars, &new_n_digars, &new_m_digar, msa_digars[i]);
         for (int i = 0; i < old_right_n_digars; ++i) new_digars = push_digar_alt_seq(new_digars, &new_n_digars, &new_m_digar, old_right_digars[i]);
-        if (old_right_digars) free(old_right_digars); if (msa_digars) free(msa_digars);
     }
     free_digar1(digar->digars, digar->n_digar);
     digar->n_digar = new_n_digars; digar->m_digar = new_m_digar; digar->digars = new_digars;
+    if (double_check_digar(digar)) {
+        print_digar1(digar->digars, digar->n_digar, stderr);
+    }
+    if (old_left_digars) free(old_left_digars); if (old_right_digars) free(old_right_digars); if (msa_digars) free(msa_digars);
+    // assert(digar->qlen == digar2qlen(digar));
     // print updated digar:
     // print_digar1(digar->digars, digar->n_digar, stderr);
 }
@@ -1797,7 +1923,7 @@ void update_digars_from_msa(bam_chunk_t *chunk, hts_pos_t noisy_reg_beg, hts_pos
         int n_seqs = clu_n_seqs[i];
         uint8_t *ref_str = msa_seqs[i][n_seqs]; // reference sequence
         if (LONGCALLD_VERBOSE >= 2) {
-            fprintf(stderr, ">Ref\n");
+            fprintf(stderr, ">Ref %d\n", msa_seq_lens[i]);
             for (int j = 0; j < msa_seq_lens[i]; ++j) {
                 fprintf(stderr, "%c", "ACGTN-"[msa_seqs[i][n_seqs][j]]);
             } fprintf(stderr, "\n");
@@ -1805,13 +1931,14 @@ void update_digars_from_msa(bam_chunk_t *chunk, hts_pos_t noisy_reg_beg, hts_pos
         for (int read_i = 0; read_i < n_seqs; ++read_i) {
             int read_id = clu_read_ids[i][read_i]; int read_beg = read_reg_beg[read_id], read_end = read_reg_end[read_id];
             uint8_t *read_str = msa_seqs[i][read_i];
-            update_digars_from_msa1(chunk->digars+read_id,  msa_seq_lens[i], read_str, ref_str, read_id_to_full_covers[read_id], noisy_reg_beg, noisy_reg_end, read_beg, read_end);
             if (LONGCALLD_VERBOSE >= 2) {
                 fprintf(stderr, ">%s %d\n", bam_get_qname(chunk->reads[read_id]), read_id_to_full_covers[read_id]);
                 for (int j = 0; j < msa_seq_lens[i]; ++j) {
                     fprintf(stderr, "%c", "ACGTN-"[msa_seqs[i][read_i][j]]);
                 } fprintf(stderr, "\n");
             }
+            update_digars_from_msa1(chunk->digars+read_id,  msa_seq_lens[i], read_str, ref_str, read_id_to_full_covers[read_id], noisy_reg_beg, noisy_reg_end, read_beg, read_end);
+            if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "%s digar->qlen: %d\n", bam_get_qname(chunk->reads[read_id]), digar2qlen(chunk->digars+read_id));
         }
     }
 }
@@ -1834,7 +1961,7 @@ int collect_noisy_reg_aln_strs(const call_var_opt_t *opt, bam_chunk_t *chunk, ht
     int min_no_hap_full_read_count = opt->min_dp; // opt->min_no_hap_full_reads;
     hts_pos_t ps_with_both_haps = collect_phase_set_with_both_haps(n_noisy_reg_reads, haps, lens, phase_sets, fully_covers, min_hap_full_read_count, min_hap_read_count);
     int n_full_reads = 0;
-    for (int i = 0; i < n_noisy_reg_reads; ++i) if (fully_covers[i] == 3) n_full_reads++;
+    for (int i = 0; i < n_noisy_reg_reads; ++i) if (LONGCALLD_NOISY_IS_BOTH_COVER(fully_covers[i])) n_full_reads++;
     int n_cons = 0;
     uint8_t ***msa_seqs = (uint8_t***)malloc(2 * sizeof(uint8_t**)); // allocate MSA sequences for two haps
     int *msa_seq_lens = (int*)malloc(2 * sizeof(int));
@@ -1856,8 +1983,10 @@ int collect_noisy_reg_aln_strs(const call_var_opt_t *opt, bam_chunk_t *chunk, ht
             fprintf(stderr, "Skipped region: %s:%" PRIi64 "-%" PRIi64 " %" PRIi64 " %d reads (%d full)\n", chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end-noisy_reg_beg+1, n_noisy_reg_reads, n_full_reads);
     }
     // update digar based on ref vs read in MSA
-    if (n_cons > 0) update_digars_from_msa(chunk, noisy_reg_beg, noisy_reg_end, read_id_to_full_covers, read_reg_beg, read_reg_end,
-                                           msa_seqs, msa_seq_lens, n_cons, clu_n_seqs, clu_read_ids);
+    if (n_cons > 0 && ((opt->refine_bam && opt->out_bam != NULL) || opt->out_somatic)) {
+        update_digars_from_msa(chunk, noisy_reg_beg, noisy_reg_end, read_id_to_full_covers, read_reg_beg, read_reg_end,
+                               msa_seqs, msa_seq_lens, n_cons, clu_n_seqs, clu_read_ids);
+    }
     for (int i = 0; i < n_noisy_reg_reads; ++i) {
         free(seqs[i]); free(base_quals[i]);
     }

@@ -306,6 +306,19 @@ void copy_var(cand_var_t *to_var, cand_var_t *from_var) {
     to_var->te_seq_i = from_var->te_seq_i; to_var->te_is_rev = from_var->te_is_rev;
 }
 
+void low_comp_cr_start_end(cgranges_t *low_comp_cr, int32_t start, int32_t end, int32_t *new_start, int32_t *new_end) {
+    *new_start = start; *new_end = end;
+    if (low_comp_cr == NULL || low_comp_cr->n_r == 0) return;
+    int64_t *low_comp_b = 0; int64_t low_comp_n = 0, max_low_comp_n = 0;
+    low_comp_n = cr_overlap(low_comp_cr, "cr", start-1, end, &low_comp_b, &max_low_comp_n);
+    for (int64_t j = 0; j < low_comp_n; ++j) {
+        int32_t start = cr_start(low_comp_cr, low_comp_b[j])+1;
+        int32_t end = cr_end(low_comp_cr, low_comp_b[j]);
+        if (start < *new_start) *new_start = start;
+        if (end > *new_end) *new_end = end;
+    }
+}
+
 // XXX no vars spanning the boundaries of noisy regions
 static void collect_noisy_reg_start_end(bam_chunk_t *chunk, call_var_opt_t *opt, int *var_i_to_cate, int32_t *start, int32_t *end) {
     int *max_left_var_i = (int32_t*)malloc(chunk->chunk_noisy_regs->n_r * sizeof(int32_t));
@@ -801,7 +814,7 @@ int merge_var_profile(bam_chunk_t *chunk, int n_reads_with_new_var, int n_new_va
                 read_var_profile_t *old_p1 = old_p + i;
                 read_var_profile_t *merged_p1 = merged_p + i;
                 if (old_p1->start_var_idx > old_var_i || old_p1->end_var_idx < old_var_i) continue;
-                update_read_var_profile_with_allele(merged_var_i, old_p1->alleles[old_var_i-old_p1->start_var_idx], old_p1->alt_base_pos[old_var_i-old_p1->start_var_idx], old_p1->digar_i[old_var_i-old_p1->start_var_idx], merged_p1);
+                update_read_var_profile_with_allele(merged_var_i, old_p1->alleles[old_var_i-old_p1->start_var_idx], old_p1->alt_qi[old_var_i-old_p1->start_var_idx], merged_p1);
             }
             merged_var_i_to_cate[merged_var_i] = chunk->var_i_to_cate[old_var_i];
             merged_vars[merged_var_i++] = old_vars[old_var_i++];
@@ -811,7 +824,7 @@ int merge_var_profile(bam_chunk_t *chunk, int n_reads_with_new_var, int n_new_va
                 read_var_profile_t *new_p1 = new_p + i;
                 read_var_profile_t *merged_p1 = merged_p + i;
                 if (new_p1->start_var_idx > new_var_i || new_p1->end_var_idx < new_var_i) continue;
-                update_read_var_profile_with_allele(merged_var_i, new_p1->alleles[new_var_i-new_p1->start_var_idx], new_p1->alt_base_pos[new_var_i-new_p1->start_var_idx], new_p1->digar_i[new_var_i-new_p1->start_var_idx], merged_p1);
+                update_read_var_profile_with_allele(merged_var_i, new_p1->alleles[new_var_i-new_p1->start_var_idx], new_p1->alt_qi[new_var_i-new_p1->start_var_idx], merged_p1);
             }
             merged_var_i_to_cate[merged_var_i] = new_var_cate[new_var_i]; //
             merged_vars[merged_var_i++] = new_vars[new_var_i++];
@@ -822,7 +835,7 @@ int merge_var_profile(bam_chunk_t *chunk, int n_reads_with_new_var, int n_new_va
                 read_var_profile_t *old_p1 = old_p + i;
                 read_var_profile_t *merged_p1 = merged_p + i;
                 if (old_p1->start_var_idx > old_var_i || old_p1->end_var_idx < old_var_i) continue;
-                update_read_var_profile_with_allele(merged_var_i, old_p1->alleles[old_var_i-old_p1->start_var_idx], old_p1->alt_base_pos[old_var_i-old_p1->start_var_idx], old_p1->digar_i[old_var_i-old_p1->start_var_idx], merged_p1);
+                update_read_var_profile_with_allele(merged_var_i, old_p1->alleles[old_var_i-old_p1->start_var_idx], old_p1->alt_qi[old_var_i-old_p1->start_var_idx], merged_p1);
             }
             merged_var_i_to_cate[merged_var_i] = chunk->var_i_to_cate[old_var_i];
             merged_vars[merged_var_i++] = old_vars[old_var_i++];
@@ -836,7 +849,7 @@ int merge_var_profile(bam_chunk_t *chunk, int n_reads_with_new_var, int n_new_va
             read_var_profile_t *old_p1 = old_p + i;
             read_var_profile_t *merged_p1 = merged_p + i;
             if (old_p1->start_var_idx > old_var_i || old_p1->end_var_idx < old_var_i) continue;
-            update_read_var_profile_with_allele(merged_var_i, old_p1->alleles[old_var_i-old_p1->start_var_idx], old_p1->alt_base_pos[old_var_i-old_p1->start_var_idx], old_p1->digar_i[old_var_i-old_p1->start_var_idx], merged_p1);
+            update_read_var_profile_with_allele(merged_var_i, old_p1->alleles[old_var_i-old_p1->start_var_idx], old_p1->alt_qi[old_var_i-old_p1->start_var_idx], merged_p1);
         }
         merged_var_i_to_cate[merged_var_i] = chunk->var_i_to_cate[old_var_i];
         merged_vars[merged_var_i++] = old_vars[old_var_i];
@@ -847,7 +860,7 @@ int merge_var_profile(bam_chunk_t *chunk, int n_reads_with_new_var, int n_new_va
             read_var_profile_t *new_p1 = new_p + i;
             read_var_profile_t *merged_p1 = merged_p + i;
             if (new_p1->start_var_idx > new_var_i || new_p1->end_var_idx < new_var_i) continue;
-            update_read_var_profile_with_allele(merged_var_i, new_p1->alleles[new_var_i-new_p1->start_var_idx], new_p1->alt_base_pos[new_var_i-new_p1->start_var_idx], new_p1->digar_i[new_var_i-new_p1->start_var_idx], merged_p1);
+            update_read_var_profile_with_allele(merged_var_i, new_p1->alleles[new_var_i-new_p1->start_var_idx], new_p1->alt_qi[new_var_i-new_p1->start_var_idx], merged_p1);
         }
         merged_var_i_to_cate[merged_var_i] = new_var_cate[new_var_i];
         merged_vars[merged_var_i++] = new_vars[new_var_i];
@@ -867,6 +880,7 @@ int merge_var_profile(bam_chunk_t *chunk, int n_reads_with_new_var, int n_new_va
     if (LONGCALLD_VERBOSE >= 2) {
         for (int read_id = 0; read_id < chunk->n_reads; ++read_id) {
             read_var_profile_t *p1 = merged_p + read_id;
+            if (chunk->is_skipped[read_id]) continue;
             fprintf(stderr, "MergedProfile: %s start_var_i: %d, end_var_i: %d\n", bam_get_qname(chunk->reads[read_id]), p1->start_var_idx, p1->end_var_idx);
             for (int k = 0; k <= p1->end_var_idx-p1->start_var_idx; ++k) {
                 fprintf(stderr, "P\tVar: (%d) %" PRId64 "", k, merged_vars[k+p1->start_var_idx].pos);
@@ -898,10 +912,10 @@ read_var_profile_t *collect_read_var_profile(const call_var_opt_t *opt, bam_chun
                 fprintf(stderr, "Read: %s, start_var_i: %d, end_var_i: %d\n", bam_get_qname(read), p[i].start_var_idx, p[i].end_var_idx);
                 for (int j = 0; j <= p[i].end_var_idx-p[i].start_var_idx; ++j) {
                     fprintf(stderr, "P\tVar: (%d) %" PRId64 " %c", j, cand_vars[j+p[i].start_var_idx].pos, LONGCALLD_VAR_CATE_TYPE(var_i_to_cate[j+p[i].start_var_idx]));
-                    int alt_pos = p[i].alt_base_pos[j];
+                    int alt_qi = p[i].alt_qi[j];
                     int alt_qual = -1;
-                    if (alt_pos != -1) alt_qual = chunk->digars[i].qual[alt_pos];
-                    fprintf(stderr, " %d-%c-%d, allele: %d, alt_pos: %d, alt_qual: %d\n", cand_vars[j+p[i].start_var_idx].ref_len, BAM_CIGAR_STR[cand_vars[j+p[i].start_var_idx].var_type], cand_vars[j+p[i].start_var_idx].alt_len, p[i].alleles[j], alt_pos, alt_qual);
+                    if (alt_qi != -1) alt_qual = chunk->digars[i].qual[alt_qi];
+                    fprintf(stderr, " %d-%c-%d, allele: %d, alt_pos: %d, alt_qual: %d\n", cand_vars[j+p[i].start_var_idx].ref_len, BAM_CIGAR_STR[cand_vars[j+p[i].start_var_idx].var_type], cand_vars[j+p[i].start_var_idx].alt_len, p[i].alleles[j], alt_qi, alt_qual);
                 }
             }
         }
@@ -1453,6 +1467,31 @@ int get_full_cover_from_cons_aln_str(aln_str_t *cons_aln_str, int var_type, int 
     return 0;
 }
 
+// for DELs
+int get_full_cover_from_ref_cons_aln_str(aln_str_t *cons_aln_str, aln_str_t *ref_cons_aln_str, int beg_in_ref, int end_in_ref) {
+    // colect target_pos and len using ref_cons_aln_str
+    int cur_ref_pos=-1, cur_cons_pos=-1;
+    int beg_in_cons = -1, end_in_cons = -1;
+    int reach_end = 0;
+    for (int i = 0; i < ref_cons_aln_str->aln_len; ++i) {
+        if (ref_cons_aln_str->target_aln[i] != 5) cur_ref_pos++;
+        if (ref_cons_aln_str->query_aln[i] != 5) cur_cons_pos++;
+        if (i < ref_cons_aln_str->query_beg || i < ref_cons_aln_str->target_beg) continue;
+        else if (i > ref_cons_aln_str->query_end || i > ref_cons_aln_str->target_end) break;
+
+        if (cur_ref_pos == beg_in_ref && beg_in_cons == -1) {
+            beg_in_cons = cur_cons_pos;
+        }
+        if (cur_ref_pos == end_in_ref) reach_end = 1;
+        if (reach_end && ref_cons_aln_str->query_aln[i] != 5) {
+            end_in_cons = cur_cons_pos;
+            break;
+        }
+    }
+
+    return is_cover_aln_str(cons_aln_str, beg_in_cons, end_in_cons-beg_in_cons+1);
+}
+
 // cons_aln_str: cons vs read
 // cand_var: update total_cov & alle_covs (only count alt_allele, no ref_allele)
 // p: update read_id,
@@ -1479,7 +1518,7 @@ void update_cand_var_profile_from_cons_aln_str(aln_str_t *cons_aln_str, hts_pos_
         if (full_cover) {
             vars[i].total_cov++;
             if (allele_i != -1) vars[i].alle_covs[allele_i]++;
-            update_read_var_profile_with_allele(i, allele_i, -1, -1, p); // XXX read_base_pos: -1
+            update_read_var_profile_with_allele(i, allele_i, -1, p); // XXX read_base_pos: -1
         }
         if (vars[i].var_type == BAM_CINS) delta_ref_alt -= var_alt_len;
         else if (vars[i].var_type == BAM_CDEL) delta_ref_alt += var_ref_len;
@@ -1501,7 +1540,7 @@ void update_cand_var_profile_from_cons_aln_str1(int clu_n_seqs, int *clu_read_id
 }
 
 // use cons and ref to update var profile
-void update_cand_var_profile_from_cons_aln_str21(int clu_idx, aln_str_t *cons_aln_str, hts_pos_t ref_pos_beg,
+void update_cand_var_profile_from_cons_aln_str21(int clu_idx, aln_str_t *cons_aln_str, aln_str_t *ref_cons_aln_str, hts_pos_t ref_pos_beg,
                                                  cand_var_t *vars, int n_vars, int *var_from_cons_idx, read_var_profile_t *p) {
     uint8_t *_cons_seq = cons_aln_str->target_aln; uint8_t *_cons_read_seq = cons_aln_str->query_aln; int _cons_aln_len = cons_aln_str->aln_len;
     float cons_sim_thres = 0.9; //, ref_sim_thres = 0.9; //, alt_sim_thres = 1.0;
@@ -1512,21 +1551,26 @@ void update_cand_var_profile_from_cons_aln_str21(int clu_idx, aln_str_t *cons_al
         for (int i = 0; i < _cons_aln_len; ++i) fprintf(stderr, "%c", "ACGTN-"[_cons_read_seq[i]]); fprintf(stderr, "\n");
     }
     int allele_i = -1, delta_ref_alt = 0;
+    // collect var_ref_beg and var_ref_end for each var
 
     for (int i = 0; i < n_vars; ++i) {
-        int var_ref_pos = vars[i].pos - ref_pos_beg, var_ref_len = vars[i].ref_len, var_alt_len = vars[i].alt_len;
+        int var_beg_in_ref_str = vars[i].pos - ref_pos_beg, var_end_in_ref_str;
+        int var_ref_len = vars[i].ref_len, var_alt_len = vars[i].alt_len;
+        if (vars[i].var_type == BAM_CINS) var_end_in_ref_str = var_beg_in_ref_str;
+        else var_end_in_ref_str = var_beg_in_ref_str + var_ref_len - 1;
         int full_cover = 0;
         if (var_from_cons_idx[i] & clu_idx) { // check if read contain the var (1)
-            allele_i = get_var_allele_i_from_cons_aln_str(cons_aln_str, vars[i].var_type, var_ref_pos-delta_ref_alt, var_alt_len, cons_sim_thres, &full_cover);
-        } else {
-            // XXX check if read covers the var
-            full_cover = get_full_cover_from_cons_aln_str(cons_aln_str, vars[i].var_type, var_ref_pos-delta_ref_alt, var_ref_len);
+            allele_i = get_var_allele_i_from_cons_aln_str(cons_aln_str, vars[i].var_type, var_beg_in_ref_str-delta_ref_alt, var_alt_len, cons_sim_thres, &full_cover);
+        } else { // var is from the other haplotype, only check if read covers the var
+            if (vars[i].var_type != BAM_CDEL) full_cover = get_full_cover_from_cons_aln_str(cons_aln_str, vars[i].var_type, var_beg_in_ref_str-delta_ref_alt, var_ref_len);
+            else full_cover = get_full_cover_from_ref_cons_aln_str(cons_aln_str, ref_cons_aln_str, var_beg_in_ref_str-1, var_end_in_ref_str+1);
+            // fprintf(stderr, "FullCover: %d-%c %d\n", vars[i].ref_len, BAM_CIGAR_STR[vars[i].var_type], full_cover);
             allele_i = 0;
         }
         if (full_cover) {
             vars[i].total_cov++;
             if (allele_i != -1) vars[i].alle_covs[allele_i]++;
-            update_read_var_profile_with_allele(i, allele_i, -1, -1, p); // XXX read_base_pos: -1
+            update_read_var_profile_with_allele(i, allele_i, -1, p); // XXX read_base_pos: -1
         }
         // update delta_ref_alt for both cons/var
         if (vars[i].var_type == BAM_CINS) {
@@ -1587,7 +1631,8 @@ int update_cand_var_profile_from_cons_aln_str2(bam_chunk_t *chunk, int *clu_n_se
             read_var_profile_t *p1 = *p + read_id;
             if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "%d: %s\n", read_id, bam_get_qname(chunk->reads[read_id]));
             aln_str_t *cons_aln_str = LONGCALLD_CONS_READ_ALN_STR(clu_aln_str, j);
-            update_cand_var_profile_from_cons_aln_str21(i+1, cons_aln_str, noisy_reg_beg, *noisy_vars, n_vars, var_from_cons_idx, p1);
+            aln_str_t *ref_cons_aln_str = LONGCALLD_REF_CONS_ALN_STR(clu_aln_str);
+            update_cand_var_profile_from_cons_aln_str21(i+1, cons_aln_str, ref_cons_aln_str, noisy_reg_beg, *noisy_vars, n_vars, var_from_cons_idx, p1);
         }
     }
     free(var_from_cons_idx);

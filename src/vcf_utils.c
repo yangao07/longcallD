@@ -182,11 +182,10 @@ int write_var_to_vcf(var_t *vars, const struct call_var_opt_t *opt, char *chrom)
             if (var.tsd_len > 0 && var.tsd_pos1 > 0) {
                 len += snprintf(buffer + len, sizeof(buffer) - len, ";TSD=");
                 for (int i = 0; i < var.tsd_len; ++i) len += snprintf(buffer + len, sizeof(buffer) - len, "%c", "ACGTN"[var.tsd_seq[i]]);
-                if (var.te_is_rev) len += snprintf(buffer + len, sizeof(buffer) - len, ";TSDLEN=%d;POLYALEN=-%d;TSDPOS1=%" PRId64 "", var.tsd_len, var.polya_len, var.tsd_pos1);
-                else len += snprintf(buffer + len, sizeof(buffer) - len, ";TSDLEN=%d;POLYALEN=%d;TSDPOS1=%" PRId64 "", var.tsd_len, var.polya_len, var.tsd_pos1);
+                len += snprintf(buffer + len, sizeof(buffer) - len, ";TSDLEN=%d;POLYALEN=%d;TSDPOS1=%" PRId64 "", var.tsd_len, var.polya_len, var.tsd_pos1);
                 if (var.tsd_pos2 > 0) len += snprintf(buffer + len, sizeof(buffer) - len, ";TSDPOS2=%" PRId64 "", var.tsd_pos2);
             }
-            if (var.te_seq_i >= 0) len += snprintf(buffer + len, sizeof(buffer) - len, ";REPNAME=%s", opt->te_seq_names[var.te_seq_i]);
+            if (var.te_seq_i >= 0) len += snprintf(buffer + len, sizeof(buffer) - len, ";REPNAME=%c%s", "+-"[var.te_is_rev], opt->te_seq_names[var.te_seq_i]);
         }
         len += snprintf(buffer + len, sizeof(buffer) - len, "\t");
 

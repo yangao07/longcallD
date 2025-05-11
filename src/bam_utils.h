@@ -25,19 +25,13 @@ extern "C" {
 
 // read/base wise X/I/D operations from CIGAR
 typedef struct digar1_t {
-    hts_pos_t pos; int type, len, qi; // pos: 1-based ref position, qi: 0-based query position
-    uint8_t *alt_seq; // only used for mismatch/insertion, deletion:NULL
-    // two rounds:
-    // 1st: left_low_len, right_low_len 
-    // 2nd: if len > left+right, then left+mid+right (split)
-    //                           else all_low (no split)
-    uint8_t is_low_qual; // low-qual sites will not be used for haplotype assignment,
-} digar1_t;              // they may be: 1) in dense X/gap region
-                         //                 a) in repetitive region
-                         //                 b) wrong mapping
-                         //              2) low base quality
-                         //              3) X around indels
-                         //              etc.
+    // pos: 1-based ref position
+    // qi: 0-based query position (for =XI); for DEL, qi is the first read base after the deletion
+    hts_pos_t pos; int type, len, qi;
+    uint8_t *alt_seq; // X/I: alt_seq; =/D: NULL
+    uint8_t is_low_qual; // low-base-qual, effective for clean-region digars
+} digar1_t;
+
 typedef struct {
     hts_pos_t beg, end; // [beg, end]
     uint8_t is_rev;
@@ -65,7 +59,7 @@ typedef struct bam_chunk_t {
     //   for variants across boundaries/spaning multiple regions, they will be processed during stitching
     //   ref_beg <= reg_beg < reg_end <= ref_end, ref_seq may include additional flanking regions (50kb)
     // should always be 1 region XXX
-    cgranges_t *low_comp_cr;
+    cgranges_t *low_comp_cr; // tandem_rep_cr;
     int n_reads, m_reads;
     int n_up_ovlp_reads, n_down_ovlp_reads; // number of reads overlapping with up/downstream bam chunk
     int *up_ovlp_read_i, *down_ovlp_read_i;
@@ -95,6 +89,26 @@ struct cand_var_t;
 struct var_site_t;
 struct read_var_profile_t;
 struct call_var_io_aux_t;
+
+static inline int double_check_digar(digar_t *digar) {
+    if (digar->n_digar == 0) return 0;
+    for (int i = digar->n_digar-2; i > 0; --i) {
+        int qi, last_i = i-1; int last_qi = digar->digars[last_i].qi;
+        if (digar->digars[last_i].type == BAM_CEQUAL ||
+            digar->digars[last_i].type == BAM_CMATCH ||
+            digar->digars[last_i].type == BAM_CDIFF ||
+            digar->digars[last_i].type == BAM_CINS ||
+            digar->digars[last_i].type == BAM_CSOFT_CLIP ||
+            digar->digars[last_i].type == BAM_CHARD_CLIP) {
+                qi = last_qi + digar->digars[last_i].len;
+        } else qi = last_qi;
+        if (qi != digar->digars[i].qi) {
+            fprintf(stderr, "Error: digar->qi[%d]=%d, digar->qi[%d]=%d\n", i, digar->digars[i].qi, last_i, qi);
+            return 1;
+        }
+    }
+    return 0;
+}
 
 static inline int digar2qlen(digar_t *digar) {
     if (digar->n_digar == 0) return 0;
@@ -146,7 +160,7 @@ int collect_digar_from_cs_tag(bam_chunk_t *chunk, bam1_t *read, const struct cal
 int collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar);
 int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar);
 int update_cand_vars_from_digar(const struct call_var_opt_t *opt, bam_chunk_t *chunk, digar_t *digar, int n_var_sites, struct var_site_t *var_sites, int start_i, struct cand_var_t *cand_vars);
-void update_read_var_profile_with_allele(int var_i, int allele_i, int alt_read_base_pos, int digar_i, read_var_profile_t *read_var_profile);
+void update_read_var_profile_with_allele(int var_i, int allele_i, int alt_qi, read_var_profile_t *read_var_profile);
 int update_read_var_profile_from_digar(const struct call_var_opt_t *opt, bam_chunk_t *chunk, digar_t *digar, int n_cand_vars, struct cand_var_t *cand_vars, int start_var_i, struct read_var_profile_t *read_var_profile);
 
 int collect_ref_seq_bam_main(const struct call_var_pl_t *pl, struct call_var_io_aux_t *io_aux, int reg_chunk_i, int reg_i, bam_chunk_t *chunks);

@@ -18,7 +18,7 @@
 #define LONGCALLD_MIN_CAND_MQ 30 // ignore reads with MAPQ < 30
 #define LONGCALLD_MIN_CAND_BQ 10 // ignore bases with BQ < 10
 #define LONGCALLD_MIN_CAND_DP 5 // total depth < 5: skipped
-#define LONGCALLD_MIN_ALT_DP 2 // max alt depth < 2: skipped
+#define LONGCALLD_MIN_ALT_DP 2 // alt depth < 2: skipped
 #define LONGCALLD_MIN_CAND_AF 0.20 // AF < 0.20: not germline het.
 #define LONGCALLD_MAX_CAND_AF 0.80 // AF > 0.80: not germline het.
 #define LONGCALLD_DEF_PLOID 2 // diploid
@@ -50,28 +50,30 @@
 #define LONGCALLD_MIN_SOMATIC_ALT_QUAL 20 // >= 10 for somatic variant
 #define LONGCALLD_MIN_SOMATIC_DIS_TO_HET_VAR 5
 #define LONGCALLD_MIN_SOMATIC_DIS_TO_SEQ_ERROR 5
-#define LONGCALLD_MIN_SOMATIC_LOG_BETA_BINOM -3.0 // log10(0.001) for beta-binomial test
+// BLT50: 1/10/3 works better
+#define LONGCALLD_SOMATIC_BETA_ALPHA 2 // beta prior for somatic variant calling
+#define LONGCALLD_SOMATIC_BETA_BETA 10 // beta prior for somatic variant calling
+#define LONGCALLD_MIN_SOMATIC_LOG_BETA_BINOM -4 // min log10(p-value) for beta-binomial test
+// fisher is NOT used for PacBio-HiFi
 #define LONGCALLD_MIN_SOMATIC_FISHER_PVAL 0.05
 // #define LONGCALLD_MIN_SOMATIC_AF 0.01
-#define LONGCALLD_MAX_SOMATIC_ALT_AF 0.1
-#define LONGCALLD_SOMATIC_BETA_ALPHA 1 // beta prior for somatic variant calling
-#define LONGCALLD_SOMATIC_BETA_BETA 10 // beta prior for somatic variant calling
+// #define LONGCALLD_MAX_SOMATIC_ALT_AF 0.1
 #define LONGCALLD_SOMATIC_DENSE_WIN 1000
-#define LONGCALLD_SOMATIC_DENSE_WIN_MAX_VARS 2 // >= 2 somatic vars in a 1000-bp window, consider as artifact, tag both var & read as artifact
+#define LONGCALLD_SOMATIC_DENSE_WIN_MAX_VARS 3 // >= 2 somatic vars in a 1000-bp window, consider as artifact, tag both var & read as artifact
 #define LONGCALLD_MIN_SOMATIC_HAP_READS 10 // >= 10 reads supporting each haplotype
 #define LONGCALLD_MIN_SOMATIC_ALT_DP 2 // >= 2 reads supporting somatic variant
 #define LONGCALLD_MIN_SOMATIC_TE_ALT_DP 1 // >= 1 read supporting somatic TE variant
 #define LONGCALLD_MIN_SOMATIC_TE_LEN 250 // >= 250 bp INDEL to be considered as somatic TE
 
-#define LONGCALLD_MIN_SV_LEN 30 // diff >= 30 bp: classify as SV
+#define LONGCALLD_MIN_SV_LEN 30 // size >= 30 bp -> SV
 #define LONGCALLD_MIN_TSD_LEN 2 // TSD >= 2 bp
-#define LONGCALLD_MAX_TSD_LEN 100 // TSD <= 25 bp
+#define LONGCALLD_MAX_TSD_LEN 100 // TSD <= 100 bp
 #define LONGCALLD_MIN_POLYA_LEN 10 // polyA >= 10 bp
 #define LONGCALLD_MIN_POLYA_RATIO 0.8 // polyA >= 80% of the total length
 
 // for sdust
-#define LONGCALLD_SDUST_T 5
-#define LONGCALLD_SDUST_W 20
+#define LONGCALLD_SDUST_T 5  // 10
+#define LONGCALLD_SDUST_W 20 // 50
 
 // for math_utils
 #define LONGCALLD_LGAMMA_MAX_I 500
@@ -136,7 +138,7 @@ typedef struct call_var_opt_t {
     double min_af, max_af;
     // somatic/mosaic variant
     int min_somatic_dis_to_het_var, min_somatic_bq, min_somatic_alt_qual, min_somatic_dis_to_seq_error, min_somatic_alt_dp, min_somatic_te_dp, min_somatic_hap_dp;
-    double min_somatic_log_beta_binom, min_somatic_fisher_pval, max_somatic_alt_af; // 0.01~0.1
+    double min_somatic_log_beta_binom, min_somatic_fisher_pval; //, max_somatic_alt_af; // 0.01~0.1
     int somatic_beta_alpha, somatic_beta_beta; // beta prior for somatic variant calling
     int somatic_dense_win, somatic_dense_win_max_vars; // somatic variant calling window size, max vars in the window
 

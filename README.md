@@ -11,16 +11,17 @@
 
 ## Updates (pre-release v0.0.5)
 
+* Fix a SegFault in ONT mode regarding BAM/SA tag
 * Significant speed improvement (compiling mistake in last release)
-* Add --refine-bam: refine read alignment based on MSA in output BAM/CRAM
+* Add --refine-aln: refine read alignment based on MSA in output BAM/CRAM
 * Add -Oz for compressed VCF output
-<!-- * Add -s/--somatic to output somatic/mosaic variant -->
+* Add -s/--somatic to output somatic/mosaic variant
 * Add --exclude-ctg & --all-ctg; --autosome-XY is default now
-* Add -T/--trans-elem; output transposable element information for INS/DEL
-* Add INFO:TSD;REPNAME in VCF for Alu/L1/SVA INS/DEL
+* Add -T/--trans-elem; output TE (transposable/mobile element, Alu/L1/SVA) information for INS/DEL
+* Add INFO:TSD;REPNAME in VCF for TE INS/DEL
+<!-- * Add INFO:TANDAM in VCF for tandem duplications -->
 * Fix lower case ref base
 * Fix compiling in macOS-x64
-<!-- * Add option for take TRF annotation as input -->
 
 
 ## Getting Started
