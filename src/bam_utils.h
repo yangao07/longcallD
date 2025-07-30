@@ -48,6 +48,7 @@ typedef struct bam_chunk_t {
     // reg_beg = pl->reg_chunks[reg_chunk_i].reg_begs[reg_i]
     // reg_end = pl->reg_chunks[reg_chunk_i].reg_ends[reg_i]
     int reg_chunk_i, reg_i, tid; hts_pos_t reg_beg, reg_end;
+    int *qual_counts; int min_qual, first_quar_qual, median_qual, third_quar_qual, max_qual; // for each read, count the number of bases with qual
     char *tname;
     // ref_seq: 
     //   reference sequence for this chunk, size: ref_end-ref_beg+1
@@ -65,6 +66,8 @@ typedef struct bam_chunk_t {
     int *up_ovlp_read_i, *down_ovlp_read_i;
     bam1_t **reads;
     // intermidiate
+    int *n_clean_agree_vars, *n_clean_conflict_vars; // size: m_reads; XXX include both het and hom clean vars
+    uint8_t *is_ont_palindrome; // size: m_reads, 1: palindromic read, 0: non-palindromic read
     digar_t *digars; uint8_t *is_skipped, *is_skipped_for_somatic; // size: m_reads, is_skipped: wrong mapping, low qual, etc.
     // variant-related
     // n_cand_vars: including candidate germline variants and somatic variants
@@ -80,7 +83,8 @@ typedef struct bam_chunk_t {
     uint8_t flip_hap; // flip haplotype for this chunk, chromosome-wise global parameter
     hts_pos_t flip_pre_PS, flip_cur_PS; // so all the haplotypes need to be output sequentially to keep consistency
     // read-wise
-    int *haps; hts_pos_t *phase_sets; // size: m_reads 
+    // phase_score: used to determine low-qual phased reads, which should not be used for somatic variant calling
+    int *phase_scores, *haps; hts_pos_t *phase_sets; // size: m_reads 
 } bam_chunk_t; // reg-based bam_chunk_t
 
 struct call_var_pl_t;
@@ -155,13 +159,14 @@ int has_equal_X_in_bam_cigar(bam1_t *read);
 int has_cs_in_bam(bam1_t *b);
 int has_MD_in_bam(bam1_t *b);
 int collect_reg_digars_var_seqs(bam_chunk_t *chunk, int read_i, hts_pos_t reg_beg, hts_pos_t reg_end, digar1_t *reg_digars, uint8_t **reg_var_seqs, int *fully_cover);
-int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar);
-int collect_digar_from_cs_tag(bam_chunk_t *chunk, bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar);
-int collect_digar_from_MD_tag(bam_chunk_t *chunk, bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar);
-int collect_digar_from_ref_seq(bam_chunk_t *chunk, bam1_t *read, const struct call_var_opt_t *opt, digar_t *digar);
+int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, int read_i, const struct call_var_opt_t *opt, digar_t *digar);
+int collect_digar_from_cs_tag(bam_chunk_t *chunk, int read_i, const struct call_var_opt_t *opt, digar_t *digar);
+int collect_digar_from_MD_tag(bam_chunk_t *chunk, int read_i, const struct call_var_opt_t *opt, digar_t *digar);
+int collect_digar_from_ref_seq(bam_chunk_t *chunk, int read_i, const struct call_var_opt_t *opt, digar_t *digar);
 int update_cand_vars_from_digar(const struct call_var_opt_t *opt, bam_chunk_t *chunk, digar_t *digar, int n_var_sites, struct var_site_t *var_sites, int start_i, struct cand_var_t *cand_vars);
 void update_read_var_profile_with_allele(int var_i, int allele_i, int alt_qi, read_var_profile_t *read_var_profile);
-int update_read_var_profile_from_digar(const struct call_var_opt_t *opt, bam_chunk_t *chunk, digar_t *digar, int n_cand_vars, struct cand_var_t *cand_vars, int start_var_i, struct read_var_profile_t *read_var_profile);
+int update_read_vs_all_var_profile_from_digar(const struct call_var_opt_t *opt, bam_chunk_t *chunk, digar_t *digar, int n_cand_vars, struct cand_var_t *cand_vars, int *var_i_to_cate, int start_var_i, struct read_var_profile_t *read_var_profile);
+int update_read_vs_somatic_var_profile_from_digar(const struct call_var_opt_t *opt, bam_chunk_t *chunk, digar_t *digar, int n_cand_vars, struct cand_var_t *cand_vars, int start_var_i, struct read_var_profile_t *read_var_profile);
 
 int collect_ref_seq_bam_main(const struct call_var_pl_t *pl, struct call_var_io_aux_t *io_aux, int reg_chunk_i, int reg_i, bam_chunk_t *chunks);
 int write_read_to_bam(bam_chunk_t *chunk, const struct call_var_opt_t *opt);

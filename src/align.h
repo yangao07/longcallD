@@ -44,11 +44,16 @@ int collect_te_info_from_cons(const call_var_opt_t *opt, bam_chunk_t *chunk, hts
                               uint8_t **tsd_seq, hts_pos_t *tsd_pos1, hts_pos_t *tsd_pos2, int *tsd_polya_len, int *te_seq_i, int *te_is_rev);
 // int wfa_aln(int gap_pos, char *pattern, int plen, char *text, int tlen, uint32_t **cigar_buf);
 int end2end_aln(const call_var_opt_t *opt, char *pattern, int plen, uint8_t *text, int tlen, uint32_t **cigar_buf);
+int wfa_end2end_aln(uint8_t *pattern, int plen, uint8_t *text, int tlen,
+                    int gap_aln, int a, int b, int q, int e, int q2, int e2, uint32_t **cigar_buf, int *cigar_length,
+                    uint8_t **pattern_alg, uint8_t **text_alg, int *alg_length);
+int wfa_heuristic_aln(uint8_t *pattern, int plen, uint8_t *text, int tlen, int a, int b, int q, int e, int q2, int e2, int *n_eq, int *n_xid);
 int collect_reg_ref_cseq(bam_chunk_t *chunk, hts_pos_t *reg_beg, hts_pos_t *reg_end, char **ref_cseq);
 int collect_reg_ref_bseq(bam_chunk_t *chunk, hts_pos_t *reg_beg, hts_pos_t *reg_end, uint8_t **ref_bseq);
 int collect_noisy_reg_aln_strs(const call_var_opt_t *opt, bam_chunk_t *chunk, hts_pos_t noisy_reg_beg, hts_pos_t noisy_reg_end, 
                                int noisy_reg_i, int n_noisy_reg_reads, int *noisy_reads, uint8_t *ref_seq, int ref_seq_len,
                                int *clu_n_seqs, int **clu_read_ids, aln_str_t **aln_strs);
+int wfa_collect_diff_ins_seq(const call_var_opt_t *opt, uint8_t* large_seq, int large_len, uint8_t *small_seq, int small_len, uint8_t **diff_seq);
 
 #ifdef __cplusplus
 }

@@ -5,27 +5,31 @@
 #include "htslib/sam.h"
 
 // category of candidate variants
-#define LONGCALLD_VAR_CATE_STR "LBNIRXSHehl"
+#define LONGCALLD_VAR_CATE_STR "LBNIRXSHehl0"
 
+// separate CLEAN and NOISY var cate
 #define LONGCALLD_LOW_COV_VAR        0x001 // "L"
 #define LONGCALLD_STRAND_BIAS_VAR    0x002 // "B"
 #define LONGCALLD_CLEAN_HET_SNP      0x004 // "N"
 #define LONGCALLD_CLEAN_HET_INDEL    0x008 // "I"
 #define LONGCALLD_REP_HET_VAR        0x010 // "R"
-#define LONGCALLD_NOISY_REG_VAR      0x020 // "X"
+// #define LONGCALLD_NOISY_REG_VAR      0x020 // "X"
 #define LONGCALLD_CAND_SOMATIC_VAR   0x040 // "S"
 #define LONGCALLD_CLEAN_HOM_VAR      0x080 // "H"
 #define LONGCALLD_NOISY_CAND_HET_VAR 0x100 // "e"
 #define LONGCALLD_NOISY_CAND_HOM_VAR 0x200 // "h"
 #define LONGCALLD_LOW_AF_VAR         0x400 // "l"
+#define LONGCALLD_NON_VAR            0x800 // "0"
 
 #define LONGCALLD_CAND_GERMLINE_VAR_CATE (LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CLEAN_HOM_VAR | LONGCALLD_NOISY_CAND_HET_VAR | LONGCALLD_NOISY_CAND_HOM_VAR)
 #define LONGCALLD_CAND_GERMLINE_CLEAN_VAR_CATE (LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CLEAN_HOM_VAR)
 #define LONGCALLD_CAND_HET_VAR_CATE (LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_NOISY_CAND_HET_VAR)
 #define LONGCALLD_VAR_CATE_TYPE(var_cate) LONGCALLD_VAR_CATE_STR[(int)(log2(var_cate))]
 
+// for each cluster, we will have 1+n_reads*2 aln_strs: refVScons, consVSread1, refVSread1, consVSread2, refVSread2, ...
 #define LONGCALLD_REF_CONS_ALN_STR(clu_aln_strs) clu_aln_strs
-#define LONGCALLD_CONS_READ_ALN_STR(clu_aln_strs, read_i) clu_aln_strs+read_i+1
+#define LONGCALLD_CONS_READ_ALN_STR(clu_aln_strs, read_i) clu_aln_strs+(read_i+1)*2-1
+#define LONGCALLD_REF_READ_ALN_STR(clu_aln_strs, read_i) clu_aln_strs+(read_i+1)*2
 // #define LONGCALLD_REF_READ_ALN_STR(clu_aln_strs, read_i) clu_aln_strs+read_i+1
 // #define LONGCALLD_CONS_READ_ALN_STR(clu_aln_strs, read_i) clu_aln_strs+(read_i+1)*2-1
 // #define LONGCALLD_REF_READ_ALN_STR(clu_aln_strs, read_i) clu_aln_strs+(read_i+1)*2
@@ -43,13 +47,18 @@ typedef struct var_site_t {
 // used for machine learning augmentation
 typedef struct cand_somatic_var_aux_info_t {
     // int is_somatic; // 1: somatic, 0: artifact
-    // int is_low_comp; // within low complexity region, or INS seq is low-comp
+    int is_low_comp; // within low complexity region, or INS seq is low-comp
     float beta_bin_p, strand_fisher_p; 
     int total_dp, hap_alt_dp, hap_total_dp; //, other_hap_alt_dp, other_hap_total_dp; // enriched haplotype
     int hap_ref_for_cov, hap_ref_rev_cov, hap_alt_for_cov, hap_alt_rev_cov; // strand bias
 
-    int *alt_read_ids, *alt_quals, *min_win_quals, *dis_to_indel_error; // size: alt_dp
-    int min_dis_to_het_var; // distance to nearest heterozygous var
+    // has_homopolymer_indel: SNV is in homopolymer region or right next to the homopolymer region
+    //                        1 if the homopolymer region contain indels, 0 otherwise
+    int *alt_read_ids, *alt_quals, *win_low_qual;
+    int *low_comp_reg_has_no_error, *is_not_homopolymer_error, *dis_to_indel_error, *dis_to_indel_var; // size: alt_dp
+    int *no_dense_error; // size: alt_dp, for TEs with low read coverage
+    // dis_to_clip ?
+    int min_dis_to_var; // distance to nearest heterozygous var
 } cand_somatic_var_aux_info_t;
 
 // XXX each cand_var only have one alt_allele/var/seq, previously we keep multiple insertions in one var
@@ -60,7 +69,7 @@ typedef struct cand_somatic_var_aux_info_t {
 typedef struct cand_var_t {
     // static information
     int tid; hts_pos_t pos, phase_set;
-    int var_type; // BAM_CINS/BAM_CDEL/BAM_CDIFF
+    int var_type, is_homopolymer_indel; // BAM_CINS/BAM_CDEL/BAM_CDIFF
     int total_cov; // ref+alt, used in variant calling & haplotype assignment, excluding low-qual bases
     int low_qual_cov; // including bases/regions with low quality, only count depth, not seq
     int n_uniq_alles; // up ot 4: ref, alt1, alt2, minor_alt
@@ -100,13 +109,17 @@ typedef struct aln_str_t {
 
 struct bam_chunk_t;
 struct var_t;
+struct call_var_opt_t;
 struct call_var_pl_t;
 struct call_var_step_t;
 struct digar1_t;
 struct cand_var_t;
 
-int comp_var_site(var_site_t *var1, var_site_t *var2);
-int comp_ovlp_var_site(var_site_t *var1, var_site_t *var2, int *is_ovlp);
+int exact_comp_var_site(const struct call_var_opt_t *opt, var_site_t *var1, var_site_t *var2);
+int exact_comp_var_site_ins(const struct call_var_opt_t *opt, var_site_t *var1, var_site_t *var2);
+int vntr_fuzzy_comp_seq(const struct call_var_opt_t *opt, uint8_t *seq1, int len1, uint8_t *seq2, int len2);
+int comp_ovlp_var_site(const struct call_var_opt_t *opt, var_site_t *var1, var_site_t *var2, int *is_ovlp);
+int fuzzy_comp_ovlp_var_site(const struct call_var_opt_t *opt, var_site_t *var1, var_site_t *var2, int *is_ovlp);
 var_site_t make_var_site_from_digar(int tid, struct digar1_t *digar);
 var_site_t make_var_site_from_cand_var(struct cand_var_t *cand_var);
 void collect_var_main(const struct call_var_pl_t *pl, struct bam_chunk_t *bam_chunk);

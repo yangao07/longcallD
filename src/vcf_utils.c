@@ -179,7 +179,7 @@ int write_var_to_vcf(var_t *vars, const struct call_var_opt_t *opt, char *chrom)
         len += snprintf(buffer + len, sizeof(buffer) - len, "END=%" PRId64 "", var.pos + var.ref_len - 1);
         if (is_sv) { 
             len += snprintf(buffer + len, sizeof(buffer) - len, ";%s;%s", SVTYPE, SVLEN);
-            if (var.tsd_len > 0 && var.tsd_pos1 > 0) {
+            if (var.tsd_len > 0) {
                 len += snprintf(buffer + len, sizeof(buffer) - len, ";TSD=");
                 for (int i = 0; i < var.tsd_len; ++i) len += snprintf(buffer + len, sizeof(buffer) - len, "%c", "ACGTN"[var.tsd_seq[i]]);
                 len += snprintf(buffer + len, sizeof(buffer) - len, ";TSDLEN=%d;POLYALEN=%d;TSDPOS1=%" PRId64 "", var.tsd_len, var.polya_len, var.tsd_pos1);
@@ -190,18 +190,23 @@ int write_var_to_vcf(var_t *vars, const struct call_var_opt_t *opt, char *chrom)
         len += snprintf(buffer + len, sizeof(buffer) - len, "\t");
 
         // Write FORMAT and Genotype Data
-        int is_hom = (var.GT[0] == var.GT[1]);
-        if (is_hom) 
-            len += snprintf(buffer + len, sizeof(buffer) - len, "GT:DP:AD:GQ\t%d|%d:%d:", var.GT[0], var.GT[1], var.DP);
+        int gt1 = var.GT[0], gt2 = var.GT[1];
+        int is_hom = gt1 == gt2; int gt_seperator = '|';
+        if (var.PS == 0) {
+            gt_seperator = '/';
+            if (gt1 > gt2) { int tmp = gt1; gt1 = gt2; gt2 = tmp;  }
+        }
+        if (is_hom || var.PS == 0) 
+            len += snprintf(buffer + len, sizeof(buffer) - len, "GT:DP:AD:GQ\t%d%c%d:%d:", gt1, gt_seperator, gt2, var.DP);
         else 
-            len += snprintf(buffer + len, sizeof(buffer) - len, "GT:DP:AD:GQ:PS\t%d|%d:%d:", var.GT[0], var.GT[1], var.DP);
+            len += snprintf(buffer + len, sizeof(buffer) - len, "GT:DP:AD:GQ:PS\t%d%c%d:%d:", gt1, gt_seperator, gt2, var.DP);
 
         for (int j = 0; j < 1 + var.n_alt_allele; j++) {
             if (j > 0) len += snprintf(buffer + len, sizeof(buffer) - len, ",");
             len += snprintf(buffer + len, sizeof(buffer) - len, "%d", var.AD[j]);
         }
 
-        if (is_hom) 
+        if (is_hom || var.PS == 0) 
             len += snprintf(buffer + len, sizeof(buffer) - len, ":%d\n", var.GQ);
         else 
             len += snprintf(buffer + len, sizeof(buffer) - len, ":%d:%" PRId64 "\n", var.GQ, var.PS);

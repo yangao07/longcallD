@@ -16,7 +16,6 @@
 extern int LONGCALLD_VERBOSE;
 
 
-
 // INS/DEL : left-most
 // short   :    XXXXX                      [TSD]XXXXX
 // long    :    XXXXX[TSD]----------[polyA][TSD]XXXXX
@@ -38,7 +37,8 @@ int collect_te_info(const call_var_opt_t *opt, int var_type, uint8_t *gap_seq, u
     int tsd_len = 0, n_mis = 0, max_allow_mis = 1;
     for (int i = 0; i < gap_len; i++) {
         uint8_t base1 = gap_seq[i], base2 = flank_ref_seq[i];
-        if (base1 == base2) tsd_len++; else {
+        if (base1 == base2) tsd_len = i+1;
+        else {
             n_mis++;
             if (n_mis > max_allow_mis) break;
         }
@@ -84,10 +84,10 @@ int collect_te_info(const call_var_opt_t *opt, int var_type, uint8_t *gap_seq, u
 
 // for somatic TE variant:
 int collect_te_info_from_var(const call_var_opt_t *opt, bam_chunk_t *chunk, cand_var_t *var) {
-    if (var->checked_tsd || var->tsd_len > 0) return 0; // already checked
+    if (var->checked_tsd) return var->tsd_len; // already checked
     var->checked_tsd = 1; // mark as checked
-    if (!((var->var_type == BAM_CINS && var->alt_len >= LONGCALLD_MIN_SOMATIC_TE_LEN) ||
-        (var->var_type == BAM_CDEL && var->ref_len >= LONGCALLD_MIN_SOMATIC_TE_LEN)))
+    if (!((var->var_type == BAM_CINS && var->alt_len >= opt->min_sv_len) ||
+        (var->var_type == BAM_CDEL && var->ref_len >= opt->min_sv_len)))
         return 0;
     // check if have TSD & polyA/T
     char *ref_seq = chunk->ref_seq; hts_pos_t ref_beg = chunk->ref_beg, ref_end = chunk->ref_end;
@@ -158,62 +158,6 @@ int collect_te_info_from_cons(const call_var_opt_t *opt, bam_chunk_t *chunk, hts
                     tsd_seq, tsd_pos1, tsd_pos2, tsd_polya_len, te_seq_i, te_is_rev);
     free(gap_seq); free(flank_ref_seq);
     return tsd_len;
-
-    // uint8_t *long_seq, *cand_te_seq;
-    // if (var_type == BAM_CINS) {
-    //     long_seq = cons_msa_seq;
-    //     cand_te_seq = cons_msa_seq+msa_gap_start;
-    // } else {
-    //     long_seq = ref_msa_seq;
-    //     cand_te_seq = ref_msa_seq+msa_gap_start;
-    // }
-    // // int flank_len = 10; fprintf(stderr, "Ref:\n");
-    // // for (int i = ref_pos-flank_len; i < ref_pos+gap_len+flank_len; ++i) fprintf(stderr, "%c", ref_seq[i-ref_beg]); fprintf(stderr, "\nCons:\n");
-    // // for (int i = msa_pos-flank_len; i < msa_pos+gap_len+flank_len; ++i) fprintf(stderr, "%c", "ACGTN-"[ref_msa_seq[i]]); fprintf(stderr, "\n");
-    // // for (int i = msa_pos-flank_len; i < msa_pos+gap_len+flank_len; ++i) fprintf(stderr, "%c", "ACGTN-"[cons_msa_seq[i]]); fprintf(stderr, "\n");
-    // int min_tsd_len = opt->min_tsd_len, max_tsd_len = opt->max_tsd_len;
-    // int min_polya_len = opt->min_polya_len; float min_polya_ratio = opt->min_polya_ratio;
-    // int max_search_polya_len = 20;
-    // int msa_gap_start_i = msa_gap_start, msa_gap_end_i = msa_gap_start+gap_len-1; 
-    // hts_pos_t ref_gap_end_i = gap_ref_start-1+ (var_type == BAM_CINS ? 0 : gap_len);
-    // // look for left-most TSD + polyA/T
-    // // compare long_seq[gap_start_i:] with ref_seq[gap_end_i+1:]
-    // int has_tsd = 0, has_polya = 0;
-    // int tsd_len = 0, i = msa_gap_start_i; hts_pos_t j = ref_gap_end_i+1;
-    // for (; i < msa_gap_end_i; i++, j++) {
-    //     uint8_t base1 = long_seq[i], base2 = get_bseq1(ref_seq, ref_beg, ref_end, j);
-    //     if (base1 == base2) tsd_len++; else break;
-    //     if (tsd_len > max_tsd_len) break;
-    // }
-    // if (tsd_len >= min_tsd_len && tsd_len <= max_tsd_len) {
-    //     has_tsd = 1;
-    //     // look for polyA/T
-    //     for (int polya_len = 0, polya = 0, i = msa_gap_end_i; i >= msa_gap_start_i; i--) {
-    //         polya_len++;
-    //         if (long_seq[i] == 0) polya++;
-    //         if (polya_len >= min_polya_len && polya >= min_polya_ratio*polya_len) {
-    //             has_polya = 1; break;
-    //         } else if (polya_len > max_search_polya_len) break;
-    //     }
-    //     if (has_polya == 0) { // look for polyT
-    //         for (int polyt_len = 0, polyt = 0, i = msa_gap_start_i+tsd_len; i <= msa_gap_end_i; i++) {
-    //             polyt_len++;
-    //             if (long_seq[i] == 3) polyt++;
-    //             if (polyt_len >= min_polya_len && polyt >= min_polya_ratio*polyt_len) {
-    //                 has_polya = 1; break;
-    //             } else if (polyt_len > max_search_polya_len) break;
-    //         }
-    //     }
-    // }
-    // // check if INS/DEL is TE
-    // if (opt->n_te_seqs > 0) *te_seq_i = check_te_seq(opt, cand_te_seq, gap_len, te_is_rev);
-    // if (has_tsd && has_polya) {
-    //     *tsd_seq = (uint8_t*)malloc(tsd_len*sizeof(uint8_t));
-    //     for (int i = 0; i < tsd_len; i++) (*tsd_seq)[i] = get_bseq1(ref_seq, ref_beg, ref_end, ref_gap_end_i+1+i);
-    //     *tsd_pos1 = gap_ref_start; 
-    //     if (var_type == BAM_CDEL) *tsd_pos2 = gap_ref_start+gap_len; else *tsd_pos2 = -1;
-    //     return tsd_len;
-    // } else return 0;
 }
 
 int wfa_collect_pretty_alignment(cigar_t* const cigar,
@@ -281,7 +225,7 @@ int wfa_heuristic_aln(uint8_t *pattern, int plen, uint8_t *text, int tlen,
     attributes.affine2p_penalties.gap_extension1 = e;
     attributes.affine2p_penalties.gap_opening2 = q2;
     attributes.affine2p_penalties.gap_extension2 = e2;
-    attributes.alignment_scope = compute_score;
+    attributes.alignment_scope = compute_alignment;
     attributes.alignment_form.span = alignment_end2end;
     // xdrops
     attributes.heuristic.strategy = wf_heuristic_xdrop;
@@ -353,7 +297,7 @@ int wfa_ext_aln(int ext_direction, uint8_t *pattern, int plen, uint8_t *text, in
                 (*cigar_buf)[i] = tmp_cigar[i];
             }
         }
-        if (LONGCALLD_VERBOSE >= 2) {
+        if (LONGCALLD_VERBOSE >= 3) {
             char *p_seq = (char*)malloc(plen+1); char *t_seq = (char*)malloc(tlen+1);
             for (int i = 0; i < plen; ++i) p_seq[i] = "ACGTN"[p[i]];
             for (int i = 0; i < tlen; ++i) t_seq[i] = "ACGTN"[t[i]];
@@ -438,7 +382,7 @@ int old_wfa_ext_aln(int ext_direction, int gap_aln, uint8_t *pattern, int plen, 
                 (*cigar_buf)[i] = tmp_cigar[i];
             }
         }
-        if (LONGCALLD_VERBOSE >= 2) {
+        if (LONGCALLD_VERBOSE >= 3) {
             char *p_seq = (char*)malloc(plen+1); char *t_seq = (char*)malloc(tlen+1);
             for (int i = 0; i < plen; ++i) p_seq[i] = "ACGTN"[p[i]];
             for (int i = 0; i < tlen; ++i) t_seq[i] = "ACGTN"[t[i]];
@@ -484,6 +428,20 @@ int wfa_end2end_aln(uint8_t *pattern, int plen, uint8_t *text, int tlen,
     attributes.affine2p_penalties.gap_extension1 = e;
     attributes.affine2p_penalties.gap_opening2 = q2;
     attributes.affine2p_penalties.gap_extension2 = e2;
+
+    // use basic gap-affine for end2end alignment
+    // attributes.distance_metric = gap_affine;
+    // attributes.affine_penalties.match = 0; // -a;
+    // attributes.affine_penalties.mismatch = b;
+    // attributes.affine_penalties.gap_opening = q;
+    // attributes.affine_penalties.gap_extension = e;
+
+    // use basic gap-linear for end2end alignment
+    // attributes.distance_metric = gap_linear;
+    // attributes.linear_penalties.match = 0; // -a;
+    // attributes.linear_penalties.mismatch = 1;
+    // attributes.linear_penalties.indel = 2;
+
     attributes.alignment_scope = compute_alignment;
     attributes.alignment_form.span = alignment_end2end;
     attributes.heuristic.strategy = wf_heuristic_none;
@@ -499,13 +457,13 @@ int wfa_end2end_aln(uint8_t *pattern, int plen, uint8_t *text, int tlen,
     // Align
     wavefront_align(wf_aligner, (const char*)p, plen, (const char*)t, tlen);
     cigar_t *cigar = wf_aligner->cigar;
-    // if (LONGCALLD_VERBOSE >= 2) {
-    //     char *p_seq = (char*)malloc(plen+1); char *t_seq = (char*)malloc(tlen+1);
-    //     for (int i = 0; i < plen; ++i) p_seq[i] = "ACGTN"[p[i]];
-    //     for (int i = 0; i < tlen; ++i) t_seq[i] = "ACGTN"[t[i]];
-    //     cigar_print_pretty(stderr, cigar, p_seq, plen, t_seq, tlen);
-    //     free(p_seq); free(t_seq);
-    // }
+    if (LONGCALLD_VERBOSE >= 3) {
+        char *p_seq = (char*)malloc(plen+1); char *t_seq = (char*)malloc(tlen+1);
+        for (int i = 0; i < plen; ++i) p_seq[i] = "ACGTN"[p[i]];
+        for (int i = 0; i < tlen; ++i) t_seq[i] = "ACGTN"[t[i]];
+        cigar_print_pretty(stderr, cigar, p_seq, plen, t_seq, tlen);
+        free(p_seq); free(t_seq);
+    }
     // collect cigar
     if (cigar_buf != NULL && cigar_length != NULL) {
         uint32_t *tmp_cigar;
@@ -541,10 +499,49 @@ int wfa_end2end_aln(uint8_t *pattern, int plen, uint8_t *text, int tlen,
     return 0;
 }
 
+
+int wfa_collect_diff_ins_seq(const call_var_opt_t *opt, uint8_t* large_seq, int large_len, uint8_t *small_seq, int small_len, uint8_t **diff_seq) {
+    int diff_ins_len = 0;
+    uint8_t *large_aln_seq = NULL, *small_aln_seq = NULL; int aln_len;
+    wfa_end2end_aln(large_seq, large_len, small_seq, small_len,
+                    opt->gap_aln, opt->match, opt->mismatch, opt->gap_open1, opt->gap_ext1, opt->gap_open2, opt->gap_ext2,
+                    NULL, NULL, &large_aln_seq, &small_aln_seq, &aln_len);
+    // collect the largest insertion sequence
+    int largest_ins_len = 0, largest_ins_pos = -1;
+    for (int i = 0; i < aln_len; ++i) {
+        if (small_aln_seq[i] == 5 && large_aln_seq[i] != 5) { // insertion in large_seq
+            int ins_len = 0, j = i;
+            while (j < aln_len && small_aln_seq[j] == 5 && large_aln_seq[j] != 5) {
+                ins_len++; j++;
+            }
+            if (ins_len > largest_ins_len) {
+                largest_ins_len = ins_len; largest_ins_pos = i;
+            }
+            i = j-1; // skip the inserted bases
+        }
+    }
+    if (largest_ins_len > 0) {
+        diff_ins_len = largest_ins_len;
+        *diff_seq = (uint8_t*)malloc(largest_ins_len * sizeof(uint8_t));
+        for (int i = 0; i < largest_ins_len; ++i) {
+            (*diff_seq)[i] = large_aln_seq[largest_ins_pos+i];
+        }
+    }
+    free(large_aln_seq);
+    return diff_ins_len;
+}
+
 // trim query bases if longer than target
 // update query_beg/query_end if query is shorter than target
 void wfa_trim_aln_str(int full_cover, aln_str_t *aln_str, int tlen, int qlen) {
     if (LONGCALLD_NOISY_IS_NOT_COVER(full_cover) || LONGCALLD_NOISY_IS_BOTH_COVER(full_cover)) return;
+
+    if ((LONGCALLD_NOISY_IS_LEFT_COVER(full_cover) && LONGCALLD_NOISY_IS_RIGHT_GAP(full_cover)) ||
+        (LONGCALLD_NOISY_IS_RIGHT_COVER(full_cover) && LONGCALLD_NOISY_IS_LEFT_GAP(full_cover))) {
+        aln_str->target_beg = 0; aln_str->target_end = aln_str->aln_len-1;
+        aln_str->query_beg = 0; aln_str->query_end = aln_str->aln_len-1;
+        return;
+    }
     if (LONGCALLD_NOISY_IS_LEFT_COVER(full_cover)) { // left-cover: collect all aln_str until the very last = opertion
         int target_end = -1, query_end = -1;
         for (int i = aln_str->aln_len-1; i >= 0; --i) {
@@ -619,6 +616,7 @@ int wfa_collect_aln_str(const call_var_opt_t *opt, uint8_t *target, int tlen, ui
         int ext_direction = (LONGCALLD_NOISY_IS_LEFT_COVER(full_cover)) ? LONGCALLD_EXT_ALN_LEFT_TO_RIGHT : LONGCALLD_EXT_ALN_RIGHT_TO_LEFT;
         wfa_ext_aln(ext_direction, target, tlen, query, qlen, a, b, q, e, q2, e2,
                     NULL, NULL, &aln_str->target_aln, &aln_str->query_aln, &aln_str->aln_len);
+        // do not trim for end-gaps
         wfa_trim_aln_str(full_cover, aln_str, tlen, qlen);
     }
     if (LONGCALLD_VERBOSE >= 2) {
@@ -770,7 +768,7 @@ int abpoa_partial_aln_msa_cons(const call_var_opt_t *opt, abpoa_t *ab, int n_rea
         exc_begs[i] = 0; exc_ends[i] = 1, seq_beg_cuts[i] = 0, seq_end_cuts[i] = 0;
     }
     for (int i = 0; i < n_reads; ++i) {
-        if (LONGCALLD_VERBOSE >= 2) {
+        if (LONGCALLD_VERBOSE >= 3) {
             fprintf(stderr, ">%s %d %d\n", names[i], read_lens[i], read_full_cover[i]);
             for (int j = 0; j < read_lens[i]; ++j) {
                 fprintf(stderr, "%c", "ACGTN"[read_seqs[i][j]]);
@@ -778,7 +776,7 @@ int abpoa_partial_aln_msa_cons(const call_var_opt_t *opt, abpoa_t *ab, int n_rea
         }
         if (exc_begs[i] < 0 || exc_ends[i] < 0) continue;
         abpoa_res_t res; res.graph_cigar = 0, res.n_cigar = 0;
-        if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "ExcBeg: %d, ExcEnd: %d, SeqBegCut: %d, SeqEndCut: %d, FullCover: %d\n", exc_begs[i], exc_ends[i], seq_beg_cuts[i], seq_end_cuts[i], read_full_cover[i]);
+        if (LONGCALLD_VERBOSE >= 3) fprintf(stderr, "ExcBeg: %d, ExcEnd: %d, SeqBegCut: %d, SeqEndCut: %d, FullCover: %d\n", exc_begs[i], exc_ends[i], seq_beg_cuts[i], seq_end_cuts[i], read_full_cover[i]);
         abpoa_align_sequence_to_subgraph(ab, abpt, exc_begs[i], exc_ends[i], read_seqs[i]+seq_beg_cuts[i], read_lens[i]-seq_beg_cuts[i]-seq_end_cuts[i], &res);
         abpoa_add_subgraph_alignment(ab, abpt, exc_begs[i], exc_ends[i], read_seqs[i]+seq_beg_cuts[i], NULL, read_lens[i]-seq_beg_cuts[i]-seq_end_cuts[i], NULL, res, i, n_reads, 0);
         // collect exc_beg/exc_end for all reads with i>1
@@ -837,6 +835,17 @@ int abpoa_partial_aln_msa_cons(const call_var_opt_t *opt, abpoa_t *ab, int n_rea
     return n_cons;
  }
 
+int two_sides_abpoa_partial_aln_msa_cons(const call_var_opt_t *opt, abpoa_t *ab, int n_reads, int *read_ids, uint8_t **read_seqs, uint8_t **read_quals, int *read_lens, int *read_full_cover, char **names,
+                                         int max_n_cons, int *cons_lens, uint8_t **cons_seqs, int *clu_n_seqs, int **clu_read_ids) {
+    int n_cons = 0;
+    // all left-cover: manually set full-cover of first read as 3, collect consensus
+    int n_left_cover = 0;
+    // all right-cover: manually set full-cover of first read as 3, collect consensus
+    int n_right_cover = 0;
+    // merge consensus
+    return n_cons;
+ }
+
  int abpoa_partial_aln_msa_cons_append_ref(const call_var_opt_t *opt, abpoa_t *ab, int n_reads, int *read_ids, uint8_t **read_seqs, uint8_t **read_quals, int *read_lens, int *read_full_cover, char **names, uint8_t *ref_seq, int ref_len,
                                            int max_n_cons, int *cons_lens, uint8_t **cons_seqs, int *clu_n_seqs, int **clu_read_ids, int *msa_seq_lens, uint8_t **msa_seqs) {
     // abpoa_t *ab = abpoa_init();
@@ -862,7 +871,7 @@ int abpoa_partial_aln_msa_cons(const call_var_opt_t *opt, abpoa_t *ab, int n_rea
         exc_begs[i] = 0; exc_ends[i] = 1, seq_beg_cuts[i] = 0, seq_end_cuts[i] = 0;
     }
     for (int i = 0; i < n_reads; ++i) {
-        if (LONGCALLD_VERBOSE >= 2) {
+        if (LONGCALLD_VERBOSE >= 3) {
             fprintf(stderr, ">%s %d %d\n", names[i], read_lens[i], read_full_cover[i]);
             for (int j = 0; j < read_lens[i]; ++j) {
                 fprintf(stderr, "%c", "ACGTN"[read_seqs[i][j]]);
@@ -870,7 +879,7 @@ int abpoa_partial_aln_msa_cons(const call_var_opt_t *opt, abpoa_t *ab, int n_rea
         }
         if (exc_begs[i] < 0 || exc_ends[i] < 0) continue;
         abpoa_res_t res; res.graph_cigar = 0, res.n_cigar = 0;
-        if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "ExcBeg: %d, ExcEnd: %d, SeqBegCut: %d, SeqEndCut: %d, FullCover: %d\n", exc_begs[i], exc_ends[i], seq_beg_cuts[i], seq_end_cuts[i], read_full_cover[i]);
+        if (LONGCALLD_VERBOSE >= 3) fprintf(stderr, "ExcBeg: %d, ExcEnd: %d, SeqBegCut: %d, SeqEndCut: %d, FullCover: %d\n", exc_begs[i], exc_ends[i], seq_beg_cuts[i], seq_end_cuts[i], read_full_cover[i]);
         abpoa_align_sequence_to_subgraph(ab, abpt, exc_begs[i], exc_ends[i], read_seqs[i]+seq_beg_cuts[i], read_lens[i]-seq_beg_cuts[i]-seq_end_cuts[i], &res);
         abpoa_add_subgraph_alignment(ab, abpt, exc_begs[i], exc_ends[i], read_seqs[i]+seq_beg_cuts[i], NULL, read_lens[i]-seq_beg_cuts[i]-seq_end_cuts[i], NULL, res, i, n_reads, 0);
         // collect exc_beg/exc_end for all reads with i>1
@@ -954,7 +963,7 @@ int abpoa_partial_aln_msa_cons(const call_var_opt_t *opt, abpoa_t *ab, int n_rea
     abpoa_post_set_para(abpt);
 
     if (LONGCALLD_VERBOSE >= 2) {
-        fprintf(stderr, "For abPOA (max %d cons): %d\n", max_n_cons, n_reads);
+        fprintf(stderr, "For abPOA (max %d cons, min_freq: %.2f): %d\n", max_n_cons, abpt->min_freq, n_reads);
         abpoa_msa(ab, abpt, n_reads, NULL, read_lens, read_seqs, NULL, stderr);
     } else abpoa_msa(ab, abpt, n_reads, NULL, read_lens, read_seqs, NULL, NULL);
     abpoa_cons_t *abc = ab->abc;
@@ -1021,7 +1030,7 @@ int abpoa_aln_msa_cons_append_ref(const call_var_opt_t *opt, int n_reads, int *r
     abpoa_post_set_para(abpt);
 
     if (LONGCALLD_VERBOSE >= 2) {
-        fprintf(stderr, "For abPOA (max %d cons): %d\n", max_n_cons, n_reads);
+        fprintf(stderr, "For abPOA (max %d cons, min_freq: %.2f): %d\n", max_n_cons, abpt->min_freq, n_reads);
         abpoa_msa(ab, abpt, n_reads, NULL, read_lens, read_seqs, NULL, stderr);
     } else abpoa_msa(ab, abpt, n_reads, NULL, read_lens, read_seqs, NULL, NULL);
     abpoa_cons_t *abc = ab->abc;
@@ -1203,8 +1212,88 @@ int is_homopolymer(uint8_t *seq, int seq_len, int flank_len, int *hp_start, int 
     return 0;
 }
 
+int make_ref_read_aln_str(const call_var_opt_t *opt, aln_str_t *ref_cons_aln_str, aln_str_t *cons_read_aln_str, aln_str_t *ref_read_aln_str) {
+    int aln_len = 0;
+    int max_msa_len = ref_cons_aln_str->aln_len + cons_read_aln_str->aln_len;
+    ref_read_aln_str->aln_len = 0;
+    ref_read_aln_str->target_aln = (uint8_t*)malloc(max_msa_len * 2 * sizeof(uint8_t));
+    ref_read_aln_str->query_aln = ref_read_aln_str->target_aln + max_msa_len;
+    int i = 0, j = 0;
+    while (i < ref_cons_aln_str->aln_len && j < cons_read_aln_str->aln_len) {
+        if (ref_cons_aln_str->query_aln[i] == 5 && cons_read_aln_str->target_aln[j] == 5) { // both are gaps: extract the seqs for ref and read, until the non-gap base of cons, do WFA
+            int ref_del_len = 1, read_del_len = 1;
+            while (ref_cons_aln_str->query_aln[i+ref_del_len] == 5) ref_del_len++;
+            while (cons_read_aln_str->target_aln[j+read_del_len] == 5) read_del_len++;
+            uint8_t *ref_aln=0, *read_aln=0; int del_aln_len;
+            wfa_end2end_aln(ref_cons_aln_str->target_aln+i, ref_del_len, cons_read_aln_str->query_aln+j, read_del_len, 
+                            opt->gap_aln, opt->match, opt->mismatch, opt->gap_open1, opt->gap_ext1, opt->gap_open2, opt->gap_ext2,
+                            NULL, NULL, &ref_aln, &read_aln, &del_aln_len);
+            for (int k = 0; k < del_aln_len; ++k) {
+                ref_read_aln_str->target_aln[aln_len] = ref_aln[k];
+                ref_read_aln_str->query_aln[aln_len] = read_aln[k];
+                aln_len++;
+            }
+            i+=ref_del_len; j+=read_del_len;
+            free(ref_aln);
+        } else if (ref_cons_aln_str->query_aln[i] != 5 && cons_read_aln_str->target_aln[j] != 5) { // both are not gaps: match or mismatch
+            ref_read_aln_str->target_aln[aln_len] = ref_cons_aln_str->target_aln[i];
+            ref_read_aln_str->query_aln[aln_len] = cons_read_aln_str->query_aln[j];
+            aln_len++; i++; j++;
+        } else if (ref_cons_aln_str->query_aln[i] == 5 && cons_read_aln_str->target_aln[j] != 5) { // ref-cons is gap, cons-read is not gap
+            ref_read_aln_str->target_aln[aln_len] = ref_cons_aln_str->target_aln[i];
+            ref_read_aln_str->query_aln[aln_len] = 5;
+            aln_len++; i++;
+        } else if (ref_cons_aln_str->query_aln[i] != 5 && cons_read_aln_str->target_aln[j] == 5) { // ref-cons is not gap, cons-read is gap
+            ref_read_aln_str->target_aln[aln_len] = 5;
+            ref_read_aln_str->query_aln[aln_len] = cons_read_aln_str->query_aln[j];
+            aln_len++; j++;
+        } else {
+            fprintf(stderr, "Error: ref_cons_aln_str->query_aln[%d]: %d cons_read_aln_str->target_aln[%d]: %d\n", i, ref_cons_aln_str->query_aln[i], j, cons_read_aln_str->target_aln[j]);
+            exit(1);
+        }
+    }
+    while (i < ref_cons_aln_str->aln_len) {
+        ref_read_aln_str->target_aln[aln_len] = ref_cons_aln_str->target_aln[i];
+        ref_read_aln_str->query_aln[aln_len] = 5;
+        aln_len++; i++;
+    }
+    while (j < cons_read_aln_str->aln_len) {
+        ref_read_aln_str->target_aln[aln_len] = 5;
+        ref_read_aln_str->query_aln[aln_len] = cons_read_aln_str->query_aln[j];
+        aln_len++; j++;
+    }
+    ref_read_aln_str->aln_len = aln_len;
+    ref_read_aln_str->target_beg = ref_read_aln_str->target_end = ref_read_aln_str->query_beg = ref_read_aln_str->query_end = -1; // unset
+    if (LONGCALLD_VERBOSE >= 3) { // print ref-read aln-str
+        fprintf(stderr, "Ref-Cons AlnStr: len: %d\n", ref_cons_aln_str->aln_len);
+        for (int k = 0; k < ref_cons_aln_str->aln_len; ++k) {
+            fprintf(stderr, "%c", "ACGTN-"[ref_cons_aln_str->target_aln[k]]);
+        } fprintf(stderr, "\n");
+        for (int k = 0; k < ref_cons_aln_str->aln_len; ++k) {
+            fprintf(stderr, "%c", "ACGTN-"[ref_cons_aln_str->query_aln[k]]);
+        } fprintf(stderr, "\n");
+
+        fprintf(stderr, "Cons-Read AlnStr: len: %d\n", cons_read_aln_str->aln_len);
+        for (int k = 0; k < cons_read_aln_str->aln_len; ++k) {
+            fprintf(stderr, "%c", "ACGTN-"[cons_read_aln_str->target_aln[k]]);
+        } fprintf(stderr, "\n");
+        for (int k = 0; k < cons_read_aln_str->aln_len; ++k) {
+            fprintf(stderr, "%c", "ACGTN-"[cons_read_aln_str->query_aln[k]]);
+        } fprintf(stderr, "\n");
+
+        fprintf(stderr, "Ref-Read AlnStr: len: %d\n", aln_len);
+        for (int k = 0; k < aln_len; ++k) {
+            fprintf(stderr, "%c", "ACGTN-"[ref_read_aln_str->target_aln[k]]);
+        } fprintf(stderr, "\n");
+        for (int k = 0; k < aln_len; ++k) {
+            fprintf(stderr, "%c", "ACGTN-"[ref_read_aln_str->query_aln[k]]);
+        } fprintf(stderr, "\n");
+    }
+    return aln_len;
+}
+
 int wfa_collect_noisy_aln_str_no_ps_hap(const call_var_opt_t *opt, int n_reads, int *read_ids, int *lens, uint8_t **seqs, char **qnames, int *fully_covers,
-                                        uint8_t *ref_seq, int ref_seq_len, int *clu_n_seqs, int **clu_read_ids, aln_str_t **aln_strs, uint8_t ***msa_seqs, int *msa_seq_lens) {
+                                        uint8_t *ref_seq, int ref_seq_len, int *clu_n_seqs, int **clu_read_ids, aln_str_t **aln_strs, int collect_ref_read_aln_str) {
     int *full_read_ids = (int*)malloc((n_reads+2) * sizeof(int));
     int *full_read_lens = (int*)malloc((n_reads+2) * sizeof(int));
     uint8_t **full_read_seqs = (uint8_t**)malloc((n_reads+2) * sizeof(uint8_t*));
@@ -1225,18 +1314,12 @@ int wfa_collect_noisy_aln_str_no_ps_hap(const call_var_opt_t *opt, int n_reads, 
     for (int i = 0; i < 2; ++i) cons_seqs[i] = NULL;
     int n_cons = 0;
     if (n_full_reads == 0) goto collect_noisy_msa_cons_no_ps_hap_end;
+    else {
+        if (full_read_lens[0] >= opt->max_noisy_reg_len) goto collect_noisy_msa_cons_no_ps_hap_end;
+    }
 
-    // int hp_flank_start, hp_flank_end, hp_len;
-    // if (opt->is_ont) {  //opt->ont_hp_profile != NULL) {
-        // XXX two cons
-    // if (opt->is_ont && cons_is_homopolymer(ref_seq, ref_seq_len, opt->noisy_reg_flank_len, &hp_flank_start, &hp_flank_end, &hp_len)) { // for ont & homopolymer, do Bayesian inference instead of consensus calling
-        // n_cons = 0;
-    // } else {
-    // n_cons = abpoa_aln_msa_cons(opt, n_full_reads, full_read_ids, full_read_seqs, full_read_lens, 2,
-                                // cons_lens, cons_seqs, clu_n_seqs, clu_read_ids, NULL, NULL);
-    n_cons = abpoa_aln_msa_cons_append_ref(opt, n_full_reads, full_read_ids, full_read_seqs, full_read_lens, ref_seq, ref_seq_len, 2,
-                                           cons_lens, cons_seqs, clu_n_seqs, clu_read_ids, msa_seq_lens, msa_seqs);
-    // }
+    n_cons = abpoa_aln_msa_cons(opt, n_full_reads, full_read_ids, full_read_seqs, full_read_lens, 2,
+                                cons_lens, cons_seqs, clu_n_seqs, clu_read_ids, NULL, NULL);
 
     // re-do POA with ref_seq and cons
     for (int i = 0; i < n_cons; ++i) {
@@ -1251,6 +1334,8 @@ int wfa_collect_noisy_aln_str_no_ps_hap(const call_var_opt_t *opt, int n_reads, 
             clu_read_ids[i][j] = read_id;
             // cons vs read
             wfa_collect_aln_str(opt, cons_seqs[i], cons_lens[i], seqs[read_i], lens[read_i], fully_covers[read_i], LONGCALLD_CONS_READ_ALN_STR(clu_aln_str, n_full_reads));
+            if (collect_ref_read_aln_str)
+                make_ref_read_aln_str(opt, LONGCALLD_REF_CONS_ALN_STR(clu_aln_str), LONGCALLD_CONS_READ_ALN_STR(clu_aln_str, n_full_reads), LONGCALLD_REF_READ_ALN_STR(clu_aln_str, n_full_reads));
             n_full_reads++;
         }
     } 
@@ -1297,6 +1382,78 @@ collect_noisy_msa_cons_no_ps_hap_end:
         if (cons_seqs[i] != NULL) free(cons_seqs[i]);
     } free(cons_lens); free(cons_seqs);
     return n_cons;
+}
+
+int ps_has_enough_reads(int ps_i, int **phase_set_to_hap_full_read_count, int **phase_set_to_hap_left_read_count, int **phase_set_to_hap_right_read_count,
+                        int min_hap_full_read_count, int min_hap_all_read_count, int min_hap_partial_read_count) {
+    if (ps_i < 0) return 0; // invalid phase set
+    for (int hap=0; hap < 2; ++hap) {
+        if ((phase_set_to_hap_full_read_count[ps_i][hap] < min_hap_full_read_count || phase_set_to_hap_left_read_count[ps_i][hap] + phase_set_to_hap_right_read_count[ps_i][hap] < min_hap_all_read_count)
+          && (phase_set_to_hap_left_read_count[ps_i][hap] < min_hap_partial_read_count || phase_set_to_hap_right_read_count[ps_i][hap] < min_hap_partial_read_count))
+          return 0;
+    }
+    return 1;
+}
+
+// XXX find PS that fully cover the noisy region, allow 1 or 2 haps to have NO fully-covered reads, this can be resolved by POA-extension and consensus mering
+hts_pos_t new_collect_phase_set_with_both_haps(int n_reads, int *read_haps, int *read_lens, hts_pos_t *phase_sets, int *fully_covers, int min_minor_hap_full_read_count, int min_minor_hap_all_read_count) {
+    int n_uniq_phase_sets = 0, phase_set_i = 0;
+    hts_pos_t *uniq_phase_sets = (hts_pos_t*)calloc(n_reads, sizeof(hts_pos_t));
+    int **phase_set_to_hap_full_read_count = (int**)malloc(n_reads * sizeof(int*));
+    int **phase_set_to_hap_left_read_count = (int**)malloc(n_reads * sizeof(int*)); // including clipped reads
+    int **phase_set_to_hap_right_read_count = (int**)malloc(n_reads * sizeof(int*)); // including clipped reads
+    int **phase_set_to_hap_min_full_read_len = (int**)malloc(n_reads * sizeof(int*));
+    for (int i = 0; i < n_reads; ++i) {
+        phase_set_to_hap_full_read_count[i] = (int*)calloc(2, sizeof(int));
+        phase_set_to_hap_left_read_count[i] = (int*)calloc(2, sizeof(int));
+        phase_set_to_hap_right_read_count[i] = (int*)calloc(2, sizeof(int));
+        phase_set_to_hap_min_full_read_len[i] = (int*)malloc(2 * sizeof(int));
+        for (int j = 0; j < 2; ++j) phase_set_to_hap_min_full_read_len[i][j] = INT32_MAX;
+    }
+    // use one phase set if multiple phase sets exist, reads in other phase sets are considered as non-HAP
+    for (int i = 0; i < n_reads; ++i) {
+        if (read_haps[i] == 0) continue;
+        phase_set_i = add_phase_set(phase_sets[i], uniq_phase_sets, &n_uniq_phase_sets);
+        if (LONGCALLD_NOISY_IS_BOTH_COVER(fully_covers[i])) {
+            phase_set_to_hap_full_read_count[phase_set_i][read_haps[i]-1]++;
+            if (phase_set_to_hap_min_full_read_len[phase_set_i][read_haps[i]-1] > read_lens[i]) 
+                phase_set_to_hap_min_full_read_len[phase_set_i][read_haps[i]-1] = read_lens[i];
+        } else if (LONGCALLD_NOISY_IS_LEFT_COVER(fully_covers[i])) {
+            if (read_lens[i] >= phase_set_to_hap_min_full_read_len[phase_set_i][read_haps[i]-1]) {
+                phase_set_to_hap_left_read_count[phase_set_i][read_haps[i]-1]++;
+            }
+        } else if (LONGCALLD_NOISY_IS_RIGHT_COVER(fully_covers[i])) {
+            if (read_lens[i] >= phase_set_to_hap_min_full_read_len[phase_set_i][read_haps[i]-1]) {
+                phase_set_to_hap_right_read_count[phase_set_i][read_haps[i]-1]++;
+            }
+        }
+    }
+    hts_pos_t max_ps = -1; int max_ps_i = -1; 
+    int max_ps_full_read_count1 = -1, max_ps_full_read_count2 = -1;
+    for (int i = 0; i < n_uniq_phase_sets; ++i) {
+        int phase_set_full_read_count1 = phase_set_to_hap_full_read_count[i][0] < phase_set_to_hap_full_read_count[i][1] ? phase_set_to_hap_full_read_count[i][0] : phase_set_to_hap_full_read_count[i][1];
+        int phase_set_full_read_count2 = phase_set_to_hap_full_read_count[i][0] > phase_set_to_hap_full_read_count[i][1] ? phase_set_to_hap_full_read_count[i][0] : phase_set_to_hap_full_read_count[i][1];
+        if (phase_set_full_read_count1 > max_ps_full_read_count1) {
+            max_ps_full_read_count1 = phase_set_full_read_count1;
+            max_ps_full_read_count2 = phase_set_full_read_count2;
+            max_ps = uniq_phase_sets[i];
+            if (ps_has_enough_reads(i, phase_set_to_hap_full_read_count, phase_set_to_hap_left_read_count, phase_set_to_hap_right_read_count, min_minor_hap_full_read_count, min_minor_hap_all_read_count, min_minor_hap_all_read_count))
+                max_ps_i = i;
+            else max_ps = -1;
+        } else if (phase_set_full_read_count1 == max_ps_full_read_count1 && phase_set_full_read_count2 > max_ps_full_read_count2) {
+            max_ps_full_read_count2 = phase_set_full_read_count2;
+            max_ps = uniq_phase_sets[i];
+            if (ps_has_enough_reads(i, phase_set_to_hap_full_read_count, phase_set_to_hap_left_read_count, phase_set_to_hap_right_read_count, min_minor_hap_full_read_count, min_minor_hap_all_read_count, min_minor_hap_all_read_count))
+                max_ps_i = i;
+            else max_ps = -1;
+        }
+    }
+    for (int i = 0; i < n_reads; ++i) {
+        free(phase_set_to_hap_full_read_count[i]); free(phase_set_to_hap_min_full_read_len[i]);
+        free(phase_set_to_hap_left_read_count[i]); free(phase_set_to_hap_right_read_count[i]);
+    } free(uniq_phase_sets); free(phase_set_to_hap_full_read_count); 
+    free(phase_set_to_hap_left_read_count); free(phase_set_to_hap_right_read_count); free(phase_set_to_hap_min_full_read_len);
+    return max_ps;
 }
 
 // collect phase set with both haps having >= min_minor_hap_read_count reads
@@ -1356,105 +1513,14 @@ hts_pos_t collect_phase_set_with_both_haps(int n_reads, int *read_haps, int *rea
     return max_ps;
 }
 
-// calculate in log space
-double cal_hp_len_posterior1(const call_var_opt_t *opt, int expect_hp_len, int *hp_lens, uint8_t *strands, int n_hp, uint8_t beg_base, uint8_t hp_base, uint8_t end_base) {
-    if (expect_hp_len < 5 || expect_hp_len > 50) return 0.0;
-    int hp_base_idx = nst_nt4_table[(int)beg_base]*16 + nst_nt4_table[(int)hp_base]*4 + nst_nt4_table[(int)end_base];
-    int hp_ref_idx = expect_hp_len-1;
-    double hp_len_likelihood = 0.0;
-    for (int i = 0; i < n_hp; ++i) {
-        int hp_len = hp_lens[i];
-        uint8_t strand = strands[i];
-        int hp_strand_idx = (strand == 0) ? 0 : 1;
-        ont_hp_profile_t *hp_profile = &(opt->ont_hp_profile[hp_base_idx][hp_ref_idx][hp_strand_idx]);
-        int hp_len_hit = 0;
-        for (int hp_len_i = 0; hp_len_i < hp_profile->n_alt_hp_lens; ++hp_len_i) {
-            if (hp_len == hp_profile->alt_hp_lens[hp_len_i]) {
-                hp_len_likelihood += log_likelilood(hp_profile->hp_len_to_prob[hp_len_i]);
-                hp_len_hit = 1;
-                break;
-            }
-        }
-        if (hp_len_hit == 0) {
-            hp_len_likelihood += log_likelilood(hp_profile->hp_len_to_prob[hp_profile->n_alt_hp_lens-1]); // use the last prob
-        }
-    }
-    fprintf(stderr, "HP: %d %.5f\n", expect_hp_len, hp_len_likelihood);
-    return hp_len_likelihood;
-}
-
-int ont_polish_homopolymer_cons1(const call_var_opt_t *opt, uint8_t **cons_seq, int *cons_seq_len, int cons_hp_flank_start, int cons_hp_flank_end,
-                                 int *read_lens, uint8_t **read_seqs, uint8_t *strands, int *fully_covers, int n_reads) {
-    // collect observed hp lengths
-    // align each read to the consensus to determine the observed hp length
-    int *read_hp_lens = (int*)malloc(n_reads * sizeof(int));
-    uint8_t flank_start_base = (*cons_seq)[cons_hp_flank_start], hp_base = (*cons_seq)[cons_hp_flank_start+1], flank_end_base = (*cons_seq)[cons_hp_flank_end];
-    for (int i = 0; i < n_reads; ++i) {
-        uint8_t *cons_aln = NULL, *read_aln = NULL; int aln_len = 0;
-        wfa_end2end_aln(*cons_seq, *cons_seq_len, read_seqs[i], read_lens[i], opt->gap_aln, opt->match, opt->mismatch, opt->gap_open1, opt->gap_ext1, opt->gap_open2, opt->gap_ext2, 
-                        NULL, NULL, &cons_aln, &read_aln, &aln_len);
-        int hp_len = 0, cons_i = -1;
-        for (int j = 0; j < aln_len; ++j) {
-            if (cons_aln[j] != 5) cons_i++;
-            if (cons_i >= cons_hp_flank_start && cons_i <= cons_hp_flank_end) {
-                if (read_aln[j] != 5) hp_len++;
-            }
-        }
-        read_hp_lens[i] = hp_len - 2;
-        free(cons_aln); // free(read_aln);
-    }
-    int *sorted_uniq_read_hp_lens = (int*)malloc(n_reads * sizeof(int));
-    int *uniq_read_hp_len_to_count = (int*)calloc(n_reads, sizeof(int));
-    int n_uniq_read_hp_len = 0;
-    for (int i = 0; i < n_reads; ++i) {
-        if (read_hp_lens[i] > 0) {
-            int j;
-            for (j = 0; j < n_uniq_read_hp_len; ++j) {
-                if (sorted_uniq_read_hp_lens[j] == read_hp_lens[i]) {
-                    uniq_read_hp_len_to_count[j]++;
-                    break;
-                }
-            }
-            if (j == n_uniq_read_hp_len) {
-                sorted_uniq_read_hp_lens[n_uniq_read_hp_len] = read_hp_lens[i];
-                uniq_read_hp_len_to_count[n_uniq_read_hp_len]++;
-                n_uniq_read_hp_len++;
-            }
-        }
-    }
-    // sort observed hp length count
-    for (int i = 0; i < n_uniq_read_hp_len-1; ++i) {
-        for (int j = i+1; j < n_uniq_read_hp_len; ++j) {
-            if (uniq_read_hp_len_to_count[i] < uniq_read_hp_len_to_count[j]) {
-                int tmp = uniq_read_hp_len_to_count[i]; uniq_read_hp_len_to_count[i] = uniq_read_hp_len_to_count[j]; uniq_read_hp_len_to_count[j] = tmp;
-                tmp = sorted_uniq_read_hp_lens[i]; sorted_uniq_read_hp_lens[i] = sorted_uniq_read_hp_lens[j]; sorted_uniq_read_hp_lens[j] = tmp;
-            }
-        }
-    }
-    // from top to bottom, calculate the posterior probability for each observed hp length
-    double max_hp_len_posterior = -100000000.0; int max_hp_len = -1;
-    for (int i = 0; i < n_uniq_read_hp_len; ++i) {
-        double hp_len_posterior = cal_hp_len_posterior1(opt, sorted_uniq_read_hp_lens[i], read_hp_lens, strands, n_reads, flank_start_base, hp_base, flank_end_base);
-        if (hp_len_posterior > max_hp_len_posterior) {
-            max_hp_len_posterior = hp_len_posterior;
-            max_hp_len = sorted_uniq_read_hp_lens[i];
-        }
-    }
-    // pick the hp length with highest posterior probability
-    fprintf(stderr, "max-HP: %d %.5f\n", max_hp_len, max_hp_len_posterior);
-    // polish cons if necessary
-    free(read_hp_lens); free(sorted_uniq_read_hp_lens); free(uniq_read_hp_len_to_count);
-    return 0;
-}
-
 // pairwise alignment of cons and ref to append ref to the MSA
 // total: 1+ n_reads*2
 // 1. ref vs cons: 1
 // 2. cons vs n_reads: n_reads
 // 3. ref vs n_reads: n_reads
 int wfa_collect_noisy_aln_str_with_ps_hap(const call_var_opt_t *opt, int n_reads, int *noisy_read_ids, int *lens, uint8_t **seqs, uint8_t *strands, uint8_t **quals, char **names,
-                                          int *haps, hts_pos_t *phase_sets, int *fully_covers, hts_pos_t ps, uint8_t *ref_seq, int ref_seq_len,
-                                          int *clu_n_seqs, int **clu_read_ids, aln_str_t **aln_strs, uint8_t ***msa_seqs, int *msa_seq_lens) {
+                                          int *haps, hts_pos_t *phase_sets, int *fully_covers, hts_pos_t ps, int min_hap_full_reads, int min_hap_all_reads, uint8_t *ref_seq, int ref_seq_len,
+                                          int *clu_n_seqs, int **clu_read_ids, aln_str_t **aln_strs, int collect_ref_read_aln_str) {
     // given specific PS, collect consensus sequences for each haplotype
     int n_cons = 0;
     int total_n_reads = n_reads+2, n_ps_hap_reads = 0;
@@ -1475,6 +1541,7 @@ int wfa_collect_noisy_aln_str_with_ps_hap(const call_var_opt_t *opt, int n_reads
         cons_seqs[hap-1] = NULL; cons_lens[hap-1] = 0;
         // check if we have enough full-cover reads
         n_ps_hap_reads = 0;
+        int n_full_reads = 0;
         for (int i = 0; i < n_reads; ++i) {
             if (lens[i] <= 0 || phase_sets[i] != ps || haps[i] != hap) continue;
             if (use_non_full == 0 && LONGCALLD_NOISY_IS_BOTH_COVER(fully_covers[i]) == 0) continue;
@@ -1485,23 +1552,24 @@ int wfa_collect_noisy_aln_str_with_ps_hap(const call_var_opt_t *opt, int n_reads
             ps_hap_read_quals[n_ps_hap_reads] = quals[i];
             ps_hap_full_covers[n_ps_hap_reads] = fully_covers[i];
             ps_hap_read_names[n_ps_hap_reads] = names[i];
+            if (LONGCALLD_NOISY_IS_BOTH_COVER(fully_covers[i])) n_full_reads++;
             n_ps_hap_reads++;
         }
+        if (ps_hap_read_lens[0] >= opt->max_noisy_reg_len) {
+            if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "SkipRegion: %" PRIi64 " %d %d\n", ps, hap, n_ps_hap_reads);
+            break;
+        }
         // only call consensus at first
-        if (LONGCALLD_VERBOSE >=2 ) fprintf(stderr, "PS: %" PRIi64 " HAP: %d n_reads: %d\n", ps, hap, n_ps_hap_reads);
+        if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "PS: %" PRIi64 " HAP: %d n_reads: %d\n", ps, hap, n_ps_hap_reads);
         if (n_ps_hap_reads == 0) continue;
         // collect consensus sequences
+        // if (n_full_reads >= min_hap_full_reads && n_ps_hap_reads >= min_hap_all_reads) {
+        n_cons += abpoa_partial_aln_msa_cons(opt, NULL, n_ps_hap_reads, ps_hap_read_ids, ps_hap_read_seqs, ps_hap_read_quals, ps_hap_read_lens, ps_hap_full_covers, ps_hap_read_names,
+                                             1, cons_lens+hap-1, cons_seqs+hap-1, clu_n_seqs+hap-1, clu_read_ids+hap-1, NULL, NULL);
+        // } else { // NO full-cover reads, collect cons from each side then combine into one cons
+        //     n_cons += two_sides_abpoa_partial_aln_msa_cons(opt, NULL, n_ps_hap_reads, ps_hap_read_ids, ps_hap_read_seqs, ps_hap_read_quals, ps_hap_read_lens, ps_hap_full_covers, ps_hap_read_names,
+        //                                                    hap, use_non_full, 1, cons_lens+hap-1, cons_seqs+hap-1, clu_n_seqs+hap-1, clu_read_ids+hap-1);
 
-        // n_cons += abpoa_partial_aln_msa_cons(opt, NULL, n_ps_hap_reads, ps_hap_read_ids, ps_hap_read_seqs, ps_hap_read_quals, ps_hap_read_lens, ps_hap_full_covers, ps_hap_read_names,
-                                            //  1, cons_lens+hap-1, cons_seqs+hap-1, clu_n_seqs+hap-1, clu_read_ids+hap-1, NULL, NULL);
-        n_cons += abpoa_partial_aln_msa_cons_append_ref(opt, NULL, n_ps_hap_reads, ps_hap_read_ids, ps_hap_read_seqs, ps_hap_read_quals, ps_hap_read_lens, ps_hap_full_covers, ps_hap_read_names, ref_seq, ref_seq_len,
-                                                        1, cons_lens+hap-1, cons_seqs+hap-1, clu_n_seqs+hap-1, clu_read_ids+hap-1, msa_seq_lens+hap-1, msa_seqs[hap-1]);
-        // if (opt->is_ont) { // && opt->ont_hp_profile != NULL) {
-            // int hp_flank_start, hp_flank_end, hp_len;
-            // if (cons_is_homopolymer(cons_seqs[hap-1], cons_lens[hap-1], opt->noisy_reg_flank_len, &hp_flank_start, &hp_flank_end, &hp_len)) { // for ont & homopolymer, do Bayesian inference instead of consensus calling
-                // n_cons-= 1;
-                // ont_polish_homopolymer_cons1(opt, cons_seqs+hap-1, cons_lens+hap-1, hp_flank_start, hp_flank_end, ps_hap_read_lens, ps_hap_read_seqs, ps_hap_read_strands, ps_hap_full_covers, n_ps_hap_reads);
-            // }
         // }
     }
 
@@ -1533,12 +1601,20 @@ int wfa_collect_noisy_aln_str_with_ps_hap(const call_var_opt_t *opt, int n_reads
             // ref vs cons
             aln_str_t *clu_aln_str = aln_strs[hap-1];
             wfa_collect_aln_str(opt, ref_seq, ref_seq_len, cons_seqs[hap-1], cons_lens[hap-1], LONGCALLD_NOISY_BOTH_COVER, LONGCALLD_REF_CONS_ALN_STR(clu_aln_str));
+            // aln_str_t *aln_str = LONGCALLD_REF_CONS_ALN_STR(clu_aln_str);
+            // fprintf(stderr, ">ref\n");
+            // for (int j = 0; j < aln_str->aln_len; ++j) fprintf(stderr, "%c", "ACGTN-"[aln_str->target_aln[j]]);
+            // fprintf(stderr, "\n>cons\n");
+            // for (int j = 0; j < aln_str->aln_len; ++j) fprintf(stderr, "%c", "ACGTN-"[aln_str->query_aln[j]]);
+            // fprintf(stderr, "\n");
             n_ps_hap_reads = 0;
             for (int i = 0; i < n_reads; ++i) {
                 if (lens[i] <= 0 || phase_sets[i] != ps || haps[i] != hap) continue;
                 if (use_non_full == 0 && LONGCALLD_NOISY_IS_BOTH_COVER(fully_covers[i]) == 0) continue;
                 // cons vs read
                 wfa_collect_aln_str(opt, cons_seqs[hap-1], cons_lens[hap-1], seqs[i], lens[i], fully_covers[i], LONGCALLD_CONS_READ_ALN_STR(clu_aln_str, n_ps_hap_reads));
+                if (collect_ref_read_aln_str)
+                    make_ref_read_aln_str(opt, LONGCALLD_REF_CONS_ALN_STR(clu_aln_str), LONGCALLD_CONS_READ_ALN_STR(clu_aln_str, n_ps_hap_reads), LONGCALLD_REF_READ_ALN_STR(clu_aln_str, n_ps_hap_reads));
                 n_ps_hap_reads++;
             }
             if (LONGCALLD_VERBOSE >=2 ) fprintf(stderr, "With Ref+Cons PS: %" PRIi64 " HAP: %d n_reads: %d\n", ps, hap, n_ps_hap_reads);
@@ -1846,6 +1922,7 @@ digar1_t *collect_right_msa_digars(int read_beg, int read_end, hts_pos_t ref_beg
         digar1_t d = (digar1_t){.pos = ref_pos, .qi = 0, .type = BAM_CSOFT_CLIP, .len = read_pos+left_skipped_read_base, .alt_seq = NULL, .is_low_qual = 0};
         msa_digars = push_digar0(msa_digars, n_msa_digars, &m_msa_digars, d);
     }
+    read_pos += left_skipped_read_base;
     // for (int i = 0; i < msa_len; ++i) {
     for (int i = left_read_start; i <= right_read_end; ++i) {
         if (read_str[i] == 5 && ref_str[i] == 5) continue; // both are non-ACGTN
@@ -1875,7 +1952,7 @@ digar1_t *collect_right_msa_digars(int read_beg, int read_end, hts_pos_t ref_beg
     return msa_digars;
 }
 
-void update_digars_from_msa1(digar_t *digar, int msa_len, uint8_t *read_str, uint8_t *ref_str, int full_cover, hts_pos_t noisy_reg_beg, hts_pos_t noisy_reg_end, int read_beg, int read_end) {
+void update_digars_from_msa1(digar_t *digar, int msa_len, uint8_t *ref_str, uint8_t *read_str, int full_cover, hts_pos_t noisy_reg_beg, hts_pos_t noisy_reg_end, int read_beg, int read_end) {
     int new_n_digars = 0, new_m_digar = 0; digar1_t *new_digars = NULL;
     int old_left_n_digars, old_right_n_digars, msa_n_digars;
     digar1_t *old_left_digars=NULL, *old_right_digars=NULL, *msa_digars=NULL;
@@ -1917,27 +1994,15 @@ void update_digars_from_msa1(digar_t *digar, int msa_len, uint8_t *read_str, uin
     // print_digar1(digar->digars, digar->n_digar, stderr);
 }
 
-void update_digars_from_msa(bam_chunk_t *chunk, hts_pos_t noisy_reg_beg, hts_pos_t noisy_reg_end, int *read_id_to_full_covers, int *read_reg_beg, int *read_reg_end,
-                            uint8_t ***msa_seqs, int *msa_seq_lens, int n_cons, int *clu_n_seqs, int **clu_read_ids) {
+void update_digars_from_aln_str(bam_chunk_t *chunk, hts_pos_t noisy_reg_beg, hts_pos_t noisy_reg_end, int *read_id_to_full_covers, int *read_reg_beg, int *read_reg_end,
+                                aln_str_t **aln_str, int n_cons, int *clu_n_seqs, int **clu_read_ids) {
     for (int i = 0; i < n_cons; ++i) {
         int n_seqs = clu_n_seqs[i];
-        uint8_t *ref_str = msa_seqs[i][n_seqs]; // reference sequence
-        if (LONGCALLD_VERBOSE >= 2) {
-            fprintf(stderr, ">Ref %d\n", msa_seq_lens[i]);
-            for (int j = 0; j < msa_seq_lens[i]; ++j) {
-                fprintf(stderr, "%c", "ACGTN-"[msa_seqs[i][n_seqs][j]]);
-            } fprintf(stderr, "\n");
-        }
+        aln_str_t *ref_cons_aln_str = LONGCALLD_REF_CONS_ALN_STR(aln_str[i]);
         for (int read_i = 0; read_i < n_seqs; ++read_i) {
             int read_id = clu_read_ids[i][read_i]; int read_beg = read_reg_beg[read_id], read_end = read_reg_end[read_id];
-            uint8_t *read_str = msa_seqs[i][read_i];
-            if (LONGCALLD_VERBOSE >= 2) {
-                fprintf(stderr, ">%s %d\n", bam_get_qname(chunk->reads[read_id]), read_id_to_full_covers[read_id]);
-                for (int j = 0; j < msa_seq_lens[i]; ++j) {
-                    fprintf(stderr, "%c", "ACGTN-"[msa_seqs[i][read_i][j]]);
-                } fprintf(stderr, "\n");
-            }
-            update_digars_from_msa1(chunk->digars+read_id,  msa_seq_lens[i], read_str, ref_str, read_id_to_full_covers[read_id], noisy_reg_beg, noisy_reg_end, read_beg, read_end);
+            aln_str_t *ref_read_aln_str = LONGCALLD_REF_READ_ALN_STR(aln_str[i], read_i);
+            update_digars_from_msa1(chunk->digars+read_id, ref_read_aln_str->aln_len, ref_read_aln_str->target_aln, ref_read_aln_str->query_aln, read_id_to_full_covers[read_id], noisy_reg_beg, noisy_reg_end, read_beg, read_end);
             if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "%s digar->qlen: %d\n", bam_get_qname(chunk->reads[read_id]), digar2qlen(chunk->digars+read_id));
         }
     }
@@ -1959,45 +2024,37 @@ int collect_noisy_reg_aln_strs(const call_var_opt_t *opt, bam_chunk_t *chunk, ht
     // >= min_hap_full_read_count reads for each hap && >= min_hap_read_count reads (including not full-cover, but >= full-cover length) for each hap
     int min_hap_full_read_count = opt->min_hap_full_reads, min_hap_read_count = opt->min_hap_reads;
     int min_no_hap_full_read_count = opt->min_dp; // opt->min_no_hap_full_reads;
+    // XXX find PS that fully cover the noisy region, allow 1 or 2 haps to have NO fully-covered reads, this can be resolved by POA-extension and consensus mering
+    // if no valid PS was found, do haplotype-unaware local-assembly
     hts_pos_t ps_with_both_haps = collect_phase_set_with_both_haps(n_noisy_reg_reads, haps, lens, phase_sets, fully_covers, min_hap_full_read_count, min_hap_read_count);
     int n_full_reads = 0;
     for (int i = 0; i < n_noisy_reg_reads; ++i) if (LONGCALLD_NOISY_IS_BOTH_COVER(fully_covers[i])) n_full_reads++;
     int n_cons = 0;
-    uint8_t ***msa_seqs = (uint8_t***)malloc(2 * sizeof(uint8_t**)); // allocate MSA sequences for two haps
-    int *msa_seq_lens = (int*)malloc(2 * sizeof(int));
-    for (int i = 0; i < 2; ++i) {
-        msa_seqs[i] = (uint8_t**)malloc((n_noisy_reg_reads+1) * sizeof(uint8_t*)); // n_reads+1 for ref
-        for (int j = 0; j < n_noisy_reg_reads+1; ++j) msa_seqs[i][j] = NULL;
-    }
+
+    int collect_ref_read_aln_str = 0;
+    if ((opt->refine_bam && opt->out_bam != NULL) || opt->out_somatic) collect_ref_read_aln_str = 1;
     // XXX only use fully-covered reads, including cliping reads (after re-align to backbone read)
     // two cases to call consensus sequences
     if (ps_with_both_haps > 0) { // call consensus sequences for each haplotype
-        n_cons = wfa_collect_noisy_aln_str_with_ps_hap(opt, n_noisy_reg_reads, noisy_reads, lens, seqs, strands, base_quals, names, haps, phase_sets, fully_covers, ps_with_both_haps,
-                                                       ref_seq, ref_seq_len, clu_n_seqs, clu_read_ids, aln_strs, msa_seqs, msa_seq_lens);
+        n_cons = wfa_collect_noisy_aln_str_with_ps_hap(opt, n_noisy_reg_reads, noisy_reads, lens, seqs, strands, base_quals, names, haps, phase_sets, fully_covers, ps_with_both_haps, min_hap_full_read_count, min_hap_read_count,
+                                                       ref_seq, ref_seq_len, clu_n_seqs, clu_read_ids, aln_strs, collect_ref_read_aln_str);
     // >= min_no_hap_full_read_count full reads in total
     } else if (ps_with_both_haps <= 0 && n_full_reads >= min_no_hap_full_read_count) {
+        // XXX do NOT de novo abPOA for homopolymer regions
         n_cons = wfa_collect_noisy_aln_str_no_ps_hap(opt, n_noisy_reg_reads, noisy_reads, lens, seqs, names, fully_covers,
-                                                     ref_seq, ref_seq_len, clu_n_seqs, clu_read_ids, aln_strs, msa_seqs, msa_seq_lens);
+                                                     ref_seq, ref_seq_len, clu_n_seqs, clu_read_ids, aln_strs, collect_ref_read_aln_str);
     } else {
         if (LONGCALLD_VERBOSE >= 2)
             fprintf(stderr, "Skipped region: %s:%" PRIi64 "-%" PRIi64 " %" PRIi64 " %d reads (%d full)\n", chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end-noisy_reg_beg+1, n_noisy_reg_reads, n_full_reads);
     }
     // update digar based on ref vs read in MSA
     if (n_cons > 0 && ((opt->refine_bam && opt->out_bam != NULL) || opt->out_somatic)) {
-        update_digars_from_msa(chunk, noisy_reg_beg, noisy_reg_end, read_id_to_full_covers, read_reg_beg, read_reg_end,
-                               msa_seqs, msa_seq_lens, n_cons, clu_n_seqs, clu_read_ids);
+        update_digars_from_aln_str(chunk, noisy_reg_beg, noisy_reg_end, read_id_to_full_covers, read_reg_beg, read_reg_end,
+                                   aln_strs, n_cons, clu_n_seqs, clu_read_ids);
     }
     for (int i = 0; i < n_noisy_reg_reads; ++i) {
         free(seqs[i]); free(base_quals[i]);
     }
-    for (int i = 0; i < 2; ++i) {
-        if (msa_seqs[i] != NULL) {
-            for (int j = 0; j < n_noisy_reg_reads+1; ++j) {
-                if (msa_seqs[i][j] != NULL) free(msa_seqs[i][j]);
-            }
-            free(msa_seqs[i]);
-        }
-    } free(msa_seqs); free(msa_seq_lens);
     free(names); free(strands); free(seqs); free(base_quals); free(lens); free(read_reg_beg); free(read_reg_end);
     free(fully_covers); free(read_id_to_full_covers); free(haps); free(phase_sets);
     return n_cons;

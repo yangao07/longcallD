@@ -205,13 +205,13 @@ int check_low_complexity(uint8_t *cand_query_seq, int cand_qlen, float low_comp_
     else return 0;
 }
 
+// database: all k-mers, 0,1,2,...
+// query: non-consecutive k-mers, 0,k,2k,...
+// XXX: use overlapped k-mers for query?
 int check_te_seq(const call_var_opt_t *opt, uint8_t *cand_te_seq, int cand_te_len, int *is_rev) {
     int total_count, for_count, rev_count, max_for_count = 0, max_rev_count = 0, max_for_i = -1, max_rev_i = -1;
+    int min_count = 3; // or 4
     kmer32_v a = {0, 0, 0};
-    // fprintf(stderr, ">cand_te %d\n", cand_te_len);
-    // for (int i = 0; i < cand_te_len; ++i) {
-        // fprintf(stderr, "%c", "ACGTN-"[cand_te_seq[i]]);
-    // }
     collect_query_kmer(cand_te_seq, cand_te_len, 0, opt->te_kmer_len, &a);
     total_count = a.n;
     if (total_count <= 0) {
@@ -227,13 +227,13 @@ int check_te_seq(const call_var_opt_t *opt, uint8_t *cand_te_seq, int cand_te_le
     free(a.a);
     if (max_for_count > max_rev_count) {
         *is_rev = 0;
-        if (max_for_count >= total_count / 2)
+        if (max_for_count >= min_count) // total_count / 2)
             return max_for_i;
         else
             return -1;
     } else {
         *is_rev = 1;
-        if (max_rev_count >= total_count / 2)
+        if (max_rev_count >= min_count) // total_count / 2)
             return max_rev_i;
         else
             return -1;

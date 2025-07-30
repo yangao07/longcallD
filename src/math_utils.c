@@ -41,6 +41,15 @@ int median_int(int *arr, int n) {
     }
 }
 
+int min_int(int *arr, int n) {
+    if (n <= 0) return 0; // handle empty array case
+    int min = arr[0];
+    for (int i = 1; i < n; ++i) {
+        if (arr[i] < min) min = arr[i];
+    }
+    return min;
+}
+
 // XXX pre-compute lgamma(alpha/beta/alpha+beta) for efficiency
 
 // Log-Beta function: log(B(α, β))

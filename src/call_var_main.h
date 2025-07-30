@@ -29,47 +29,49 @@
 #define LONGCALLD_NOISY_REG_MAX_XGAPS 5 // or 10; dense X/gap region: more than n X/gap bases in a 100-bp window
 #define LONGCALLD_NOISY_REG_SLIDE_WIN 100
 #define LONGCALLD_MAX_NOISY_FRAC_PER_READ 0.5 // skip reads with more than 50% bases in noisy region
-#define LONGCALLD_MAX_VAR_RATIO_PER_READ 0.05 // skip reads with n_var / ref_span > 5% 
+#define LONGCALLD_MAX_VAR_RATIO_PER_READ 1.00 // skip reads with n_var / ref_span > 5% 
 #define LONGCALLD_MAX_READ_DEPTH 500 // vars with >500 reads will be skipped
 #define LONGCALLD_MAX_NOISY_REG_READS 1000 // regions with >1000 reads will be skipped
-#define LONGCALLD_NOISY_END_CLIP 100 // >= 100 bp clipping on both ends will be considered as long clipping
+#define LONGCALLD_NOISY_END_CLIP 30 // 100 // >= 100 bp clipping on both ends will be considered as long clipping
 #define LONGCALLD_NOISY_END_CLIP_WIN 100 // 100 bp next to the long end-clipping will be considered as low-quality region
 #define LONGCALLD_NOISY_REG_MERGE_DIS 500 // 500 bp, merge noisy regions within 500 bp
 #define LONGCALLD_NOISY_REG_FLANK_LEN 10 // during re-alignment, include 10-bp flanking region for both ends of noisy region
 
 #define LONGCALLD_MAX_NOISY_REG_LEN 50000 // >50kb noisy region will be skipped
 #define LONGCALLD_NOISY_REG_READS 2 // >= 5 reads supporting noisy region
-#define LONGCALLD_NOISY_REG_RATIO 0.20 // >= 25% reads supporting noisy region
+// #define LONGCALLD_NOISY_REG_RATIO 0.20 // >= 25% reads supporting noisy region
 
 #define LONGCALLD_MIN_HAP_FULL_READS 1 // >= 1full read supporting each haplotype
 #define LONGCALLD_MIN_HAP_READS 2 // >= 3 reads supporting each haplotype, including partial/clipped reads, call consensus from >= 3 reads
 // #define LONGCALLD_MIN_NO_HAP_FULL_READS 10 // >10 total full reads in noisy region
 #define LONGCALLD_MIN_READ_TO_HAP_CONS_SIM 0.9 // for reads with >= 90% equal bases, assign haplotype
-// SOMATIC/MOSAIC Var
-#define LONGCALLD_MIN_SOMATIC_BQ 10 // XXX different for hifi and ONT
-#define LONGCALLD_MIN_SOMATIC_ALT_QUAL 20 // >= 10 for somatic variant
-#define LONGCALLD_MIN_SOMATIC_DIS_TO_HET_VAR 5
-#define LONGCALLD_MIN_SOMATIC_DIS_TO_SEQ_ERROR 5
-// BLT50: 1/10/3 works better
-#define LONGCALLD_SOMATIC_BETA_ALPHA 2 // beta prior for somatic variant calling
-#define LONGCALLD_SOMATIC_BETA_BETA 10 // beta prior for somatic variant calling
-#define LONGCALLD_MIN_SOMATIC_LOG_BETA_BINOM -4 // min log10(p-value) for beta-binomial test
-// fisher is NOT used for PacBio-HiFi
-#define LONGCALLD_MIN_SOMATIC_FISHER_PVAL 0.05
-// #define LONGCALLD_MIN_SOMATIC_AF 0.01
-// #define LONGCALLD_MAX_SOMATIC_ALT_AF 0.1
-#define LONGCALLD_SOMATIC_DENSE_WIN 1000
-#define LONGCALLD_SOMATIC_DENSE_WIN_MAX_VARS 3 // >= 2 somatic vars in a 1000-bp window, consider as artifact, tag both var & read as artifact
-#define LONGCALLD_MIN_SOMATIC_HAP_READS 10 // >= 10 reads supporting each haplotype
-#define LONGCALLD_MIN_SOMATIC_ALT_DP 2 // >= 2 reads supporting somatic variant
-#define LONGCALLD_MIN_SOMATIC_TE_ALT_DP 1 // >= 1 read supporting somatic TE variant
-#define LONGCALLD_MIN_SOMATIC_TE_LEN 250 // >= 250 bp INDEL to be considered as somatic TE
-
+// SV related parameters
 #define LONGCALLD_MIN_SV_LEN 30 // size >= 30 bp -> SV
 #define LONGCALLD_MIN_TSD_LEN 2 // TSD >= 2 bp
 #define LONGCALLD_MAX_TSD_LEN 100 // TSD <= 100 bp
 #define LONGCALLD_MIN_POLYA_LEN 10 // polyA >= 10 bp
 #define LONGCALLD_MIN_POLYA_RATIO 0.8 // polyA >= 80% of the total length
+// SOMATIC/MOSAIC Var
+#define LONGCALLD_MIN_SOMATIC_DIS_TO_VAR 5
+#define LONGCALLD_MIN_SOMATIC_DIS_TO_HP_INDEL_ERROR 3
+#define LONGCALLD_MIN_SOMATIC_DIS_TO_INDEL_VAR 5
+#define LONGCALLD_MIN_SOMATIC_DIS_TO_SEQ_ERROR 5
+// XXX MOSAIC (low) vs SOMATIC (high)
+// #define LONGCALLD_MIN_SOMATIC_AF 0.01
+// #define LONGCALLD_MAX_SOMATIC_ALT_AF 0.1
+#define LONGCALLD_SOMATIC_WIN 1000
+#define LONGCALLD_SOMATIC_WIN_MAX_VARS 5 // >= 2 somatic vars in a 1000-bp window, consider as artifact, tag both var & read as artifact
+#define LONGCALLD_MIN_SOMATIC_HAP_READS 5 // >= 10 reads supporting each haplotype
+#define LONGCALLD_MIN_SOMATIC_ALT_DP 2 // >= 2 reads supporting somatic variant
+#define LONGCALLD_MIN_SOMATIC_TE_ALT_DP 1 // >= 1 read supporting somatic TE variant
+// fisher is NOT used for PacBio-HiFi
+#define LONGCALLD_MIN_SOMATIC_FISHER_PVAL 0.05
+#define LONGCALLD_STRAND_BIAS_PVAL_ONT 0.05
+// BLT50: 1/10/3 works better
+// #define LONGCALLD_SOMATIC_BETA_ALPHA 2 // beta prior for somatic variant calling
+// #define LONGCALLD_SOMATIC_BETA_BETA 10 // beta prior for somatic variant calling
+// #define LONGCALLD_MIN_SOMATIC_LOG_BETA_BINOM -4 // min log10(p-value) for beta-binomial test
+
 
 // for sdust
 #define LONGCALLD_SDUST_T 5  // 10
@@ -117,18 +119,12 @@ typedef struct var_t {
     var1_t *vars;
 } var_t;
 
-typedef struct ont_hp_profile_t {
-    uint8_t beg_flank_base, hp_base, end_flank_base; // 0: A, 1: C, 2: G, 3: T
-    int ref_hp_len; uint8_t strand; int *alt_hp_lens; int n_alt_hp_lens;
-    double *hp_len_to_prob; // -> len -> prob
-} ont_hp_profile_t; // 4x4x4 * 50 * 2 = 6400
-
 typedef struct call_var_opt_t {
     // input
     char *ref_fa_fn, *ref_fa_fai_fn;
     char *reg_bed_fn;
     char *in_bam_fn; char *sample_name;
-    uint8_t is_pb_hifi, is_ont;
+    uint8_t is_pb_hifi, is_ont; float strand_bias_pval; // for ONT reads
     // variant calling regions
     uint8_t only_autosome, only_autosome_XY;
     char **exc_tnames; int n_exc_tnames;
@@ -137,17 +133,17 @@ typedef struct call_var_opt_t {
     int max_ploid, min_mq, min_bq, min_dp, min_alt_dp;
     double min_af, max_af;
     // somatic/mosaic variant
-    int min_somatic_dis_to_het_var, min_somatic_bq, min_somatic_alt_qual, min_somatic_dis_to_seq_error, min_somatic_alt_dp, min_somatic_te_dp, min_somatic_hap_dp;
+    int min_somatic_dis_to_var, min_somatic_dis_to_homopolymer_indel_error, min_somatic_dis_to_seq_error, min_somatic_alt_dp, min_somatic_te_dp, min_somatic_hap_dp;
     double min_somatic_log_beta_binom, min_somatic_fisher_pval; //, max_somatic_alt_af; // 0.01~0.1
     int somatic_beta_alpha, somatic_beta_beta; // beta prior for somatic variant calling
-    int somatic_dense_win, somatic_dense_win_max_vars; // somatic variant calling window size, max vars in the window
+    int somatic_win, somatic_win_max_vars; // somatic variant calling window size, max vars in the window
 
     int noisy_reg_max_xgaps, noisy_reg_slide_win;
     int end_clip_reg, end_clip_reg_flank_win;
     int noisy_reg_merge_dis, noisy_reg_flank_len; // noisy_reg_merge_win; // for re-alignment
     // filters for noisy region, i.e., coverage/ratio
     int max_noisy_reg_reads, max_noisy_reg_len, min_noisy_reg_reads; 
-    double max_var_ratio_per_read, max_noisy_frac_per_read, min_noisy_reg_ratio;
+    double max_var_ratio_per_read, max_noisy_frac_per_read; //, min_noisy_reg_ratio;
     int min_hap_full_reads, min_hap_reads; //, min_no_hap_full_reads;
     // alignment
     int match, mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2;
@@ -160,7 +156,6 @@ typedef struct call_var_opt_t {
     // Alu/L1/SVA sequences
     char *te_seq_fn; char **te_seq_names; int n_te_seqs;
     int te_kmer_len; kmer32_hash_t **te_for_h, **te_rev_h;
-    ont_hp_profile_t ***ont_hp_profile; // for ONT data, use HP profile to call variants, size: 4x4x4
     // general
     // int max_ploidy;
     int pl_threads, n_threads;

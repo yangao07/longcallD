@@ -39,6 +39,7 @@ const struct option call_var_opt [] = {
     { "refine-aln", 0, NULL, 0},
     { "alpha", 1, NULL, 0},
     { "beta", 1, NULL, 0},
+    { "max-somvar", 1, NULL, 0},
 
     { "exclude-ctg", 1, NULL, 'E'},
     // { "ont-hp-prof", 1, NULL, 0},
@@ -110,87 +111,21 @@ void set_hifi_opt(call_var_opt_t *opt) {
 
 void set_ont_opt(call_var_opt_t *opt) {
     opt->is_ont = 1; opt->is_pb_hifi = 0;
+    opt->strand_bias_pval = LONGCALLD_STRAND_BIAS_PVAL_ONT;
     opt->noisy_reg_max_xgaps = 20;
 }
 
-// profile format
-// CTA     5       +       5       10661016.0      0.8805382103122837
-// beg/hp/end   ref_len strand alt_len count prob
-void set_ont_hp_prof(call_var_opt_t *opt, char *prof_fn) {
-    opt->ont_hp_profile = (ont_hp_profile_t***)malloc(4*4*4*sizeof(ont_hp_profile_t**));
-    for (int i = 0; i < 4*4*4; ++i) {
-        opt->ont_hp_profile[i] = (ont_hp_profile_t**)malloc(50*sizeof(ont_hp_profile_t*));
-        for (int j = 0; j < 50; ++j) {
-            opt->ont_hp_profile[i][j] = (ont_hp_profile_t*)malloc(2*sizeof(ont_hp_profile_t));
-            for (int k = 0; k < 2; ++k) {
-                opt->ont_hp_profile[i][j][k].hp_len_to_prob = (double*)malloc(20*sizeof(double));
-                opt->ont_hp_profile[i][j][k].alt_hp_lens = (int*)malloc(20*sizeof(int));
-                opt->ont_hp_profile[i][j][k].beg_flank_base = i/16;
-                opt->ont_hp_profile[i][j][k].hp_base = (i%16)/4;
-                opt->ont_hp_profile[i][j][k].end_flank_base = i%4;
-                opt->ont_hp_profile[i][j][k].ref_hp_len = j+1;
-                opt->ont_hp_profile[i][j][k].strand = k;
-                opt->ont_hp_profile[i][j][k].n_alt_hp_lens = 0;
-            }
-        }
-    }
-    // load profile
-    FILE *fp = fopen(prof_fn, "r");
-    if (fp == NULL) _err_error_exit("Failed to open HP profile file: %s", prof_fn);
-    char line[1024];
-    while (fgets(line, sizeof(line), fp)) {
-        if (line[0] == '#') continue; // skip header/comment
-        char *token;
-        token = strtok(line, "\t");
-        char beg_base = token[0], hp_base = token[1], end_base = token[2];
-        token = strtok(NULL, "\t");
-        int ref_len = atoi(token);
-        if (ref_len < 5 || ref_len > 50) continue; // skip too short or too long ref length
-        token = strtok(NULL, "\t");
-        char strand = token[0];
-        // int hp_idx = nst_nt4_table[(int)beg_base]*16 + nst_nt4_table[(int)hp_base]*4 + nst_nt4_table[(int)end_base];
-        int hp_base_idx = nst_nt4_table[(int)beg_base]*16 + nst_nt4_table[(int)hp_base]*4 + nst_nt4_table[(int)end_base];
-        int hp_ref_idx = ref_len-1;
-        int hp_strand_idx = (strand == '+') ? 0 : 1;
-        // fprintf(stderr, "HP idx: %d, %c-%c-%c\n", hp_idx, beg_base, hp_base, end_base);
-        ont_hp_profile_t *hp_profile = &(opt->ont_hp_profile[hp_base_idx][hp_ref_idx][hp_strand_idx]);
-        if (hp_profile->n_alt_hp_lens >= 20) continue;
+// extreme low allele frequency < 5% or even 1%
+// void set_mosaic_opt(call_var_opt_t *opt) {
+//     opt->somatic_beta_alpha = 1; opt->somatic_beta_beta = 10;
+//     opt->min_somatic_log_beta_binom = -3.0; // log10(0.001)
+// }
 
-        token = strtok(NULL, "\t");
-        int alt_len = atoi(token);
-        token = strtok(NULL, "\t");
-        double count = atof(token);
-        token = strtok(NULL, "\t");
-        double prob = atof(token);
-
-        hp_profile->ref_hp_len = ref_len;
-        hp_profile->alt_hp_lens[hp_profile->n_alt_hp_lens] = alt_len;
-        hp_profile->hp_len_to_prob[hp_profile->n_alt_hp_lens] = prob;
-        hp_profile->n_alt_hp_lens++;
-    }
-    fclose(fp);
-}
-
-void math_utils_test(const call_var_opt_t *opt) {
-    printf("Math Utils Test\n");
-    int k = 8;          // Alternate allele count
-    int n = 50;        // Total reads
-    int alpha = 2; // Beta prior (somatic)
-    int beta = 10; // Beta prior (background)
-    double error_rate = 0.01; // Sequencing error
-
-    double logBF = log_bayes_factor(k, n, alpha, beta, error_rate, opt);
-    double BF = exp(logBF);
-
-    printf("Log-Bayes Factor: %.2f\n", logBF);
-    printf("Bayes Factor: %.2e\n", BF);
-    printf("Decision: %s\n", BF > 100 ? "Somatic" : "Error/Germline");
-
-    // test fisher exact test
-    int a = 5, b = 10, c = 15, d = 2;
-    printf("Fisher's Exact Test (Two-tailed): %.5f\n", fisher_exact_test(a, b, c, d, opt));
-    exit(1);
-}
+// // moderate low allele frequency, > 5%, (tumor purity: 40~100% -> HET var: 20%~50% allele frequency)
+// void set_tumor_somatic_opt(call_var_opt_t *opt) {
+//     opt->somatic_beta_alpha = 2; opt->somatic_beta_beta = 5;
+//     opt->min_somatic_log_beta_binom = -4.0; // log10(0.0001) ???
+// }
 
 call_var_opt_t *call_var_init_para(void) {
     call_var_opt_t *opt = (call_var_opt_t*)_err_malloc(sizeof(call_var_opt_t));
@@ -211,10 +146,8 @@ call_var_opt_t *call_var_init_para(void) {
     opt->min_af = LONGCALLD_MIN_CAND_AF;
     opt->max_af = LONGCALLD_MAX_CAND_AF;
     // somatic/mosaic var
-
-    opt->min_somatic_bq = LONGCALLD_MIN_SOMATIC_BQ;
-    opt->min_somatic_alt_qual = LONGCALLD_MIN_SOMATIC_ALT_QUAL;
-    opt->min_somatic_dis_to_het_var = LONGCALLD_MIN_SOMATIC_DIS_TO_HET_VAR;
+    opt->min_somatic_dis_to_var = LONGCALLD_MIN_SOMATIC_DIS_TO_VAR;
+    opt->min_somatic_dis_to_homopolymer_indel_error = LONGCALLD_MIN_SOMATIC_DIS_TO_HP_INDEL_ERROR;
     opt->min_somatic_dis_to_seq_error = LONGCALLD_MIN_SOMATIC_DIS_TO_SEQ_ERROR;
     opt->min_somatic_fisher_pval = LONGCALLD_MIN_SOMATIC_FISHER_PVAL;
     opt->min_somatic_alt_dp = LONGCALLD_MIN_SOMATIC_ALT_DP;
@@ -222,11 +155,11 @@ call_var_opt_t *call_var_init_para(void) {
     opt->min_somatic_te_dp = LONGCALLD_MIN_SOMATIC_TE_ALT_DP;
     // opt->min_somatic_af = LONGCALLD_MIN_SOMATIC_AF;
     // opt->max_somatic_alt_af = LONGCALLD_MAX_SOMATIC_ALT_AF;
-    opt->min_somatic_log_beta_binom = LONGCALLD_MIN_SOMATIC_LOG_BETA_BINOM;
-    opt->somatic_beta_alpha = LONGCALLD_SOMATIC_BETA_ALPHA;
-    opt->somatic_beta_beta = LONGCALLD_SOMATIC_BETA_BETA;
-    opt->somatic_dense_win = LONGCALLD_SOMATIC_DENSE_WIN;
-    opt->somatic_dense_win_max_vars = LONGCALLD_SOMATIC_DENSE_WIN_MAX_VARS;
+    // opt->min_somatic_log_beta_binom = LONGCALLD_MIN_SOMATIC_LOG_BETA_BINOM;
+    // opt->somatic_beta_alpha = LONGCALLD_SOMATIC_BETA_ALPHA;
+    // opt->somatic_beta_beta = LONGCALLD_SOMATIC_BETA_BETA;
+    opt->somatic_win = LONGCALLD_SOMATIC_WIN;
+    opt->somatic_win_max_vars = LONGCALLD_SOMATIC_WIN_MAX_VARS;
 
     opt->noisy_reg_merge_dis = LONGCALLD_NOISY_REG_MERGE_DIS;
     opt->noisy_reg_flank_len = LONGCALLD_NOISY_REG_FLANK_LEN;
@@ -241,7 +174,7 @@ call_var_opt_t *call_var_init_para(void) {
     opt->max_noisy_reg_reads = LONGCALLD_MAX_NOISY_REG_READS;
     opt->max_noisy_reg_len  = LONGCALLD_MAX_NOISY_REG_LEN;
     opt->min_noisy_reg_reads = LONGCALLD_NOISY_REG_READS;
-    opt->min_noisy_reg_ratio = LONGCALLD_NOISY_REG_RATIO;
+    // opt->min_noisy_reg_ratio = LONGCALLD_NOISY_REG_RATIO;
     opt->max_noisy_frac_per_read = LONGCALLD_MAX_NOISY_FRAC_PER_READ;
     opt->min_hap_full_reads = LONGCALLD_MIN_HAP_FULL_READS;
     opt->min_hap_reads = LONGCALLD_MIN_HAP_READS;
@@ -255,7 +188,6 @@ call_var_opt_t *call_var_init_para(void) {
     opt->gap_ext2 = LONGCALLD_GAP_EXT2_SCORE;
     opt->gap_aln = LONGCALLD_GAP_LEFT_ALN;
     opt->disable_read_realign = 1; // XXX right now, always disable read realignment
-    opt->ont_hp_profile = NULL;
 
     opt->pl_threads = MIN_OF_TWO(CALL_VAR_PL_THREAD_N, get_num_processors());
     opt->n_threads = MIN_OF_TWO(CALL_VAR_THREAD_N, get_num_processors());
@@ -273,9 +205,6 @@ call_var_opt_t *call_var_init_para(void) {
     opt->out_bam = NULL; opt->out_is_cram = 0; opt->refine_bam = 0;
     opt->out_somatic = 0; opt->out_methylation = 0;
     // opt->verbose = 0;
-
-    // math utils test
-    // math_utils_test(opt);
     return opt;
 }
 
@@ -287,19 +216,6 @@ void call_var_free_para(call_var_opt_t *opt) {
     if (opt->n_exc_tnames > 0) {
         for (int i = 0; i < opt->n_exc_tnames; ++i) free(opt->exc_tnames[i]);
         free(opt->exc_tnames);
-    }
-    if (opt->ont_hp_profile != NULL) {
-        for (int i = 0; i < 4*4*4; ++i) {
-            for (int j = 0; j < 50; ++j) {
-                for (int k = 0; k < 2; ++k) {
-                    free(opt->ont_hp_profile[i][j][k].alt_hp_lens);
-                    free(opt->ont_hp_profile[i][j][k].hp_len_to_prob);
-                }
-                free(opt->ont_hp_profile[i][j]);
-            }
-            free(opt->ont_hp_profile[i]);
-        }
-        free(opt->ont_hp_profile);
     }
     if (opt->out_vcf_fn != NULL) free(opt->out_vcf_fn);
     if (opt->te_seq_fn != NULL) {
@@ -372,9 +288,10 @@ static void collect_bam_call_var_worker_for(void *_data, long ii, int tid) {
     call_var_step_t *step = (call_var_step_t*)_data;
     bam_chunk_t *c = step->chunks + ii;
     if (LONGCALLD_VERBOSE >= 1) fprintf(stderr, "[%s] thread-id: %d, chunk: %ld (%d)\n", __func__, tid, ii, step->n_chunks);
-    if (collect_ref_seq_bam_main(step->pl, step->pl->io_aux+tid, step->pl->reg_chunk_i, ii, c) > 0) {
+    // if (collect_ref_seq_bam_main(step->pl, step->pl->io_aux+tid, step->pl->reg_chunk_i, ii, c) > 0) {
+    collect_ref_seq_bam_main(step->pl, step->pl->io_aux+tid, step->pl->reg_chunk_i, ii, c);
         collect_var_main(step->pl, c);
-    }
+    // }
     bam_chunk_mid_free(c);
 }
 
@@ -803,8 +720,9 @@ static void call_var_usage(void) {//main usage
     // fprintf(stderr, "    -B --min-bq      INT  filter out base with base quality < -B/--min-bq [%d]\n", LONGCALLD_MIN_CAND_BQ);
     // fprintf(stderr, "    -p --max-ploidy  INT  max. ploidy [%d]\n", LONGCALLD_DEF_PLOID);
     fprintf(stderr, "  Somatic/mosaic variant calling: (effective when -s/--somatic/mosaic is used)\n");
-    fprintf(stderr, "    --alpha          INT  alpha value of beta-binomial distribution [%d]\n", LONGCALLD_SOMATIC_BETA_ALPHA);
-    fprintf(stderr, "    --beta           INT  beta value of beta-binomial distribution [%d]\n", LONGCALLD_SOMATIC_BETA_BETA);
+    // fprintf(stderr, "    --alpha          INT  alpha value of beta-binomial distribution [%d]\n", LONGCALLD_SOMATIC_BETA_ALPHA);
+    // fprintf(stderr, "    --beta           INT  beta value of beta-binomial distribution [%d]\n", LONGCALLD_SOMATIC_BETA_BETA);
+    fprintf(stderr, "    --max-somvar INT,INT  max. number of somatic variants allowed in a window (m,w) [%d,%d]\n", LONGCALLD_SOMATIC_WIN_MAX_VARS, LONGCALLD_SOMATIC_WIN);
     // fprintf(stderr, "  Variant calling in noisy regions:\n");
     // fprintf(stderr, "    -x --max-xgap    INT  max. number of allowed substitutions/gap-bases in a sliding window(-w/--win-size) [%d]\n", LONGCALLD_NOISY_REG_MAX_XGAPS);
     // fprintf(stderr, "                          window with more than -x subs/gap-bases will be considered as noisy region\n");
@@ -834,9 +752,9 @@ static void call_var_usage(void) {//main usage
 
 int call_var_main(int argc, char *argv[]) {
     // _err_cmd("%s\n", CMD);
-    int c, op_idx; call_var_opt_t *opt = call_var_init_para();
+    int c, op_idx; call_var_opt_t *opt = call_var_init_para(); char *s;
     double realtime0 = realtime();
-    while ((c = getopt_long(argc, argv, "r:T:E:o:O:sml:Hb:C:S:c:d:M:B:a:n:x:w:D:j:L:f:p:g:Nt:hvV:", call_var_opt, &op_idx)) >= 0) {
+    while ((c = getopt_long(argc, argv, "r:T:E:o:O:ml:Hb:C:S:sc:d:M:B:a:n:x:w:D:j:L:f:p:g:Nt:hvV:", call_var_opt, &op_idx)) >= 0) {
         switch(c) {
             case 'r': opt->ref_fa_fai_fn = strdup(optarg); break;
             // case 'b': cgp->var_block_size = atoi(optarg); break;
@@ -857,9 +775,13 @@ int call_var_main(int argc, char *argv[]) {
                     else if (strcmp(call_var_opt[op_idx].name, "autosome") == 0) opt->only_autosome = 1;
                     else if (strcmp(call_var_opt[op_idx].name, "autosome-XY") == 0) opt->only_autosome_XY = 1;
                     else if (strcmp(call_var_opt[op_idx].name, "mosaic") == 0) opt->out_somatic = 1;
+                    // else if (strcmp(call_var_opt[op_idx].name, "somatic") == 0) opt->out_somatic = 1;
                     else if (strcmp(call_var_opt[op_idx].name, "alpha") == 0) opt->somatic_beta_alpha = atoi(optarg);
                     else if (strcmp(call_var_opt[op_idx].name, "beta") == 0) opt->somatic_beta_beta = atoi(optarg);
-                    else if (strcmp(call_var_opt[op_idx].name, "refine-aln") == 0) opt->refine_bam = 1;
+                    else if (strcmp(call_var_opt[op_idx].name, "max-somvar") == 0) {
+                        opt->somatic_win_max_vars = strtol(optarg, &s, 10); 
+                        if (*s == ',') opt->somatic_win = strtol(s+1, &s, 10); break;
+                    } else if (strcmp(call_var_opt[op_idx].name, "refine-aln") == 0) opt->refine_bam = 1;
                     break;
             case 's': opt->out_somatic = 1; break;
             case 'm': opt->out_methylation = 1; break;
@@ -878,7 +800,7 @@ int call_var_main(int argc, char *argv[]) {
             case 'p': opt->min_hap_full_reads = atoi(optarg); break;
             // case 'f': opt->min_no_hap_full_reads = atoi(optarg); break;
             // case 'D': opt->noisy_reg_merge_dis = atoi(optarg); break;
-            case 'j': opt->min_noisy_reg_ratio = atof(optarg); break;
+            // case 'j': opt->min_noisy_reg_ratio = atof(optarg); break;
             case 'L': opt->max_noisy_reg_len = atoi(optarg); break;
             // case 'c': opt->end_clip_reg = atoi(optarg); break;
             // case 'F': opt->end_clip_reg_flank_win = atoi(optarg); break;
