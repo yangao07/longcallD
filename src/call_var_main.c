@@ -40,6 +40,8 @@ const struct option call_var_opt [] = {
     { "alpha", 1, NULL, 0},
     { "beta", 1, NULL, 0},
     { "max-somvar", 1, NULL, 0},
+    { "som-alt", 1, NULL, 0},
+    { "som-mei-alt", 1, NULL, 0},
 
     { "exclude-ctg", 1, NULL, 'E'},
     // { "ont-hp-prof", 1, NULL, 0},
@@ -106,13 +108,17 @@ int get_num_processors() {
 
 void set_hifi_opt(call_var_opt_t *opt) {
     opt->is_pb_hifi = 1; opt->is_ont = 0;
-    opt->noisy_reg_max_xgaps = 5;
+    // HiFi: 10/200
+    opt->noisy_reg_max_xgaps = LONGCALLD_NOISY_REG_MAX_XGAPS; //10
+    opt->noisy_reg_slide_win = LONGCALLD_NOISY_REG_HIFI_SLIDE_WIN; // 200bp slide window
 }
 
 void set_ont_opt(call_var_opt_t *opt) {
     opt->is_ont = 1; opt->is_pb_hifi = 0;
     opt->strand_bias_pval = LONGCALLD_STRAND_BIAS_PVAL_ONT;
-    opt->noisy_reg_max_xgaps = 20;
+    // ONT: 10/50
+    opt->noisy_reg_max_xgaps = LONGCALLD_NOISY_REG_MAX_XGAPS; // 10
+    opt->noisy_reg_slide_win = LONGCALLD_NOISY_REG_ONT_SLIDE_WIN; // 50bp slide window
 }
 
 // extreme low allele frequency < 5% or even 1%
@@ -165,7 +171,7 @@ call_var_opt_t *call_var_init_para(void) {
     opt->noisy_reg_flank_len = LONGCALLD_NOISY_REG_FLANK_LEN;
 
     opt->noisy_reg_max_xgaps = LONGCALLD_NOISY_REG_MAX_XGAPS;
-    opt->noisy_reg_slide_win = LONGCALLD_NOISY_REG_SLIDE_WIN;
+    opt->noisy_reg_slide_win = LONGCALLD_NOISY_REG_HIFI_SLIDE_WIN;
 
     opt->end_clip_reg = LONGCALLD_NOISY_END_CLIP;
     opt->end_clip_reg_flank_win = LONGCALLD_NOISY_END_CLIP_WIN;
@@ -686,8 +692,8 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "    -E --exclude-ctg STR  exclude contig/chromosome [NULL]\n");
     fprintf(stderr, "                          can be used multiple times, e.g., -E hs37d5 -E chrM\n");
     fprintf(stderr, "    -n --sample-name STR  sample name. 'RG/SM' in BAM header will be used if not provided [NULL]\n");
-    fprintf(stderr, "    -r --ref-idx    FILE  .fai index file for reference genome FASTA file, detect automaticaly if not provided [NULL]\n");
     fprintf(stderr, "                          BAM file name will be used if not provided and no 'RG/SM' in BAM header\n");
+    fprintf(stderr, "    -r --ref-idx    FILE  .fai index file for reference genome FASTA file, detect automaticaly if not provided [NULL]\n");
     fprintf(stderr, "    -T --trans-elem FILE  transposable element sequence [NULL]\n");
     fprintf(stderr, "  Output:\n");
     fprintf(stderr, "    -o --out-vcf    FILE  output phased VCF file [stdout]\n");
@@ -695,15 +701,15 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "    -l --min-sv-len  INT  min. length to be considered as SV [%d]\n", LONGCALLD_MIN_SV_LEN);
     fprintf(stderr, "                          SV-related information will be added to INFO field, e.g., SVLEN/SVTYPE/TSD\n");
     fprintf(stderr, "    -H --no-vcf-header    do NOT output VCF header [False]\n");
-    fprintf(stderr, "    -s --somatic/--mosaic output somatic/mosaic variants [False]\n");
+    fprintf(stderr, "    -s --mosaic/somatic   output low allele-frequency mosaic/somatic variants [False]\n");
     // fprintf(stderr, "    -m --methylation    output methylation site information [False]\n");
     // fprintf(stderr, "                          if present, MM/ML tags will be used to calculate methylation level\n");
     fprintf(stderr, "       --amb-base         output variant with ambiguous base (N) [False]\n");
     fprintf(stderr, "    -b --out-bam    FILE  output phased BAM file [NULL]\n");
     fprintf(stderr, "    -S --out-sam    FILE  output phased SAM file [NULL]\n");
     fprintf(stderr, "    -C --out-cram   FILE  output phased CRAM file [NULL]\n");
-    fprintf(stderr, "    --refine-aln          refine alignment in output BAM/CRAM [False]\n");
-    fprintf(stderr, "                          Note: output BAM/CRAM could be unsorted when --refine-aln is set\n");
+    fprintf(stderr, "    --refine-aln          refine alignment in output SAM/BAM/CRAM [False]\n");
+    fprintf(stderr, "                          Note: output SAM/BAM/CRAM may be unsorted when --refine-aln is set\n");
     // fprintf(stderr, "    -g --gap-aln     STR  put gap on the \'left\' or \'right\' side in alignment [left/l]\n");
     // fprintf(stderr, "                          \'left\':  ATTTG\n");
     // fprintf(stderr, "                                   | |||\n");
@@ -719,14 +725,16 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "    -M --min-mapq    INT  min. mapping quality for long-read alignment to be used [%d]\n", LONGCALLD_MIN_CAND_MQ);
     // fprintf(stderr, "    -B --min-bq      INT  filter out base with base quality < -B/--min-bq [%d]\n", LONGCALLD_MIN_CAND_BQ);
     // fprintf(stderr, "    -p --max-ploidy  INT  max. ploidy [%d]\n", LONGCALLD_DEF_PLOID);
-    fprintf(stderr, "  Somatic/mosaic variant calling: (effective when -s/--somatic/mosaic is used)\n");
+    fprintf(stderr, "  Low allele-frequency mosaic/somatic variant calling: (effective when -s/--mosaic/--somatic is used)\n");
     // fprintf(stderr, "    --alpha          INT  alpha value of beta-binomial distribution [%d]\n", LONGCALLD_SOMATIC_BETA_ALPHA);
     // fprintf(stderr, "    --beta           INT  beta value of beta-binomial distribution [%d]\n", LONGCALLD_SOMATIC_BETA_BETA);
-    fprintf(stderr, "    --max-somvar INT,INT  max. number of somatic variants allowed in a window (m,w) [%d,%d]\n", LONGCALLD_SOMATIC_WIN_MAX_VARS, LONGCALLD_SOMATIC_WIN);
+    fprintf(stderr, "    --som-alt        INT  min. alt. read coverage for somatic variant [%d]\n", LONGCALLD_MIN_SOMATIC_ALT_DP);
+    fprintf(stderr, "    --som-mei-alt    INT  min. alt. read coverage for somatic MEI variant [%d]\n", LONGCALLD_MIN_SOMATIC_TE_ALT_DP);
+    fprintf(stderr, "    --max-somvar INT,INT  max. number of mosaic/somatic variants allowed in a window (m,w) [%d,%d]\n", LONGCALLD_SOMATIC_WIN_MAX_VARS, LONGCALLD_SOMATIC_WIN);
     // fprintf(stderr, "  Variant calling in noisy regions:\n");
     // fprintf(stderr, "    -x --max-xgap    INT  max. number of allowed substitutions/gap-bases in a sliding window(-w/--win-size) [%d]\n", LONGCALLD_NOISY_REG_MAX_XGAPS);
     // fprintf(stderr, "                          window with more than -x subs/gap-bases will be considered as noisy region\n");
-    // fprintf(stderr, "    -w --win-size    INT  window size for searching noisy region [%d]\n", LONGCALLD_NOISY_REG_SLIDE_WIN);
+    // fprintf(stderr, "    -w --win-size    INT  window size for searching noisy region [%d]\n", LONGCALLD_NOISY_REG_HIFI_SLIDE_WIN);
     // fprintf(stderr, "    -D --merge-dis   INT  default max. distance to merge two potential noisy SV regions [%d]\n", LONGCALLD_NOISY_REG_MERGE_DIS);
     // fprintf(stderr, "    -j --noisy-rat FLOAT  min. ratio of noisy reads in a window to call a noisy region [%.2f]\n", LONGCALLD_NOISY_REG_RATIO);
     // fprintf(stderr, "    -f --noisy-flank INT  flanking mask window size for noisy region [%d]\n", LONGCALLD_DENSE_FLANK_WIN);
@@ -752,9 +760,21 @@ static void call_var_usage(void) {//main usage
 
 int call_var_main(int argc, char *argv[]) {
     // _err_cmd("%s\n", CMD);
+    const char *opt_str = "r:T:E:o:O:ml:Hb:C:S:sc:d:M:B:a:n:x:w:D:j:L:f:p:g:Nt:hvV:";
     int c, op_idx; call_var_opt_t *opt = call_var_init_para(); char *s;
     double realtime0 = realtime();
-    while ((c = getopt_long(argc, argv, "r:T:E:o:O:ml:Hb:C:S:sc:d:M:B:a:n:x:w:D:j:L:f:p:g:Nt:hvV:", call_var_opt, &op_idx)) >= 0) {
+    // first round of getopt_long() to parse preset options
+    while ((c = getopt_long(argc, argv, opt_str, call_var_opt, &op_idx)) >= 0) {
+        switch(c) {
+            case 0: 
+                if (strcmp(call_var_opt[op_idx].name, "hifi") == 0) set_hifi_opt(opt);
+                else if (strcmp(call_var_opt[op_idx].name, "ont") == 0) set_ont_opt(opt);
+                break;
+        }
+    }
+    optind = 1; // reset optind for next getopt_long() call
+    // second round of getopt_long() to parse other options
+    while ((c = getopt_long(argc, argv, opt_str, call_var_opt, &op_idx)) >= 0) {
         switch(c) {
             case 'r': opt->ref_fa_fai_fn = strdup(optarg); break;
             // case 'b': cgp->var_block_size = atoi(optarg); break;
@@ -766,18 +786,18 @@ int call_var_main(int argc, char *argv[]) {
             case 'l': opt->min_sv_len = atoi(optarg); break;
             case 'T': opt->te_seq_fn = strdup(optarg); make_te_kmer_idx(opt); break;
             case 0: if (strcmp(call_var_opt[op_idx].name, "amb-base") == 0) opt->out_amb_base = 1; 
-                    else if (strcmp(call_var_opt[op_idx].name, "hifi") == 0) set_hifi_opt(opt);
-                    else if (strcmp(call_var_opt[op_idx].name, "ont") == 0) set_ont_opt(opt);
-                    // else if (strcmp(call_var_opt[op_idx].name, "ont-hp-prof") == 0) set_ont_hp_prof(opt, optarg);
+                    // else if (strcmp(call_var_opt[op_idx].name, "hifi") == 0) set_hifi_opt(opt);
+                    // else if (strcmp(call_var_opt[op_idx].name, "ont") == 0) set_ont_opt(opt);
                     else if (strcmp(call_var_opt[op_idx].name, "region-file") == 0 || 
                              strcmp(call_var_opt[op_idx].name, "regions-file") == 0) opt->reg_bed_fn = strdup(optarg);
                     else if (strcmp(call_var_opt[op_idx].name, "all-ctg") == 0) opt->only_autosome = 0, opt->only_autosome_XY=0;
                     else if (strcmp(call_var_opt[op_idx].name, "autosome") == 0) opt->only_autosome = 1;
                     else if (strcmp(call_var_opt[op_idx].name, "autosome-XY") == 0) opt->only_autosome_XY = 1;
                     else if (strcmp(call_var_opt[op_idx].name, "mosaic") == 0) opt->out_somatic = 1;
-                    // else if (strcmp(call_var_opt[op_idx].name, "somatic") == 0) opt->out_somatic = 1;
                     else if (strcmp(call_var_opt[op_idx].name, "alpha") == 0) opt->somatic_beta_alpha = atoi(optarg);
                     else if (strcmp(call_var_opt[op_idx].name, "beta") == 0) opt->somatic_beta_beta = atoi(optarg);
+                    else if (strcmp(call_var_opt[op_idx].name, "som-alt") == 0) opt->min_somatic_alt_dp = atoi(optarg);
+                    else if (strcmp(call_var_opt[op_idx].name, "som-mei-alt") == 0) opt->min_somatic_te_dp = atoi(optarg);
                     else if (strcmp(call_var_opt[op_idx].name, "max-somvar") == 0) {
                         opt->somatic_win_max_vars = strtol(optarg, &s, 10); 
                         if (*s == ',') opt->somatic_win = strtol(s+1, &s, 10); break;
@@ -812,22 +832,18 @@ int call_var_main(int argc, char *argv[]) {
             case 'h': call_var_free_para(opt); call_var_usage();
             case 'v': fprintf(stdout, "%s\n", LONGCALLD_VERSION); call_var_free_para(opt); return 0;
             case 'V': LONGCALLD_VERBOSE = atoi(optarg); break;
-            default: call_var_free_para(opt); call_var_usage();
+            default: call_var_free_para(opt); return 0;
         }
     }
-    // test for kmer
-    // test_te_kmer_query(opt, "/homes2/yangao/programs/longcallD/anno/AluY_L1_SVA_cons.fa");
-    // exit(1);
 
-    if (argc - optind == 0) {
+    if (argc - optind < 2) {
         call_var_free_para(opt); call_var_usage();
-    } else if (argc - optind < 2) {
-        _err_error_exit("Reference genome FASTA and alignment BAM are required.\n");
+    // } else if (argc - optind < 2) {
+        // _err_error_exit("Reference genome FASTA and alignment BAM are required.\n");
     } else {
         opt->ref_fa_fn = argv[optind++];
         opt->in_bam_fn = argv[optind++];
     }
-    // }
     // check if input is (short) URL
     opt->ref_fa_fn = retrieve_full_url(opt->ref_fa_fn); opt->in_bam_fn = retrieve_full_url(opt->in_bam_fn);
     // check if hifi and ont are both set

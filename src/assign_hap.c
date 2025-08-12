@@ -152,32 +152,31 @@ int init_assign_read_hap_based_on_cons_alle(bam_chunk_t *chunk, int read_i, cand
     int *hap_scores = (int*)calloc((LONGCALLD_DEF_PLOID+1), sizeof(int));
     int n_vars_used[3] = {0, 0, 0};
 
-    chunk->n_clean_agree_vars[read_i] = chunk->n_clean_conflict_vars[read_i] = 0;
+    chunk->n_clean_agree_snps[read_i] = chunk->n_clean_conflict_snps[read_i] = 0;
 
-    int n_clean_agree_vars[3] = {0, 0, 0}; // for clean vars
-    int n_clean_conflict_vars[3] = {0, 0, 0}; // for clean vars
+    int n_clean_agree_snps[3] = {0, 0, 0}; // for clean vars
+    int n_clean_conflict_snps[3] = {0, 0, 0}; // for clean vars
     for (int var_i = p[read_i].start_var_idx; var_i <= p[read_i].end_var_idx; ++var_i) {
         if ((var_i_to_cate[var_i] & target_var_cate) == 0) continue;
         cand_var_t *var = cand_vars+var_i;
-        if (var->is_homopolymer_indel == 1 || var_i_to_cate[var_i] == LONGCALLD_NOISY_CAND_HOM_VAR || var_i_to_cate[var_i] == LONGCALLD_CLEAN_HOM_VAR) continue; 
+        // two purposes:
+        // 1. calculate hap_scores: only use HET variants
+        // 2. count n_clean_agree_snps/n_clean_conflict_snps: only use clean variants (HET + HOM)
+        // if (var->is_homopolymer_indel == 1 || var_i_to_cate[var_i] == LONGCALLD_NOISY_CAND_HOM_VAR || var_i_to_cate[var_i] == LONGCALLD_CLEAN_HOM_VAR) continue; 
+        if (var->is_homopolymer_indel == 1 || var_i_to_cate[var_i] == LONGCALLD_NOISY_CAND_HOM_VAR) continue; 
         int read_var_idx = var_i - p[read_i].start_var_idx;
         if (p[read_i].alleles[read_var_idx] < 0) continue;
         int score0;
         for (int hap = 1; hap <= 2; ++hap) {
             score0 = read_to_cons_allele_score(read_i, hap, var, var_i_to_cate[var_i], p[read_i].alleles[read_var_idx]);
             if (score0 != 0) {
-                n_vars_used[hap]++;
-                if (score0 > 0) {
-                    if (!!(var_i_to_cate[var_i] & LONGCALLD_CAND_GERMLINE_CLEAN_VAR_CATE)) {
-                        n_clean_agree_vars[hap]++;
-                    }
-                } else {
-                    if (!!(var_i_to_cate[var_i] & LONGCALLD_CAND_GERMLINE_CLEAN_VAR_CATE)) {
-                        n_clean_conflict_vars[hap]++;
-                    }
+                if (var_i_to_cate[var_i] != LONGCALLD_CLEAN_HOM_VAR) n_vars_used[hap]++;
+                if ((var_i_to_cate[var_i] & LONGCALLD_CAND_GERMLINE_CLEAN_VAR_CATE) > 0 && var->var_type == BAM_CDIFF) { // only count clean SNPs (HET + HOM)
+                    if (score0 > 0) n_clean_agree_snps[hap]++;
+                    else n_clean_conflict_snps[hap]++;
                 }
             }
-            hap_scores[hap] += score0;
+            if (var_i_to_cate[var_i] != LONGCALLD_CLEAN_HOM_VAR) hap_scores[hap] += score0;
         }
     }
     int max_hap = 0, max_score = 0, min_hap = 0, min_score = 0;
@@ -192,7 +191,7 @@ int init_assign_read_hap_based_on_cons_alle(bam_chunk_t *chunk, int read_i, cand
     if (n_vars_used[1] == 0 && n_vars_used[2] == 0) return -1; // no used vars
     else if (max_score == 0 && min_score == 0) return 0; // tied
     else if (max_score > 0) {
-        chunk->n_clean_agree_vars[read_i] = n_clean_agree_vars[max_hap]; chunk->n_clean_conflict_vars[read_i] = n_clean_conflict_vars[max_hap];
+        chunk->n_clean_agree_snps[read_i] = n_clean_agree_snps[max_hap]; chunk->n_clean_conflict_snps[read_i] = n_clean_conflict_snps[max_hap];
         return max_hap;
     } else return 3-min_hap;
     // return max_hap;
@@ -200,47 +199,47 @@ int init_assign_read_hap_based_on_cons_alle(bam_chunk_t *chunk, int read_i, cand
 
 // Assign read haplotype based on consensus allele of candidate variants
 // check for reject counts, reject the haplotype has too many clean rejects (>=2)
-int assign_read_hap_based_on_cons_alle(int read_i, cand_var_t *cand_vars, read_var_profile_t *p, int *var_i_to_cate, int target_var_cate) {
-    int *hap_scores = (int*)calloc((LONGCALLD_DEF_PLOID+1), sizeof(int));
-    int n_vars_used[3] = {0, 0, 0};
+// int assign_read_hap_based_on_cons_alle(int read_i, cand_var_t *cand_vars, read_var_profile_t *p, int *var_i_to_cate, int target_var_cate) {
+//     int *hap_scores = (int*)calloc((LONGCALLD_DEF_PLOID+1), sizeof(int));
+//     int n_vars_used[3] = {0, 0, 0};
 
-    int n_clean_reject[2] = {0, 0};
-    for (int var_i = p[read_i].start_var_idx; var_i <= p[read_i].end_var_idx; ++var_i) {
-        if ((var_i_to_cate[var_i] & target_var_cate) == 0) continue;
-        cand_var_t *var = cand_vars+var_i;
-        if (var->is_homopolymer_indel == 1 || var_i_to_cate[var_i] == LONGCALLD_NOISY_CAND_HOM_VAR || var_i_to_cate[var_i] == LONGCALLD_CLEAN_HOM_VAR) continue; 
-        int read_var_idx = var_i - p[read_i].start_var_idx;
-        if (p[read_i].alleles[read_var_idx] < 0) continue;
-        int score0;
-        for (int hap = 1; hap <= 2; ++hap) {
-            score0 = read_to_cons_allele_score(read_i, hap, var, var_i_to_cate[var_i], p[read_i].alleles[read_var_idx]);
-            if (score0 != 0) n_vars_used[hap]++;
-            if (score0 < 0 && !!(var_i_to_cate[var_i] & LONGCALLD_CAND_GERMLINE_CLEAN_VAR_CATE)) n_clean_reject[hap-1] += 1;
-            hap_scores[hap] += score0;
-        }
-    }
-    int max_hap = 0, max_score = 0, min_hap = 0, min_score = 0;
-    for (int hap = 1; hap <= 2; ++hap) {
-        if (hap_scores[hap] > max_score) {
-            max_hap = hap; max_score = hap_scores[hap];
-        } else if (hap_scores[hap] < min_score) {
-            min_hap = hap; min_score = hap_scores[hap];
-        }
-    }
-    free(hap_scores);
-    if (n_vars_used[1] == 0 && n_vars_used[2] == 0) return -1; // no used vars
-    else if (max_score == 0 && min_score == 0) return 0; // tied
-    else if (max_score > 0) {
-        // fprintf(stderr, "Error, should not go to this line. n_clean_reject: %d,%d, hap_scores: %d,%d, max_hap: %d, %d\n", n_clean_reject[0], n_clean_reject[1], hap_scores[1], hap_scores[2], max_hap, max_score);
-        // XXX for ONT this is not good!!!
-        if (n_clean_reject[max_hap-1] >= 2) return -1; // reject if both haplotype have too many clean rejects
-        else return max_hap;
-    } else {
-        // fprintf(stderr, "Error, should not go to this line. n_clean_reject: %d,%d, hap_scores: %d,%d, min_hap: %d, %d\n", n_clean_reject[0], n_clean_reject[1], hap_scores[1], hap_scores[2], min_hap, min_score);
-        if (n_clean_reject[3-min_hap-1] >= 2) return -1; // reject if both haplotype have too many clean rejects
-        else return 3-min_hap;
-    }
-}
+//     int n_clean_reject[2] = {0, 0};
+//     for (int var_i = p[read_i].start_var_idx; var_i <= p[read_i].end_var_idx; ++var_i) {
+//         if ((var_i_to_cate[var_i] & target_var_cate) == 0) continue;
+//         cand_var_t *var = cand_vars+var_i;
+//         if (var->is_homopolymer_indel == 1 || var_i_to_cate[var_i] == LONGCALLD_NOISY_CAND_HOM_VAR || var_i_to_cate[var_i] == LONGCALLD_CLEAN_HOM_VAR) continue; 
+//         int read_var_idx = var_i - p[read_i].start_var_idx;
+//         if (p[read_i].alleles[read_var_idx] < 0) continue;
+//         int score0;
+//         for (int hap = 1; hap <= 2; ++hap) {
+//             score0 = read_to_cons_allele_score(read_i, hap, var, var_i_to_cate[var_i], p[read_i].alleles[read_var_idx]);
+//             if (score0 != 0) n_vars_used[hap]++;
+//             if (score0 < 0 && !!(var_i_to_cate[var_i] & LONGCALLD_CAND_GERMLINE_CLEAN_VAR_CATE)) n_clean_reject[hap-1] += 1;
+//             hap_scores[hap] += score0;
+//         }
+//     }
+//     int max_hap = 0, max_score = 0, min_hap = 0, min_score = 0;
+//     for (int hap = 1; hap <= 2; ++hap) {
+//         if (hap_scores[hap] > max_score) {
+//             max_hap = hap; max_score = hap_scores[hap];
+//         } else if (hap_scores[hap] < min_score) {
+//             min_hap = hap; min_score = hap_scores[hap];
+//         }
+//     }
+//     free(hap_scores);
+//     if (n_vars_used[1] == 0 && n_vars_used[2] == 0) return -1; // no used vars
+//     else if (max_score == 0 && min_score == 0) return 0; // tied
+//     else if (max_score > 0) {
+//         // fprintf(stderr, "Error, should not go to this line. n_clean_reject: %d,%d, hap_scores: %d,%d, max_hap: %d, %d\n", n_clean_reject[0], n_clean_reject[1], hap_scores[1], hap_scores[2], max_hap, max_score);
+//         // XXX for ONT this is not good!!!
+//         if (n_clean_reject[max_hap-1] >= 2) return -1; // reject if both haplotype have too many clean rejects
+//         else return max_hap;
+//     } else {
+//         // fprintf(stderr, "Error, should not go to this line. n_clean_reject: %d,%d, hap_scores: %d,%d, min_hap: %d, %d\n", n_clean_reject[0], n_clean_reject[1], hap_scores[1], hap_scores[2], min_hap, min_score);
+//         if (n_clean_reject[3-min_hap-1] >= 2) return -1; // reject if both haplotype have too many clean rejects
+//         else return 3-min_hap;
+//     }
+// }
 
 int update_var_hap_to_cons_alle(const call_var_opt_t *opt, cand_var_t *var, int var_cate, int hap) {
     if (hap == 0) return 0;
@@ -610,7 +609,8 @@ cand_somatic_var_aux_info_t *init_somatic_aux_info(int max_alt_dp) {
     aux_info->alt_quals = (int*)malloc(max_alt_dp * sizeof(int));
     aux_info->win_low_qual = (int*)malloc(max_alt_dp * sizeof(int));
     aux_info->dis_to_indel_error = (int*)malloc(max_alt_dp * sizeof(int));
-    aux_info->no_dense_error = (int*)malloc(max_alt_dp * sizeof(int));
+    aux_info->no_dense_diff = (int*)malloc(max_alt_dp * sizeof(int));
+    aux_info->no_near_long_clipping = (int*)malloc(max_alt_dp * sizeof(int));
     aux_info->is_not_homopolymer_error = (int*)malloc(max_alt_dp * sizeof(int));
     aux_info->low_comp_reg_has_no_error = (int*)malloc(max_alt_dp * sizeof(int));
     return aux_info;
@@ -622,7 +622,8 @@ void free_somatic_var_aux_info(cand_somatic_var_aux_info_t *aux_info) {
     free(aux_info->alt_quals);
     free(aux_info->win_low_qual);
     free(aux_info->dis_to_indel_error);
-    free(aux_info->no_dense_error);
+    free(aux_info->no_dense_diff);
+    free(aux_info->no_near_long_clipping);
     free(aux_info->is_not_homopolymer_error);
     free(aux_info->low_comp_reg_has_no_error);
     free(aux_info);
@@ -1123,37 +1124,66 @@ int var_is_low_comp_reg(bam_chunk_t *chunk, cand_var_t *var, hts_pos_t *low_comp
     return 0;
 }
 
-// check if the variant is in dense-error region, > max_err errors in a window of win bases
-int has_dense_error(bam_chunk_t *chunk, cand_var_t *var, int var_i, digar_t *digar, int alt_qi) {
-    int win = 50, max_err = 3;
-    int left_has_dense_error = 0, right_has_dense_error = 0;
-    int n_err = 0, i = 0;
-    for (i = 0; i < digar->n_digar; ++i) {
-        digar1_t *digar1 = digar->digars + i;
-        if (digar1->type != BAM_CINS && digar1->type != BAM_CDEL && digar1->type != BAM_CDIFF) continue;
-        if (alt_qi - digar1->qi > win) continue;
-        if (digar1->qi == alt_qi && digar1->type == var->var_type) break;
-        if (digar_is_var(chunk, var_i, digar1)) continue;
-        n_err++;
-        if (n_err >= max_err) {
-            left_has_dense_error = 1;
+// diff: high-quality mismatch/indels
+// check if the variant is <=500-bp-distance to a dense-diff region, i.e., > max_diff differences in a window of win bases
+int has_dense_diff(bam_chunk_t *chunk, cand_var_t *var, int var_i, digar_t *digar, int alt_qi) {
+    int win=50, max_diff=5, dis=500;
+    int n_digar = digar->n_digar;
+    if (n_digar <= 0) return 0; // no digars,
+    hts_pos_t *diff_pos = (hts_pos_t*)malloc(n_digar * sizeof(hts_pos_t));
+    hts_pos_t var_pos = var->pos, var_end = var->pos + var->ref_len - 1;
+    if (var->var_type == BAM_CINS) var_end = var->pos; // for insertion, consider the position only
+    int n_diff = 0;
+    for (int i = 0; i < n_digar; ++i) {
+        if (digar->digars[i].type == BAM_CEQUAL || digar->digars[i].type == BAM_CREF_SKIP) continue;
+        if (digar->digars[i].type == BAM_CSOFT_CLIP || digar->digars[i].type == BAM_CHARD_CLIP) continue; // skip clipping
+        if (digar->digars[i].is_low_qual) continue; // skip low-quality digars
+        hts_pos_t digar_pos = digar->digars[i].pos;
+        if (digar_pos < var_pos - win - dis) continue; // skip digars that are too far away
+        else if (digar_pos > var_end + win + dis) break; // no need to check further
+        diff_pos[n_diff++] = digar->digars[i].pos;
+    }
+    int is_dense = 0;
+    for (int i = max_diff+1; i < n_diff; ++i) {
+        hts_pos_t cur_pos = diff_pos[i];
+        hts_pos_t last_pos = diff_pos[i - max_diff-1];
+        if (cur_pos - last_pos <= win) {
+            is_dense = 1; // found dense differences
             break;
         }
     }
-    n_err = 0;
-    for (; i < digar->n_digar; ++i) {
-        digar1_t *digar1 = digar->digars + i;
-        if (digar1->type != BAM_CINS && digar1->type != BAM_CDEL && digar1->type != BAM_CDIFF) continue;
-        if (digar1->qi - alt_qi > win) break;
-        if (digar1->qi == alt_qi && digar1->type == var->var_type) continue;
-        if (digar_is_var(chunk, var_i, digar1)) continue;
-        n_err++;
-        if (n_err >= max_err) {
-            right_has_dense_error = 1;
-            break;
+    if (is_dense) {
+        // found dense differences
+        if (LONGCALLD_VERBOSE >= 2) {
+            fprintf(stderr, "var %ld has dense differences in digar %d, alt_qi: %d\n", var->pos, var_i, alt_qi);
+            for (int i = 0; i < n_diff; ++i) {
+                fprintf(stderr, "%ld ", diff_pos[i]);
+            } fprintf(stderr, "\n");
         }
     }
-    if (left_has_dense_error == 1 || right_has_dense_error == 1) return 1;
+    free(diff_pos);
+    return is_dense;
+}
+
+int has_near_long_clipping(bam_chunk_t *chunk, int var_i, digar_t *digar, int alt_i) {
+    int dis = 100, long_clip_len = 100;
+    int n_digar = digar->n_digar;
+    if (n_digar <= 0) return 0; // no digars,
+    cand_var_t *var = chunk->cand_vars + var_i;
+    hts_pos_t var_pos = var->pos, var_end = var->pos + var->ref_len - 1;
+    if (var->var_type == BAM_CINS) var_end = var->pos; // for insertion, consider the position only
+    int cand_d_i[2] = {0, n_digar-1};
+    for (int d_i = 0; d_i < 2; ++d_i) {
+        int i = cand_d_i[d_i];
+        if (digar->digars[i].type != BAM_CSOFT_CLIP && digar->digars[i].type != BAM_CHARD_CLIP) continue; // only check clipping
+        if (digar->digars[i].len < long_clip_len) continue; // not a long clipping
+        hts_pos_t digar_pos = digar->digars[i].pos;
+        if (d_i == 0) { // left clipping
+            if (var_pos - digar_pos <= dis) return 1;
+        } else { // right clipping
+            if (digar_pos - var_end <= dis) return 1;
+        }
+    }
     return 0;
 }
 
@@ -1186,7 +1216,8 @@ cand_somatic_var_aux_info_t *collect_somatic_var_aux_info(const call_var_opt_t *
             aux_info->alt_quals[alt_i] = get_alt_qual(d, var->var_type, var->alt_len, alt_qi);
             aux_info->win_low_qual[alt_i] = get_read_win_low_qual(opt, d, alt_qi);
             aux_info->dis_to_indel_error[alt_i] = get_dis_to_seq_error(chunk, var_i, d, var->var_type, var->alt_len, alt_qi, 1);
-            aux_info->no_dense_error[alt_i] = 1-has_dense_error(chunk, var, var_i, d, alt_qi);
+            aux_info->no_dense_diff[alt_i] = 1 - has_dense_diff(chunk, var, var_i, d, alt_qi);
+            aux_info->no_near_long_clipping[alt_i] = 1 - has_near_long_clipping(chunk, var_i, d, alt_i);
             // fprintf(stderr, "%" PRIi64 "\n", var->pos);
             if (var->var_type == BAM_CDIFF) {
                 if (aux_info->is_low_comp > 0) aux_info->is_not_homopolymer_error[alt_i] = 1-var_is_homopolymer_error(opt, chunk, hap, read_i, low_comp_beg, low_comp_end, var->pos);
@@ -1342,22 +1373,8 @@ int phased_sv_is_somatic(const call_var_opt_t *opt, bam_chunk_t *chunk, int var_
     }
     if (var_is_germline(opt, chunk, var_i, aux_info)) return 0;
     if (var->alle_covs[1] == 1 && somatic_var_seq_is_low_comp(chunk, var_i)) return 0;
-    if (median_int(aux_info->no_dense_error, aux_info->hap_alt_dp) == 0) return 0;
-    // XXX For SVs, low_comp_reg should be VNTR regions, not homopolymer regions
-    // if (min_int(aux_info->low_comp_reg_has_no_error, aux_info->hap_alt_dp) == 0) return 0; // low complexity region has error, not somatic
-    return 1;
-}
-
-int no_phase_sv_is_somatic(const call_var_opt_t *opt, bam_chunk_t *chunk, int var_i, cand_somatic_var_aux_info_t *aux_info) {
-    // check TE infomation
-    cand_var_t *var = chunk->cand_vars + var_i;
-    if (var->alle_covs[1]  < opt->min_somatic_alt_dp) {
-        if (var->alle_covs[1] < opt->min_somatic_te_dp || sv_is_te(chunk->cand_vars + var_i) == 0)
-            return 0;
-    }
-    if (var_is_germline(opt, chunk, var_i, aux_info)) return 0;
-    if (var->alle_covs[1] == 1 && somatic_var_seq_is_low_comp(chunk, var_i)) return 0;
-    if (median_int(aux_info->no_dense_error, aux_info->hap_alt_dp) == 0) return 0;
+    if (median_int(aux_info->no_dense_diff, aux_info->hap_alt_dp) == 0) return 0;
+    if (median_int(aux_info->no_near_long_clipping, aux_info->hap_alt_dp) == 0) return 0; // no near long clipping error
     // XXX For SVs, low_comp_reg should be VNTR regions, not homopolymer regions
     // if (min_int(aux_info->low_comp_reg_has_no_error, aux_info->hap_alt_dp) == 0) return 0; // low complexity region has error, not somatic
     return 1;
@@ -1367,13 +1384,15 @@ int no_phase_sv_is_somatic(const call_var_opt_t *opt, bam_chunk_t *chunk, int va
 int phased_snv_is_somatic(const call_var_opt_t *opt, bam_chunk_t *chunk, int var_i, cand_somatic_var_aux_info_t *aux_info) {
     cand_var_t *var = chunk->cand_vars + var_i;
     int is_somatic = 1;
-    fprintf(stderr, "%s\t%" PRIi64 "\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%.4f\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", chunk->tname, var->pos,
-            aux_info->total_dp, aux_info->hap_total_dp, aux_info->hap_alt_dp, 
-            aux_info->hap_ref_for_cov, aux_info->hap_ref_rev_cov, aux_info->hap_alt_for_cov, aux_info->hap_alt_rev_cov,
-            aux_info->hap_alt_dp * 1.0 / aux_info->hap_total_dp,
-            aux_info->min_dis_to_var, median_int(aux_info->alt_quals, aux_info->hap_alt_dp), median_int(aux_info->win_low_qual, aux_info->hap_alt_dp),
-            median_int(aux_info->dis_to_indel_error, aux_info->hap_alt_dp), median_int(aux_info->no_dense_error, aux_info->hap_alt_dp),
-            median_int(aux_info->is_not_homopolymer_error, aux_info->hap_alt_dp), median_int(aux_info->low_comp_reg_has_no_error, aux_info->hap_alt_dp));
+    if (LONGCALLD_VERBOSE >= 2) {
+        fprintf(stderr, "%s\t%" PRIi64 "\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%.4f\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n", chunk->tname, var->pos,
+                aux_info->total_dp, aux_info->hap_total_dp, aux_info->hap_alt_dp, 
+                aux_info->hap_ref_for_cov, aux_info->hap_ref_rev_cov, aux_info->hap_alt_for_cov, aux_info->hap_alt_rev_cov,
+                aux_info->hap_alt_dp * 1.0 / aux_info->hap_total_dp,
+                aux_info->min_dis_to_var, median_int(aux_info->alt_quals, aux_info->hap_alt_dp), median_int(aux_info->win_low_qual, aux_info->hap_alt_dp),
+                median_int(aux_info->dis_to_indel_error, aux_info->hap_alt_dp), median_int(aux_info->no_dense_diff, aux_info->hap_alt_dp),
+                median_int(aux_info->is_not_homopolymer_error, aux_info->hap_alt_dp), median_int(aux_info->low_comp_reg_has_no_error, aux_info->hap_alt_dp));
+    }
 
     if (aux_info->hap_alt_dp < opt->min_somatic_alt_dp) return 0;
     if (aux_info->min_dis_to_var < opt->min_somatic_dis_to_var) return 0;
@@ -1382,7 +1401,8 @@ int phased_snv_is_somatic(const call_var_opt_t *opt, bam_chunk_t *chunk, int var
     // if (median_int(aux_info->win_low_qual, aux_info->hap_alt_dp) < 17) return 0;
     if (median_int(aux_info->win_low_qual, aux_info->hap_alt_dp) < chunk->first_quar_qual) return 0;
     if (median_int(aux_info->dis_to_indel_error, aux_info->hap_alt_dp) < opt->min_somatic_dis_to_seq_error) return 0;
-    if (median_int(aux_info->no_dense_error, aux_info->hap_alt_dp) == 0) return 0;
+    if (median_int(aux_info->no_dense_diff, aux_info->hap_alt_dp) == 0) return 0;
+    if (median_int(aux_info->no_near_long_clipping, aux_info->hap_alt_dp) == 0) return 0; // no near long clipping error
     if (min_int(aux_info->low_comp_reg_has_no_error, aux_info->hap_alt_dp) == 0) return 0; // low complexity region has error, not somatic
     if (min_int(aux_info->is_not_homopolymer_error, aux_info->hap_alt_dp) == 0) return 0;
     return is_somatic;
@@ -1398,7 +1418,7 @@ int no_phase_snv_is_somatic(const call_var_opt_t *opt, bam_chunk_t *chunk, int v
                 aux_info->hap_alt_dp * 1.0 / aux_info->hap_total_dp,
                 aux_info->min_dis_to_var, median_int(aux_info->alt_quals, aux_info->hap_alt_dp), median_int(aux_info->win_low_qual, aux_info->hap_alt_dp),
                 median_int(aux_info->dis_to_indel_error, aux_info->hap_alt_dp), 
-                median_int(aux_info->no_dense_error, aux_info->hap_alt_dp), median_int(aux_info->is_not_homopolymer_error, aux_info->hap_alt_dp), median_int(aux_info->low_comp_reg_has_no_error, aux_info->hap_alt_dp));
+                median_int(aux_info->no_dense_diff, aux_info->hap_alt_dp), median_int(aux_info->is_not_homopolymer_error, aux_info->hap_alt_dp), median_int(aux_info->low_comp_reg_has_no_error, aux_info->hap_alt_dp));
     }
 
     if (aux_info->hap_alt_dp < opt->min_somatic_alt_dp) return 0;
@@ -1406,7 +1426,8 @@ int no_phase_snv_is_somatic(const call_var_opt_t *opt, bam_chunk_t *chunk, int v
     if (median_int(aux_info->alt_quals, aux_info->hap_alt_dp) < chunk->third_quar_qual) return 0;
     if (median_int(aux_info->win_low_qual, aux_info->hap_alt_dp) < chunk->median_qual) return 0;
     if (median_int(aux_info->dis_to_indel_error, aux_info->hap_alt_dp) < opt->min_somatic_dis_to_seq_error) return 0;
-    if (median_int(aux_info->no_dense_error, aux_info->hap_alt_dp) == 0) return 0;
+    if (median_int(aux_info->no_dense_diff, aux_info->hap_alt_dp) == 0) return 0;
+    if (median_int(aux_info->no_near_long_clipping, aux_info->hap_alt_dp) == 0) return 0; // no near long clipping error
     if (min_int(aux_info->low_comp_reg_has_no_error, aux_info->hap_alt_dp) == 0) return 0; // low complexity region has error, not somatic
     if (min_int(aux_info->is_not_homopolymer_error, aux_info->hap_alt_dp) == 0) return 0;
     return is_somatic;
@@ -1424,7 +1445,7 @@ int no_phase_var_is_somatic(const call_var_opt_t *opt, bam_chunk_t *chunk, int v
     cand_var_t *var = chunk->cand_vars + var_i;
     // XXX no small indels for now
     if (var->var_type == BAM_CDIFF) return no_phase_snv_is_somatic(opt, chunk, var_i, aux_info);
-    else return no_phase_sv_is_somatic(opt, chunk, var_i, aux_info);
+    else return phased_sv_is_somatic(opt, chunk, var_i, aux_info);
 }
 
 void mark_somatic_var(cand_var_t *var, hts_pos_t phase_set, int alt_hap) {
@@ -1444,7 +1465,9 @@ void mark_skip_somatic_reads_based_on_invalid_var(bam_chunk_t *chunk, int var_i)
     ovlp_n = cr_overlap(read_var_cr, "cr", var_i, var_i+1, &ovlp_b, &max_b);
     for (ovlp_i = 0; ovlp_i < ovlp_n; ++ovlp_i) {
         int read_i = cr_label(read_var_cr, ovlp_b[ovlp_i]);
-        // fprintf(stderr, "mark read %d as skipped for somatic variant calling\n", read_i);
+        if (LONGCALLD_VERBOSE >= 2) {
+            fprintf(stderr, "read %s is skipped for somatic variant calling due to invalid somatic var %d: %ld\n", bam_get_qname(chunk->reads[read_i]), var_i, chunk->cand_vars[var_i].pos);
+        }
         chunk->is_skipped_for_somatic[read_i] = 1; // tag read as skipped for somatic variant calling
     }
 }
@@ -1496,13 +1519,21 @@ void mark_somatic_vars(bam_chunk_t *chunk, int target_var_cate) {
         cand_var_t *var = cand_vars + var_i;
         if (var->hap_to_cons_alle[1] == 0 && var->hap_to_cons_alle[2] == 0) continue; // skip variants without alt alleles
         cand_somatic_var_aux_info_t *aux_info = var->somatic_aux_info;
+        int n_invalid_reads = 0;
         for (int i = 0; i < aux_info->hap_alt_dp; ++i) {
             int read_i = aux_info->alt_read_ids[i];
             // XXX here any of the somatic var's covering reads is marked as skipped for somatic var calling, mark the somatic var as non-somatic var
             if (chunk->is_skipped_for_somatic[read_i]) { 
-                mark_non_somatic_var(var); // mark as non-somatic variant
-                break;
+                n_invalid_reads++;
+                // mark_non_somatic_var(var); // mark as non-somatic variant
+                // break;
             }
+        }
+        if (n_invalid_reads * 2 >= aux_info->hap_alt_dp) { 
+            if (LONGCALLD_VERBOSE >= 2) {
+                fprintf(stderr, "somatic var %d: %ld is marked as non-somatic due to %d (%d) invalid reads\n", var_i, var->pos, n_invalid_reads, aux_info->hap_alt_dp);
+            }
+            mark_non_somatic_var(var); // mark as non-somatic variant
         }
     }
 }

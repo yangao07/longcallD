@@ -1225,6 +1225,18 @@ int make_ref_read_aln_str(const call_var_opt_t *opt, aln_str_t *ref_cons_aln_str
             while (ref_cons_aln_str->query_aln[i+ref_del_len] == 5) ref_del_len++;
             while (cons_read_aln_str->target_aln[j+read_del_len] == 5) read_del_len++;
             uint8_t *ref_aln=0, *read_aln=0; int del_aln_len;
+            // print ref_cons_aln_str->target_aln[i] and cons_read_aln_str->query_aln[j] for debugging
+            if (LONGCALLD_VERBOSE >= 3) {
+                fprintf(stderr, "Ref-Cons Gap: %d, Cons-Read Gap: %d\n", ref_del_len, read_del_len);
+                fprintf(stderr, "Ref-Cons Target Aln: ");
+                for (int k = i; k < i+ref_del_len; ++k) {
+                    fprintf(stderr, "%c", "ACGTN-"[ref_cons_aln_str->target_aln[k]]);
+                } fprintf(stderr, "\n");
+                fprintf(stderr, "Cons-Read Query Aln: ");
+                for (int k = j; k < j+read_del_len; ++k) {
+                    fprintf(stderr, "%c", "ACGTN-"[cons_read_aln_str->query_aln[k]]);
+                } fprintf(stderr, "\n");
+            }
             wfa_end2end_aln(ref_cons_aln_str->target_aln+i, ref_del_len, cons_read_aln_str->query_aln+j, read_del_len, 
                             opt->gap_aln, opt->match, opt->mismatch, opt->gap_open1, opt->gap_ext1, opt->gap_open2, opt->gap_ext2,
                             NULL, NULL, &ref_aln, &read_aln, &del_aln_len);

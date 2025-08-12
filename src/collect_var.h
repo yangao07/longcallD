@@ -8,8 +8,11 @@
 #define LONGCALLD_VAR_CATE_STR "LBNIRXSHehl0"
 
 // separate CLEAN and NOISY var cate
+#define LONGCALLD_NON_VAR            0x800 // "0"
 #define LONGCALLD_LOW_COV_VAR        0x001 // "L"
 #define LONGCALLD_STRAND_BIAS_VAR    0x002 // "B"
+
+#define LONGCALLD_LOW_AF_VAR         0x400 // "l"
 #define LONGCALLD_CLEAN_HET_SNP      0x004 // "N"
 #define LONGCALLD_CLEAN_HET_INDEL    0x008 // "I"
 #define LONGCALLD_REP_HET_VAR        0x010 // "R"
@@ -18,8 +21,6 @@
 #define LONGCALLD_CLEAN_HOM_VAR      0x080 // "H"
 #define LONGCALLD_NOISY_CAND_HET_VAR 0x100 // "e"
 #define LONGCALLD_NOISY_CAND_HOM_VAR 0x200 // "h"
-#define LONGCALLD_LOW_AF_VAR         0x400 // "l"
-#define LONGCALLD_NON_VAR            0x800 // "0"
 
 #define LONGCALLD_CAND_GERMLINE_VAR_CATE (LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CLEAN_HOM_VAR | LONGCALLD_NOISY_CAND_HET_VAR | LONGCALLD_NOISY_CAND_HOM_VAR)
 #define LONGCALLD_CAND_GERMLINE_CLEAN_VAR_CATE (LONGCALLD_CLEAN_HET_SNP | LONGCALLD_CLEAN_HET_INDEL | LONGCALLD_CLEAN_HOM_VAR)
@@ -56,7 +57,7 @@ typedef struct cand_somatic_var_aux_info_t {
     //                        1 if the homopolymer region contain indels, 0 otherwise
     int *alt_read_ids, *alt_quals, *win_low_qual;
     int *low_comp_reg_has_no_error, *is_not_homopolymer_error, *dis_to_indel_error, *dis_to_indel_var; // size: alt_dp
-    int *no_dense_error; // size: alt_dp, for TEs with low read coverage
+    int *no_dense_diff, *no_near_long_clipping; // size: alt_dp, for TEs with low read coverage
     // dis_to_clip ?
     int min_dis_to_var; // distance to nearest heterozygous var
 } cand_somatic_var_aux_info_t;

@@ -176,6 +176,7 @@ int write_var_to_vcf(var_t *vars, const struct call_var_opt_t *opt, char *chrom)
         // Write QUAL, FILTER, INFO
         len += snprintf(buffer + len, sizeof(buffer) - len, "\t%d\tPASS\t", var.QUAL);
         if (var.is_somatic) len += snprintf(buffer + len, sizeof(buffer) - len, "SOMATIC;");
+        if (var.te_seq_i >= 0) len += snprintf(buffer + len, sizeof(buffer) - len, "MEI;");
         len += snprintf(buffer + len, sizeof(buffer) - len, "END=%" PRId64 "", var.pos + var.ref_len - 1);
         if (is_sv) { 
             len += snprintf(buffer + len, sizeof(buffer) - len, ";%s;%s", SVTYPE, SVLEN);

@@ -66,7 +66,7 @@ typedef struct bam_chunk_t {
     int *up_ovlp_read_i, *down_ovlp_read_i;
     bam1_t **reads;
     // intermidiate
-    int *n_clean_agree_vars, *n_clean_conflict_vars; // size: m_reads; XXX include both het and hom clean vars
+    int *n_clean_agree_snps, *n_clean_conflict_snps; // size: m_reads; XXX include both het and hom clean vars
     uint8_t *is_ont_palindrome; // size: m_reads, 1: palindromic read, 0: non-palindromic read
     digar_t *digars; uint8_t *is_skipped, *is_skipped_for_somatic; // size: m_reads, is_skipped: wrong mapping, low qual, etc.
     // variant-related

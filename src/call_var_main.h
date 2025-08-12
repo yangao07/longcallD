@@ -26,8 +26,10 @@
 #define LONGCALLD_ALT_ALLELE1 1
 #define LONGCALLD_ALT_ALLELE2 2
 
-#define LONGCALLD_NOISY_REG_MAX_XGAPS 5 // or 10; dense X/gap region: more than n X/gap bases in a 100-bp window
-#define LONGCALLD_NOISY_REG_SLIDE_WIN 100
+// define noisy region parameters:
+#define LONGCALLD_NOISY_REG_MAX_XGAPS 5 //5 // or 10; dense X/gap region: more than n X/gap bases in a 100-bp window
+#define LONGCALLD_NOISY_REG_HIFI_SLIDE_WIN 100 //200
+#define LONGCALLD_NOISY_REG_ONT_SLIDE_WIN 25
 #define LONGCALLD_MAX_NOISY_FRAC_PER_READ 0.5 // skip reads with more than 50% bases in noisy region
 #define LONGCALLD_MAX_VAR_RATIO_PER_READ 1.00 // skip reads with n_var / ref_span > 5% 
 #define LONGCALLD_MAX_READ_DEPTH 500 // vars with >500 reads will be skipped

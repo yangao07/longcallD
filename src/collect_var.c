@@ -694,6 +694,26 @@ int var_is_low_comp(bam_chunk_t *chunk, const call_var_opt_t *opt, cand_var_t *v
     } else return 1;
 }
 
+// XXX to do
+int var_is_ovlp_others(bam_chunk_t *chunk, int var_i) {
+    int ovlp = 0;
+    int *var_i_to_cate = chunk->var_i_to_cate;
+    for (int i = var_i - 1; i >= 0; --i) {
+        int var_cate = var_i_to_cate[i];
+        if (var_cate == LONGCALLD_LOW_COV_VAR || var_cate == LONGCALLD_NON_VAR || var_cate == LONGCALLD_STRAND_BIAS_VAR) continue;
+        cand_var_t *var1 = chunk->cand_vars + var_i;
+
+
+    }
+    for (int i = var_i + 1; i < chunk->n_cand_vars; ++i) {
+        int var_cate = var_i_to_cate[i];
+        if (var_cate == LONGCALLD_LOW_COV_VAR || var_cate == LONGCALLD_NON_VAR || var_cate == LONGCALLD_STRAND_BIAS_VAR) continue;
+    }
+
+
+    return ovlp;
+}
+
 // SNV/DEL/INS: n_reads >= 2
 // TE-INS:  n_reads >= 1
 // no somatic small indel
@@ -834,6 +854,9 @@ int classify_cand_vars(bam_chunk_t *chunk, int n_var_sites, const call_var_opt_t
     for (int i = 0; i < n_var_sites; ++i) {
         cand_var_t *var = cand_vars+i;
         var_cate = var_i_to_cate[i];
+        if (var_cate == LONGCALLD_NON_VAR || var_cate == LONGCALLD_STRAND_BIAS_VAR) {
+            continue;
+        }
         // 1. var is in noisy regions: skip
         if (chunk->chunk_noisy_regs != NULL && chunk->chunk_noisy_regs->n_r > 0) {
             if (var->var_type == BAM_CINS) noisy_ovlp_n = cr_overlap(chunk->chunk_noisy_regs, "cr", var->pos-1, var->pos, &ovlp_b, &max_b);
@@ -842,7 +865,14 @@ int classify_cand_vars(bam_chunk_t *chunk, int n_var_sites, const call_var_opt_t
                 var_i_to_cate[i] = LONGCALLD_NON_VAR; continue; // skip all vars in noisy regions
             }
         }
-        // 2. var is in low-complexity regions: add to noisy regions
+        // 2. low_cov_var
+        if (var_cate == LONGCALLD_LOW_COV_VAR) {
+            if (opt->out_somatic && var_is_cand_somatic(chunk, opt, var)) { // clean
+                var_i_to_cate[i] = LONGCALLD_CAND_SOMATIC_VAR;
+            }
+            continue;
+        }
+        // 3. var is in low-complexity regions: add to noisy regions
         if (var_cate == LONGCALLD_REP_HET_VAR) {
             hts_pos_t var_start, var_end;
             if (var->pos >= reg_beg && var->pos <= reg_end) {
@@ -850,7 +880,12 @@ int classify_cand_vars(bam_chunk_t *chunk, int n_var_sites, const call_var_opt_t
             }
             continue;
         }
-        // 3. var is overlapping with other vars in ref, i.e., two DELs with overlapping bases: add to noisy regions (should always be low-complexity regions as well)
+        // 4. var is overlapping with other vars in ref, i.e., two DELs with overlapping bases: add to noisy regions (should always be low-complexity regions as well)
+        // if (var->pos >= reg_beg && var->pos <= reg_end) {
+            // if (var_is_ovlp_others(chunk, i)) {
+                // cr_add_var_cr(opt, chunk, noisy_var_cr, low_comp_cr, var, 1);
+            // }
+        // }
         if (var->var_type == BAM_CINS) var_pos_ovlp_n = cr_overlap(var_pos_cr, "cr", var->pos-1, var->pos, &ovlp_b, &max_b);
         else var_pos_ovlp_n = cr_overlap(var_pos_cr, "cr", var->pos-1, var->pos+var->ref_len-1, &ovlp_b, &max_b);
         if (var_pos_ovlp_n > 1) { // multiple cand vars at the same position, need to check if # noisy reads >= min_noisy_reg_ratio, if not skip
@@ -859,13 +894,14 @@ int classify_cand_vars(bam_chunk_t *chunk, int n_var_sites, const call_var_opt_t
                 cr_add_var_cr(opt, chunk, noisy_var_cr, low_comp_cr, var, 1);
             }
         }
-        // 4. LONGCALLD_LOW_COV_VAR or LONGCALLD_LOW_AF_VAR: potential somatic variant
-        if (var_cate == LONGCALLD_LOW_COV_VAR || var_cate == LONGCALLD_LOW_AF_VAR) {
+        // 5. LONGCALLD_LOW_COV_VAR or LONGCALLD_LOW_AF_VAR: potential somatic variant
+        if (var_cate == LONGCALLD_LOW_AF_VAR) {
+        // if (var_cate == LONGCALLD_LOW_AF_VAR || var_cate == LONGCALLD_LOW_COV_VAR) {
             if (opt->out_somatic && var_is_cand_somatic(chunk, opt, var)) {
                 var_i_to_cate[i] = LONGCALLD_CAND_SOMATIC_VAR;
                 continue;
             }
-            if (var_cate == LONGCALLD_LOW_COV_VAR) continue;
+            // if (var_cate == LONGCALLD_LOW_COV_VAR) continue;
         }
         // remaining low_af_var: skip
         if (var_cate == LONGCALLD_LOW_AF_VAR) {
@@ -898,7 +934,7 @@ int classify_cand_vars(bam_chunk_t *chunk, int n_var_sites, const call_var_opt_t
     for (int i = 0; i < n_var_sites; ++i) {
         cand_var_t *var = cand_vars+i;
         var_cate = var_i_to_cate[i];
-        if (var_cate == LONGCALLD_LOW_COV_VAR || var_cate == LONGCALLD_NON_VAR) continue;
+        if (var_cate == LONGCALLD_LOW_COV_VAR || var_cate == LONGCALLD_NON_VAR || var_cate == LONGCALLD_STRAND_BIAS_VAR) continue;
         if (chunk->chunk_noisy_regs != NULL && chunk->chunk_noisy_regs->n_r > 0) {
             // int noisy_ovlp_n = cr_overlap(chunk->chunk_noisy_regs, "cr", var->pos-1, var->pos+var->ref_len, &ovlp_b, &max_b);
             if (cr_is_contained(chunk->chunk_noisy_regs, "cr", var->pos-1, var->pos+var->ref_len, &ovlp_b, &max_b) > 0) {
@@ -969,9 +1005,15 @@ void collect_digars_from_bam(bam_chunk_t *chunk, const struct call_var_pl_t *pl)
         if (ret < 0) chunk->is_skipped[i] = BAM_RECORD_WRONG_MAP;
     }
     // print chunk->qual_counts
-    int valid_quals[100], n_valid_quals = 0;
+    int valid_quals[100], n_valid_quals = 0; // XXX MAX_QUAL = 99 
+    int64_t n_total_counts = 0;
+    for (int i = 0; i < 100; ++i) n_total_counts += chunk->qual_counts[i];
     for (int i = 0; i < 100; ++i) {
-        if (chunk->qual_counts[i] > 0) valid_quals[n_valid_quals++] = i;
+        if (chunk->qual_counts[i] <= 0) continue; // skip 0 counts
+        if (chunk->qual_counts[i] >= 0.001 * n_total_counts) valid_quals[n_valid_quals++] = i;
+        // if (LONGCALLD_VERBOSE >= 0) {
+            // fprintf(stderr, "qual: %d, counts: %d, ratio: %.3f%%\n", i, chunk->qual_counts[i], (float)chunk->qual_counts[i] / n_total_counts * 100);
+        // }
     }
     // collect 1st quartile/median/3rd quartile
     chunk->min_qual = valid_quals[0];
@@ -979,7 +1021,7 @@ void collect_digars_from_bam(bam_chunk_t *chunk, const struct call_var_pl_t *pl)
     chunk->median_qual = valid_quals[n_valid_quals/2];
     chunk->third_quar_qual = valid_quals[n_valid_quals*3/4];
     chunk->max_qual = valid_quals[n_valid_quals-1];
-    // fprintf(stderr, "n_valid: %d, 1st quartile: %d, median: %d, 3rd quartile: %d\n", n_valid_quals, chunk->first_quar_qual, chunk->median_qual, chunk->third_quar_qual);
+    // fprintf(stderr, "n_valid: %d, min: %d, 1st quartile: %d, median: %d, 3rd quartile: %d, max: %d\n", n_valid_quals, chunk->min_qual, chunk->first_quar_qual, chunk->median_qual, chunk->third_quar_qual, chunk->max_qual);
     if (LONGCALLD_VERBOSE < 2) {
         for (int i = 0; i < chunk->m_reads; ++i) bam_destroy1(chunk->reads[i]);
         free(chunk->reads);
@@ -2498,7 +2540,7 @@ int read_has_dense_seq_error(int max_n_seq_errors, int win, digar_t *digars) {
     int n_digar = digars->n_digar;
     if (n_digar <= 0) return 0; // no digars, no seq errors
     // record the position of all seq errors (mismatch, insertion, deletion)
-    int *seq_error_pos = (int*)malloc(n_digar * sizeof(int));
+    hts_pos_t *seq_error_pos = (hts_pos_t*)malloc(n_digar * sizeof(hts_pos_t));
     int n_seq_errors = 0;
     for (int i = 0; i < n_digar; ++i) {
         if (digars->digars[i].type == BAM_CEQUAL || digars->digars[i].type == BAM_CREF_SKIP) continue;
@@ -2508,9 +2550,10 @@ int read_has_dense_seq_error(int max_n_seq_errors, int win, digar_t *digars) {
     // check if there are dense seq errors in the sliding window
     int has_dense_error = 0;
     for (int i = max_n_seq_errors+1; i < n_seq_errors; ++i) {
-        int cur_pos = seq_error_pos[i];
-        int last_pos = seq_error_pos[i - max_n_seq_errors-1];
+        hts_pos_t cur_pos = seq_error_pos[i];
+        hts_pos_t last_pos = seq_error_pos[i - max_n_seq_errors-1];
         if (cur_pos - last_pos <= win) {
+            fprintf(stderr, "dense: %ld-%ld\n", last_pos, cur_pos);
             has_dense_error = 1; // found dense seq errors
             break;
         }
@@ -2519,33 +2562,54 @@ int read_has_dense_seq_error(int max_n_seq_errors, int win, digar_t *digars) {
     return has_dense_error;
 }
 
-// mark chunk->is_skipped_for_somatic as 1
-// 1. clip > 500; 2. # seq_errors/win > 5/100; 3; n_clean_conflict >= 2
+// n_clean_non_low_comp_het_vars: (hom)
+// 0. check if "nearby" n_clean_conflict_vars / n_clean_vars is too high, i.e., >= 0.3
+// XXX should be moved to assign_hap.c, i.e., after digars are updated and candidate somatic vars are collected
+// 1. check if cand. somatic vars are near long clippings
+// 2. check if cand. somatic vars are near dense seq errors
 void mark_invalid_somatic_reads(const call_var_opt_t *opt, bam_chunk_t *chunk) {
     int min_clip_len = 500;
-    for (int i = 0; i < chunk->n_reads; ++i) {
-        if (chunk->is_skipped[i]) continue;
+    for (int read_i = 0; read_i < chunk->n_reads; ++read_i) {
+        if (chunk->is_skipped[read_i]) continue;
         // 1. mark reads with long clipping ???
         // if only has long clipping, but no dense seq error, it should be good??
-        if (chunk->is_ont_palindrome[i] == 0) { // ignore clipping of ONT palindrome reads
-            if ((chunk->digars[i].digars[0].type == BAM_CSOFT_CLIP || chunk->digars[i].digars[0].type == BAM_CHARD_CLIP) && chunk->digars[i].digars[0].len > min_clip_len) {
-                chunk->is_skipped_for_somatic[i] = 1;
-                continue;
-            }
-            int digar_i = chunk->digars[i].n_digar - 1;
-            if ((chunk->digars[i].digars[digar_i].type == BAM_CSOFT_CLIP || chunk->digars[i].digars[digar_i].type == BAM_CHARD_CLIP) && chunk->digars[i].digars[digar_i].len > min_clip_len) {
-                chunk->is_skipped_for_somatic[i] = 1;
-                continue;
-            }
-        }
+        // if (chunk->is_ont_palindrome[read_i] == 0) { // ignore clipping of ONT palindrome reads
+        //     if ((chunk->digars[read_i].digars[0].type == BAM_CSOFT_CLIP || chunk->digars[read_i].digars[0].type == BAM_CHARD_CLIP) && chunk->digars[read_i].digars[0].len > min_clip_len) {
+        //         if (LONGCALLD_VERBOSE >= 2) {
+        //             fprintf(stderr, "read %s is skipped for somatic variant calling due to long clipping\n", bam_get_qname(chunk->reads[read_i]));
+        //         }
+        //         chunk->is_skipped_for_somatic[read_i] = 1;
+        //         continue;
+        //     }
+        //     int digar_i = chunk->digars[read_i].n_digar - 1;
+        //     if ((chunk->digars[read_i].digars[digar_i].type == BAM_CSOFT_CLIP || chunk->digars[read_i].digars[digar_i].type == BAM_CHARD_CLIP) && chunk->digars[read_i].digars[digar_i].len > min_clip_len) {
+        //         chunk->is_skipped_for_somatic[read_i] = 1;
+        //         if (LONGCALLD_VERBOSE >= 2) {
+        //             fprintf(stderr, "read %s is skipped for somatic variant calling due to long clipping\n", bam_get_qname(chunk->reads[read_i]));
+        //         }
+        //         continue;
+        //     }
+        // }
         // 2. mark reads with dense seq errors, here, digars are already updated
-        if (read_has_dense_seq_error(15, 50, chunk->digars+i)) {
-            chunk->is_skipped_for_somatic[i] = 1;
-            continue;
-        }
+        // int win, max_n_seq_errors;
+        // if (opt->is_ont) { // ONT
+        //     win=50; max_n_seq_errors=20;
+        // } else {
+        //     win=50; max_n_seq_errors=10;
+        // }
+        // if (read_has_dense_seq_error(max_n_seq_errors, win, chunk->digars+read_i)) {
+        //     if (LONGCALLD_VERBOSE >= 2) {
+        //         fprintf(stderr, "read %s is skipped for somatic variant calling due to dense seq errors\n", bam_get_qname(chunk->reads[read_i]));
+        //     }
+        //     chunk->is_skipped_for_somatic[read_i] = 1;
+        //     continue;
+        // }
         // 3. mark reads with conflicting phasing
-        if (chunk->n_clean_conflict_vars[i] >= 2) { // XXX only need n_clean_conflict ???
-            chunk->is_skipped_for_somatic[i] = 1;
+        if (chunk->n_clean_conflict_snps[read_i] >= 2) {
+            if (LONGCALLD_VERBOSE >= 2) {
+                fprintf(stderr, "read %s is skipped for somatic variant calling due to conflicting phasing (%d)\n", bam_get_qname(chunk->reads[read_i]), chunk->n_clean_conflict_snps[read_i]);
+            }
+            chunk->is_skipped_for_somatic[read_i] = 1;
             continue;
         }
     }
