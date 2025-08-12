@@ -11,14 +11,14 @@
 
 ## Updates (pre-release v0.0.5)
 
-* Fix a SegFault in ONT mode regarding BAM/SA tag
-* Significant speed improvement (compiling mistake in last release)
-* Add --refine-aln: refine read alignment based on MSA in output BAM/CRAM
-* Add -Oz for compressed VCF output
-* Add -s/--somatic to output somatic/mosaic variant
-* Add --exclude-ctg & --all-ctg; --autosome-XY is default now
+* Add -s/--somatic/--mosaic to output low AF somatic/mosaic variant
 * Add -T/--trans-elem; output TE (transposable/mobile element, Alu/L1/SVA) information for INS/DEL
 * Add INFO:TSD;REPNAME in VCF for TE INS/DEL
+* Add --refine-aln: refine read alignment based on MSA in output SAM/BAM/CRAM
+* Fix a SegFault in ONT mode regarding BAM/SA tag
+<!-- * Significant speed improvement (compiling mistake in last release) -->
+* Add -Oz for compressed VCF output
+* Add --exclude-ctg & --all-ctg; --autosome-XY is default now
 <!-- * Add INFO:TANDAM in VCF for tandem duplications -->
 * Fix lower case ref base
 * Fix compiling in macOS-x64
@@ -105,6 +105,16 @@ LongcallD requires a **reference genome (FASTA)** and a **long-read BAM/CRAM** f
 ```
 longcallD call -t16 ref.fa hifi.bam > hifi.vcf         # default for PacBio HiFi reads (--hifi)
 longcallD call -t16 ref.fa ont.bam --ont > ont.vcf     # for ONT reads
+```
+
+### Low allele-frequency mosaic variant calling
+With `-s`, longcallD will detect both germline and somatic/mosaic variants.
+
+For each somatic/mosaic variant, a `SOMATIC` tag will be added to the INFO field in the output VCF.
+```
+longcallD call -s -t16 ref.fa hifi.bam > hifi.vcf
+longcallD call -s -t16 ref.fa hifi.bam -T AluY_L1_SVA_cons_noPA.fa > hifi.vcf # add MEI information in INFO field
+longcallD call -s -t16 ref.fa ont.bam --ont > ont.vcf
 ```
 
 ### Region-specific variant calling
