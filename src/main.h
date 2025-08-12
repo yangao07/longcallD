@@ -3,8 +3,8 @@
 
 extern const char PROG[20];
 extern const char DESCRIP[100];
-#ifndef VERSION
-extern const char VERSION[20];
+#ifndef LONGCALLD_VERSION
+extern const char LONGCALLD_VERSION[20];
 #endif
 extern const char CONTACT[30];
 extern char *CMD;

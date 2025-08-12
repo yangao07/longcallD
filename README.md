@@ -8,22 +8,31 @@
 [![License](https://img.shields.io/badge/License-MIT-black.svg)](https://github.com/yangao07/longcallD/blob/main/LICENSE)
 <!-- [![Published in Bioinformatics](https://img.shields.io/badge/Published%20in-Bioinformatics-blue.svg)](https://dx.doi.org/10.1093/bioinformatics/btaa963) -->
 <!-- [![GitHub Issues](https://img.shields.io/github/issues/yangao07/longcallD.svg?label=Issues)](https://github.com/yangao07/longcallD/issues) -->
-## Updates (pre-release v0.0.4)
 
-* Use static regions for multi-thread computing
-* Extended phase set
-* Fixed HP/PS tags in output phased bam
-* Fixed a few edge cases
+## Updates (pre-release v0.0.5)
+
+* Fix a SegFault in ONT mode regarding BAM/SA tag
+* Significant speed improvement (compiling mistake in last release)
+* Add --refine-aln: refine read alignment based on MSA in output BAM/CRAM
+* Add -Oz for compressed VCF output
+* Add -s/--somatic to output somatic/mosaic variant
+* Add --exclude-ctg & --all-ctg; --autosome-XY is default now
+* Add -T/--trans-elem; output TE (transposable/mobile element, Alu/L1/SVA) information for INS/DEL
+* Add INFO:TSD;REPNAME in VCF for TE INS/DEL
+<!-- * Add INFO:TANDAM in VCF for tandem duplications -->
+* Fix lower case ref base
+* Fix compiling in macOS-x64
+
 
 ## Getting Started
 ```sh
 # Download pre-built executables and test data (recommended)
 # Linux-x64
-wget https://github.com/yangao07/longcallD/releases/download/v0.0.4/longcallD-v0.0.4_x64-linux.tar.gz
-tar -zxvf longcallD-v0.0.4_x64-linux.tar.gz && cd longcallD-v0.0.4_x64-linux
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.5/longcallD-v0.0.5_x64-linux.tar.gz
+tar -zxvf longcallD-v0.0.5_x64-linux.tar.gz && cd longcallD-v0.0.5_x64-linux
 # MacOS-arm64
-wget https://github.com/yangao07/longcallD/releases/download/v0.0.4/longcallD-v0.0.4_arm64-macos.tar.gz
-tar -zxvf longcallD-v0.0.4_arm64-macos.tar.gz && cd longcallD-v0.0.4_arm64-macos
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.5/longcallD-v0.0.5_arm64-macos.tar.gz
+tar -zxvf longcallD-v0.0.5_arm64-macos.tar.gz && cd longcallD-v0.0.5_arm64-macos
 
 # PacBio HiFi reads
 ./longcallD call ./test_data/chr11_2M.fa ./test_data/HG002_chr11_hifi_test.bam --hifi > HG002_hifi_test.vcf
@@ -35,7 +44,7 @@ man ./longcallD.1
 ``` -->
 
 ## Table of Contents
-- [Updates (pre-release v0.0.4)](#updates-pre-release-v004)
+- [Updates (pre-release v0.0.5)](#updates-pre-release-v005)
 - [Getting Started](#getting-started)
 - [Table of Contents](#table-of-contents)
 - [Introduction](#introduction)
@@ -44,7 +53,7 @@ man ./longcallD.1
   - [Bioconda](#bioconda)
   - [Build from source](#build-from-source)
 - [Usage](#usage)
-  - [Variant calling with HiFi/Nanopore long reads](#variant-calling-with-hifinanopore-long-reads)
+  - [Variant calling with PacBio HiFi/Nanopore long reads](#variant-calling-with-pacbio-hifinanopore-long-reads)
   - [Region-specific variant calling](#region-specific-variant-calling)
   - [Variant calling and output phased long reads](#variant-calling-and-output-phased-long-reads)
   - [Variant calling from remote files](#variant-calling-from-remote-files)
@@ -62,13 +71,13 @@ LongcallD phases long reads into haplotypes using SNPs and small indels before c
 ### Pre-built executables (recommended)
 **Linux-x64**
 ```
-wget https://github.com/yangao07/longcallD/releases/download/v0.0.4/longcallD-v0.0.4_x64-linux.tar.gz
-tar -zxvf longcallD-v0.0.4_x64-linux.tar.gz
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.5/longcallD-v0.0.5_x64-linux.tar.gz
+tar -zxvf longcallD-v0.0.5_x64-linux.tar.gz
 ```
 **MacOS-arm64**
 ```
-wget https://github.com/yangao07/longcallD/releases/download/v0.0.4/longcallD-v0.0.4_arm64-macos.tar.gz
-tar -zxvf longcallD-v0.0.4_arm64-macos.tar.gz
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.5/longcallD-v0.0.5_arm64-macos.tar.gz
+tar -zxvf longcallD-v0.0.5_arm64-macos.tar.gz
 ```
 
 **Linux-arm64/macOS-x64**
@@ -85,14 +94,14 @@ conda install -c bioconda longcalld
 To compile longcallD from source, ensure you have **GCC/clang(9.0+)** and **zlib/libbz2/liblzma/libcurl** (for htslib) installed. 
 It is recommended to use the [latest release](https://github.com/yangao07/longcallD/releases).
 ```
-wget https://github.com/yangao07/longcallD/releases/download/v0.0.4/longcallD-v0.0.4.tar.gz
-tar -zxvf longcallD-v0.0.4.tar.gz
-cd longcallD-v0.0.4; make
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.5/longcallD-v0.0.5.tar.gz
+tar -zxvf longcallD-v0.0.5.tar.gz
+cd longcallD-v0.0.5; make
 ```
 
 ## Usage
 LongcallD requires a **reference genome (FASTA)** and a **long-read BAM/CRAM** file as inputs. It outputs **phased variant calls in VCF format**.
-### Variant calling with HiFi/Nanopore long reads
+### Variant calling with PacBio HiFi/Nanopore long reads
 ```
 longcallD call -t16 ref.fa hifi.bam > hifi.vcf         # default for PacBio HiFi reads (--hifi)
 longcallD call -t16 ref.fa ont.bam --ont > ont.vcf     # for ONT reads

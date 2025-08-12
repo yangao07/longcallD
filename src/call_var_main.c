@@ -20,6 +20,8 @@
 #include "collect_var.h"
 #include "kthread.h"
 #include "align.h"
+#include "math_utils.h"
+#include "kmer.h"
 
 extern int LONGCALLD_VERBOSE;
 
@@ -30,22 +32,35 @@ const struct option call_var_opt [] = {
     { "ont", 0, NULL, 0},
     { "region-file", 1, NULL, 0},
     { "regions-file", 1, NULL, 0},
-    { "autosome", 0, NULL, 0},
+    { "all-ctg", 0, NULL, 0},
     { "autosome-XY", 0, NULL, 0},
-    { "somatic-snp", 0, NULL, 0},
-    { "methylation", 0, NULL, 0},
+    { "autosome", 0, NULL, 0},
+    { "mosaic", 0, NULL, 0},
+    { "refine-aln", 0, NULL, 0},
+    { "alpha", 1, NULL, 0},
+    { "beta", 1, NULL, 0},
+    { "max-somvar", 1, NULL, 0},
+    { "som-alt", 1, NULL, 0},
+    { "som-mei-alt", 1, NULL, 0},
+
+    { "exclude-ctg", 1, NULL, 'E'},
     // { "ont-hp-prof", 1, NULL, 0},
 
     // short options
     { "ref-idx", 1, NULL, 'r' },
     { "out-vcf", 1, NULL, 'o'},
     { "out-type", 1, NULL, 'O'},
+    { "min-sv-len", 1, NULL, 'l'},
+    { "out-sam", 1, NULL, 'S' },
     { "out-bam", 1, NULL, 'b' },
     { "out-cram", 1, NULL, 'C' },
     { "no-vcf-header", 0, NULL, 'H'},
+    { "somatic", 0, NULL, 's'},
+    { "methylation", 0, NULL, 'm'},
     { "gap-aln", 1, NULL, 'g'},
     // { "out-bam", 1, NULL, 'b' },
     { "sample-name", 1, NULL, 'n'},
+    { "trans-elem", 1, NULL, 'T'},
 
     { "min-cov", 1, NULL, 'c' },
     { "alt-cov", 1, NULL, 'd' },
@@ -58,6 +73,7 @@ const struct option call_var_opt [] = {
     { "win-size", 1, NULL, 'w'},
     { "noisy-rat", 1, NULL, 'j' },
     { "noisy-flank", 1, NULL, 'f' },
+    { "merge-dis", 1, NULL, 'D'},
     { "end-clip", 1, NULL, 'c' },
     { "clip-flank", 1, NULL, 'F' },
     { "hap-read", 1, NULL, 'p' },
@@ -91,72 +107,31 @@ int get_num_processors() {
 }
 
 void set_hifi_opt(call_var_opt_t *opt) {
-    opt->is_pb_hifi = 1;
-    opt->noisy_reg_max_xgaps = 5;
+    opt->is_pb_hifi = 1; opt->is_ont = 0;
+    // HiFi: 10/200
+    opt->noisy_reg_max_xgaps = LONGCALLD_NOISY_REG_MAX_XGAPS; //10
+    opt->noisy_reg_slide_win = LONGCALLD_NOISY_REG_HIFI_SLIDE_WIN; // 200bp slide window
 }
 
 void set_ont_opt(call_var_opt_t *opt) {
-    opt->is_ont = 1;
-    opt->noisy_reg_max_xgaps = 20;
+    opt->is_ont = 1; opt->is_pb_hifi = 0;
+    opt->strand_bias_pval = LONGCALLD_STRAND_BIAS_PVAL_ONT;
+    // ONT: 10/50
+    opt->noisy_reg_max_xgaps = LONGCALLD_NOISY_REG_MAX_XGAPS; // 10
+    opt->noisy_reg_slide_win = LONGCALLD_NOISY_REG_ONT_SLIDE_WIN; // 50bp slide window
 }
 
-// profile format
-// CTA     5       +       5       10661016.0      0.8805382103122837
-// beg/hp/end   ref_len strand alt_len count prob
-void set_ont_hp_prof(call_var_opt_t *opt, char *prof_fn) {
-    opt->ont_hp_profile = (ont_hp_profile_t***)malloc(4*4*4*sizeof(ont_hp_profile_t**));
-    for (int i = 0; i < 4*4*4; ++i) {
-        opt->ont_hp_profile[i] = (ont_hp_profile_t**)malloc(50*sizeof(ont_hp_profile_t*));
-        for (int j = 0; j < 50; ++j) {
-            opt->ont_hp_profile[i][j] = (ont_hp_profile_t*)malloc(2*sizeof(ont_hp_profile_t));
-            for (int k = 0; k < 2; ++k) {
-                opt->ont_hp_profile[i][j][k].hp_len_to_prob = (double*)malloc(20*sizeof(double));
-                opt->ont_hp_profile[i][j][k].alt_hp_lens = (int*)malloc(20*sizeof(int));
-                opt->ont_hp_profile[i][j][k].beg_flank_base = i/16;
-                opt->ont_hp_profile[i][j][k].hp_base = (i%16)/4;
-                opt->ont_hp_profile[i][j][k].end_flank_base = i%4;
-                opt->ont_hp_profile[i][j][k].ref_hp_len = j+1;
-                opt->ont_hp_profile[i][j][k].strand = k;
-                opt->ont_hp_profile[i][j][k].n_alt_hp_lens = 0;
-            }
-        }
-    }
-    // load profile
-    FILE *fp = fopen(prof_fn, "r");
-    if (fp == NULL) _err_error_exit("Failed to open HP profile file: %s", prof_fn);
-    char line[1024];
-    while (fgets(line, sizeof(line), fp)) {
-        if (line[0] == '#') continue; // skip header/comment
-        char *token;
-        token = strtok(line, "\t");
-        char beg_base = token[0], hp_base = token[1], end_base = token[2];
-        token = strtok(NULL, "\t");
-        int ref_len = atoi(token);
-        if (ref_len < 5 || ref_len > 50) continue; // skip too short or too long ref length
-        token = strtok(NULL, "\t");
-        char strand = token[0];
-        // int hp_idx = nst_nt4_table[(int)beg_base]*16 + nst_nt4_table[(int)hp_base]*4 + nst_nt4_table[(int)end_base];
-        int hp_base_idx = nst_nt4_table[(int)beg_base]*16 + nst_nt4_table[(int)hp_base]*4 + nst_nt4_table[(int)end_base];
-        int hp_ref_idx = ref_len-1;
-        int hp_strand_idx = (strand == '+') ? 0 : 1;
-        // fprintf(stderr, "HP idx: %d, %c-%c-%c\n", hp_idx, beg_base, hp_base, end_base);
-        ont_hp_profile_t *hp_profile = &(opt->ont_hp_profile[hp_base_idx][hp_ref_idx][hp_strand_idx]);
-        if (hp_profile->n_alt_hp_lens >= 20) continue;
+// extreme low allele frequency < 5% or even 1%
+// void set_mosaic_opt(call_var_opt_t *opt) {
+//     opt->somatic_beta_alpha = 1; opt->somatic_beta_beta = 10;
+//     opt->min_somatic_log_beta_binom = -3.0; // log10(0.001)
+// }
 
-        token = strtok(NULL, "\t");
-        int alt_len = atoi(token);
-        token = strtok(NULL, "\t");
-        double count = atof(token);
-        token = strtok(NULL, "\t");
-        double prob = atof(token);
-
-        hp_profile->ref_hp_len = ref_len;
-        hp_profile->alt_hp_lens[hp_profile->n_alt_hp_lens] = alt_len;
-        hp_profile->hp_len_to_prob[hp_profile->n_alt_hp_lens] = prob;
-        hp_profile->n_alt_hp_lens++;
-    }
-    fclose(fp);
-}
+// // moderate low allele frequency, > 5%, (tumor purity: 40~100% -> HET var: 20%~50% allele frequency)
+// void set_tumor_somatic_opt(call_var_opt_t *opt) {
+//     opt->somatic_beta_alpha = 2; opt->somatic_beta_beta = 5;
+//     opt->min_somatic_log_beta_binom = -4.0; // log10(0.0001) ???
+// }
 
 call_var_opt_t *call_var_init_para(void) {
     call_var_opt_t *opt = (call_var_opt_t*)_err_malloc(sizeof(call_var_opt_t));
@@ -164,21 +139,39 @@ call_var_opt_t *call_var_init_para(void) {
     opt->sample_name = NULL;
     opt->ref_fa_fn = NULL; opt->ref_fa_fai_fn = NULL; opt->reg_bed_fn = NULL;
 
-    opt->is_pb_hifi = 0; opt->is_ont = 0;
-    opt->only_autosome = 0; opt->only_autosome_XY = 0;
+    opt->is_pb_hifi = 1; opt->is_ont = 0;
+    opt->only_autosome = 0; opt->only_autosome_XY = 1; 
+    opt->n_exc_tnames = 0; opt->exc_tnames = NULL;
 
     // opt->region_list = NULL; opt->region_is_file = 0;
     opt->max_ploid = LONGCALLD_DEF_PLOID;
     opt->min_mq = LONGCALLD_MIN_CAND_MQ;
     opt->min_bq = LONGCALLD_MIN_CAND_BQ;
-    opt->min_somatic_bq = LONGCALLD_MIN_CAND_SOMATIC_BQ;
     opt->min_dp = LONGCALLD_MIN_CAND_DP;
     opt->min_alt_dp = LONGCALLD_MIN_ALT_DP;
+    opt->min_af = LONGCALLD_MIN_CAND_AF;
+    opt->max_af = LONGCALLD_MAX_CAND_AF;
+    // somatic/mosaic var
+    opt->min_somatic_dis_to_var = LONGCALLD_MIN_SOMATIC_DIS_TO_VAR;
+    opt->min_somatic_dis_to_homopolymer_indel_error = LONGCALLD_MIN_SOMATIC_DIS_TO_HP_INDEL_ERROR;
+    opt->min_somatic_dis_to_seq_error = LONGCALLD_MIN_SOMATIC_DIS_TO_SEQ_ERROR;
+    opt->min_somatic_fisher_pval = LONGCALLD_MIN_SOMATIC_FISHER_PVAL;
+    opt->min_somatic_alt_dp = LONGCALLD_MIN_SOMATIC_ALT_DP;
+    opt->min_somatic_hap_dp = LONGCALLD_MIN_SOMATIC_HAP_READS;
+    opt->min_somatic_te_dp = LONGCALLD_MIN_SOMATIC_TE_ALT_DP;
+    // opt->min_somatic_af = LONGCALLD_MIN_SOMATIC_AF;
+    // opt->max_somatic_alt_af = LONGCALLD_MAX_SOMATIC_ALT_AF;
+    // opt->min_somatic_log_beta_binom = LONGCALLD_MIN_SOMATIC_LOG_BETA_BINOM;
+    // opt->somatic_beta_alpha = LONGCALLD_SOMATIC_BETA_ALPHA;
+    // opt->somatic_beta_beta = LONGCALLD_SOMATIC_BETA_BETA;
+    opt->somatic_win = LONGCALLD_SOMATIC_WIN;
+    opt->somatic_win_max_vars = LONGCALLD_SOMATIC_WIN_MAX_VARS;
 
+    opt->noisy_reg_merge_dis = LONGCALLD_NOISY_REG_MERGE_DIS;
     opt->noisy_reg_flank_len = LONGCALLD_NOISY_REG_FLANK_LEN;
 
     opt->noisy_reg_max_xgaps = LONGCALLD_NOISY_REG_MAX_XGAPS;
-    opt->noisy_reg_slide_win = LONGCALLD_NOISY_REG_SLIDE_WIN;
+    opt->noisy_reg_slide_win = LONGCALLD_NOISY_REG_HIFI_SLIDE_WIN;
 
     opt->end_clip_reg = LONGCALLD_NOISY_END_CLIP;
     opt->end_clip_reg_flank_win = LONGCALLD_NOISY_END_CLIP_WIN;
@@ -187,15 +180,11 @@ call_var_opt_t *call_var_init_para(void) {
     opt->max_noisy_reg_reads = LONGCALLD_MAX_NOISY_REG_READS;
     opt->max_noisy_reg_len  = LONGCALLD_MAX_NOISY_REG_LEN;
     opt->min_noisy_reg_reads = LONGCALLD_NOISY_REG_READS;
-    opt->min_noisy_reg_ratio = LONGCALLD_NOISY_REG_RATIO;
+    // opt->min_noisy_reg_ratio = LONGCALLD_NOISY_REG_RATIO;
     opt->max_noisy_frac_per_read = LONGCALLD_MAX_NOISY_FRAC_PER_READ;
     opt->min_hap_full_reads = LONGCALLD_MIN_HAP_FULL_READS;
     opt->min_hap_reads = LONGCALLD_MIN_HAP_READS;
     // opt->min_no_hap_full_reads = LONGCALLD_MIN_NO_HAP_FULL_READS;
-
-    opt->min_af = LONGCALLD_MIN_CAND_AF;
-    opt->max_af = LONGCALLD_MAX_CAND_AF;
-    opt->min_somatic_hap_dp = LONGCALLD_MIN_SOMATIC_HAP_READS;
 
     opt->match = LONGCALLD_MATCH_SCORE;
     opt->mismatch = LONGCALLD_MISMATCH_SCORE;
@@ -205,16 +194,22 @@ call_var_opt_t *call_var_init_para(void) {
     opt->gap_ext2 = LONGCALLD_GAP_EXT2_SCORE;
     opt->gap_aln = LONGCALLD_GAP_LEFT_ALN;
     opt->disable_read_realign = 1; // XXX right now, always disable read realignment
-    opt->ont_hp_profile = NULL;
 
     opt->pl_threads = MIN_OF_TWO(CALL_VAR_PL_THREAD_N, get_num_processors());
     opt->n_threads = MIN_OF_TWO(CALL_VAR_THREAD_N, get_num_processors());
 
+    opt->min_sv_len = LONGCALLD_MIN_SV_LEN;
+    opt->min_tsd_len = LONGCALLD_MIN_TSD_LEN; opt->max_tsd_len = LONGCALLD_MAX_TSD_LEN;
+    opt->min_polya_len = LONGCALLD_MIN_POLYA_LEN; opt->min_polya_ratio = LONGCALLD_MIN_POLYA_RATIO;
+
+    initialize_lgamma_cache(opt);
+    opt->te_seq_fn = NULL; opt->n_te_seqs = 0; opt->te_kmer_len = 15; opt->te_for_h = NULL; opt->te_rev_h = NULL;
+
     opt->p_error = 0.001; opt->log_p = -3.0; opt->log_1p = log10(1-opt->p_error); opt->log_2 = 0.301023;
     opt->max_gq = 60; opt->max_qual = 60;
     opt->out_vcf = NULL; opt->vcf_hdr = NULL; opt->out_vcf_fn = NULL; opt->out_vcf_type = 'v'; opt->no_vcf_header = 0; opt->out_amb_base = 0;
-    opt->out_bam = NULL; opt->out_is_cram = 0;
-    opt->out_somatic_snp = 0; opt->out_methylation = 0;
+    opt->out_bam = NULL; opt->out_is_cram = 0; opt->refine_bam = 0;
+    opt->out_somatic = 0; opt->out_methylation = 0;
     // opt->verbose = 0;
     return opt;
 }
@@ -224,20 +219,20 @@ void call_var_free_para(call_var_opt_t *opt) {
     if (opt->in_bam_fn) free(opt->in_bam_fn);
     if (opt->sample_name) free(opt->sample_name);
     // if (opt->region_list) free(opt->region_list);
-    if (opt->ont_hp_profile != NULL) {
-        for (int i = 0; i < 4*4*4; ++i) {
-            for (int j = 0; j < 50; ++j) {
-                for (int k = 0; k < 2; ++k) {
-                    free(opt->ont_hp_profile[i][j][k].alt_hp_lens);
-                    free(opt->ont_hp_profile[i][j][k].hp_len_to_prob);
-                }
-                free(opt->ont_hp_profile[i][j]);
-            }
-            free(opt->ont_hp_profile[i]);
-        }
-        free(opt->ont_hp_profile);
+    if (opt->n_exc_tnames > 0) {
+        for (int i = 0; i < opt->n_exc_tnames; ++i) free(opt->exc_tnames[i]);
+        free(opt->exc_tnames);
     }
     if (opt->out_vcf_fn != NULL) free(opt->out_vcf_fn);
+    if (opt->te_seq_fn != NULL) {
+        free(opt->te_seq_fn);
+        for (int i = 0; i < opt->n_te_seqs; ++i) {
+            free(opt->te_seq_names[i]);
+            kh_destroy(kmer32, opt->te_for_h[i]);
+            kh_destroy(kmer32, opt->te_rev_h[i]);
+        }
+        free(opt->te_seq_names); free(opt->te_for_h); free(opt->te_rev_h);
+    }
     free(opt);
 }
 
@@ -275,7 +270,9 @@ void var_free(var_t *v) {
                 for (int j = 0; j < v->vars[i].n_alt_allele; ++j) free(v->vars[i].alt_bases[j]);
                 free(v->vars[i].alt_bases);
             }
-
+            if (v->vars[i].tsd_len > 0) {
+                free(v->vars[i].tsd_seq);
+            }
         }
         free(v->vars);
     }
@@ -288,15 +285,19 @@ void var1_free(var1_t *v) {
         for (int j = 0; j < v->n_alt_allele; ++j) free(v->alt_bases[j]);
         free(v->alt_bases);
     }
+    if (v->tsd_len > 0) {
+        free(v->tsd_seq);
+    }
 }
 
 static void collect_bam_call_var_worker_for(void *_data, long ii, int tid) {
     call_var_step_t *step = (call_var_step_t*)_data;
     bam_chunk_t *c = step->chunks + ii;
     if (LONGCALLD_VERBOSE >= 1) fprintf(stderr, "[%s] thread-id: %d, chunk: %ld (%d)\n", __func__, tid, ii, step->n_chunks);
-    if (collect_ref_seq_bam_main(step->pl, step->pl->io_aux+tid, step->pl->reg_chunk_i, ii, c) > 0) {
+    // if (collect_ref_seq_bam_main(step->pl, step->pl->io_aux+tid, step->pl->reg_chunk_i, ii, c) > 0) {
+    collect_ref_seq_bam_main(step->pl, step->pl->io_aux+tid, step->pl->reg_chunk_i, ii, c);
         collect_var_main(step->pl, c);
-    }
+    // }
     bam_chunk_mid_free(c);
 }
 
@@ -320,6 +321,12 @@ static void reg_chunks_realloc(call_var_pl_t *pl) {
             pl->reg_chunks[k].reg_ends = (hts_pos_t*)malloc(pl->reg_chunks[k].m_regions * sizeof(hts_pos_t));
         }
     }
+}
+
+void set_exclude_ctg(call_var_opt_t *opt, char *ctg) {
+    opt->exc_tnames = (char**)realloc(opt->exc_tnames, (opt->n_exc_tnames+1) * sizeof(char*));
+    opt->exc_tnames[opt->n_exc_tnames] = strdup(ctg);
+    opt->n_exc_tnames++;
 }
 
 // Enum for chromosome types
@@ -375,10 +382,18 @@ static void reg_chunks_region_realloc(reg_chunks_t *reg_chunks) {
     }
 }
 
+static int exclude_target_ctg(call_var_opt_t *opt, char *tname) {
+    for (int i = 0; i < opt->n_exc_tnames; ++i) {
+        if (strcmp(tname, opt->exc_tnames[i]) == 0) return 1;
+    }
+    return 0;
+}
+
 static int skip_target_region(call_var_opt_t *opt, char *tname) {
     ChromosomeType t = classify_chromosome(tname);
     if (opt->only_autosome && t != AUTOSOME) return 1;
     if (opt->only_autosome_XY && t != AUTOSOME && t != SEX_CHROMOSOME) return 1;
+    if (exclude_target_ctg(opt, tname)) return 1;
     return 0;
 }
 
@@ -595,7 +610,7 @@ static void call_var_pl_write_bam_header(call_var_opt_t *opt, bam_hdr_t *header)
     if (opt->out_is_cram) {
         if (hts_set_fai_filename(opt->out_bam, opt->ref_fa_fn) != 0) _err_error_exit("Failed to set reference file for output CRAM encoding: %s\n", opt->ref_fa_fn);
     }
-    if (sam_hdr_add_pg(header, PROG, "VN", VERSION, "CL", CMD, NULL) < 0) _err_error_exit("Fail to add PG line to bam header.\n");
+    if (sam_hdr_add_pg(header, PROG, "VN", LONGCALLD_VERSION, "CL", CMD, NULL) < 0) _err_error_exit("Fail to add PG line to bam header.\n");
     if (sam_hdr_write(opt->out_bam, header) < 0) _err_error_exit("Failed to write BAM header.\n");
 }
 
@@ -617,7 +632,7 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
                             //         merge variants from different chunks
                             //         1) merge overlapping variants
                             //         2) update phase set and haplotype (flip if needed)
-        if (LONGCALLD_VERBOSE >= 1) _err_info("Step 2: stitch & make variants.\n");
+        if (LONGCALLD_VERBOSE >= 1) _err_info("Step 2: stitch & make variants\n");
         if (((call_var_step_t*)in)->n_chunks > 0) {
             ((call_var_step_t*)in)->vars = calloc(((call_var_step_t*)in)->n_chunks, sizeof(var_t));
             stitch_var_main((call_var_step_t*)in, ((call_var_step_t*)in)->chunks);
@@ -627,10 +642,10 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
         for (int i = 0; i < ((call_var_step_t*)in)->n_chunks; ++i) {
             n_processed_reads += (((call_var_step_t*)in)->chunks[i].n_reads - ((call_var_step_t*)in)->chunks[i].n_up_ovlp_reads);
         }
-        if (n_processed_reads > 0) _err_info("Processed %" PRIi64 " reads.\n", n_processed_reads);
+        if (n_processed_reads > 0) _err_info("Processed %" PRIi64 " reads\n", n_processed_reads);
         return in;
     } else if (step == 2) { // step 3: write the buffer to output
-        if (LONGCALLD_VERBOSE >= 1) _err_info("Step 3: output variants (& phased bam).\n");
+        if (LONGCALLD_VERBOSE >= 1) _err_info("Step 3: output variants (& phased bam)\n");
         call_var_step_t *s = (call_var_step_t*)in;
         int n_out_vars = 0, n_out_reads = 0;
         for (int i = 0; i < s->n_chunks; ++i) {
@@ -639,10 +654,10 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
             if (pl->opt->out_bam != NULL) n_out_reads += write_read_to_bam(c, pl->opt);
             var_free(s->vars + i);  // free output
         }
-        if (n_out_vars > 0) _err_info("Output %d variants to VCF.\n", n_out_vars);
+        if (n_out_vars > 0) _err_info("Output %d variants to VCF\n", n_out_vars);
         if (n_out_reads > 0) {
-            if (pl->opt->out_is_cram) _err_info("Output %d reads to CRAM.\n", n_out_reads);
-            else _err_info("Output %d reads to BAM.\n", n_out_reads);
+            if (pl->opt->out_is_cram) _err_info("Output %d reads to CRAM\n", n_out_reads);
+            else _err_info("Output %d reads to BAM\n", n_out_reads);
         }
         bam_chunks_post_free(s->chunks, s->n_chunks); // free input
         free(s->vars); free(s);
@@ -653,7 +668,7 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
 static void call_var_usage(void) {//main usage
     fprintf(stderr, "\n");
     fprintf(stderr, "Program: %s (%s)\n", PROG, DESCRIP);
-    fprintf(stderr, "Version: %s\tContact: %s\n\n", VERSION, CONTACT); 
+    fprintf(stderr, "Version: %s\tContact: %s\n\n", LONGCALLD_VERSION, CONTACT); 
 
     fprintf(stderr, "Usage: %s call [options] <ref.fa> <input.bam/cram> [region ...] > phased.vcf\n", PROG);
     fprintf(stderr, "       Note: \'ref.fa\' should contain the same contig/chromosome names as \'input.bam/cram\'\n");
@@ -662,30 +677,39 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "\n");
 
     fprintf(stderr, "Options:\n");
-    fprintf(stderr, "  Intput and output:\n");
+    fprintf(stderr, "  Intput:\n");
     fprintf(stderr, "    --hifi                HiFi reads [Default]\n");
     fprintf(stderr, "    --ont                 ONT reads [False]\n");
     fprintf(stderr, "    --region-file   FILE  region bed file [NULL]\n");
     fprintf(stderr, "                          each line is a region, e.g., chr1         (whole chromosome)\n");
     fprintf(stderr, "                                                       chr1 100     (chr1:100-END)\n");
     fprintf(stderr, "                                                       chr1 100 200 (chr1:100-200)\n");
-    fprintf(stderr, "    --autosome            Only call variants on autosomes [False]\n");
-    fprintf(stderr, "                          e.g., human: chr{1-22} or 1-22\n");
-    fprintf(stderr, "    --autosome-XY         Only call variants on autosomes and sex chromosomes [False]\n");
+    fprintf(stderr, "    --autosome-XY         only call variants on autosomes and sex chromosomes [Default]\n");
     fprintf(stderr, "                          e.g., human: chr{1-22,XY} or 1-22,XY\n");
-    fprintf(stderr, "    -r --ref-idx    FILE  .fai index file for reference genome FASTA file, detect automaticaly if not provided [NULL]\n");
-    // fprintf(stderr, "    -b --out-bam     STR  output phased BAM file [NULL]\n");
+    fprintf(stderr, "    --all-ctg             call variants on all chromosomes/contigs [False]\n");
+    fprintf(stderr, "    --autosome            only call variants on autosomes [False]\n");
+    fprintf(stderr, "                          e.g., human: chr{1-22} or 1-22\n");
+    fprintf(stderr, "    -E --exclude-ctg STR  exclude contig/chromosome [NULL]\n");
+    fprintf(stderr, "                          can be used multiple times, e.g., -E hs37d5 -E chrM\n");
     fprintf(stderr, "    -n --sample-name STR  sample name. 'RG/SM' in BAM header will be used if not provided [NULL]\n");
     fprintf(stderr, "                          BAM file name will be used if not provided and no 'RG/SM' in BAM header\n");
+    fprintf(stderr, "    -r --ref-idx    FILE  .fai index file for reference genome FASTA file, detect automaticaly if not provided [NULL]\n");
+    fprintf(stderr, "    -T --trans-elem FILE  transposable element sequence [NULL]\n");
+    fprintf(stderr, "  Output:\n");
     fprintf(stderr, "    -o --out-vcf    FILE  output phased VCF file [stdout]\n");
     fprintf(stderr, "    -O --out-type    STR  v/z: un/compressed VCF [v]\n");
-    // fprintf(stderr, "       --somatic-snp    output somatic SNPs [False]\n");
-    // fprintf(stderr, "       --methylation    output methylation site information [False]\n");
-    // fprintf(stderr, "                          if present, MM/ML tags will be used to calculate methylation level\n");
+    fprintf(stderr, "    -l --min-sv-len  INT  min. length to be considered as SV [%d]\n", LONGCALLD_MIN_SV_LEN);
+    fprintf(stderr, "                          SV-related information will be added to INFO field, e.g., SVLEN/SVTYPE/TSD\n");
     fprintf(stderr, "    -H --no-vcf-header    do NOT output VCF header [False]\n");
-    fprintf(stderr, "       --amb-base         output variant with ambiguous base [False]\n");
+    fprintf(stderr, "    -s --mosaic/somatic   output low allele-frequency mosaic/somatic variants [False]\n");
+    // fprintf(stderr, "    -m --methylation    output methylation site information [False]\n");
+    // fprintf(stderr, "                          if present, MM/ML tags will be used to calculate methylation level\n");
+    fprintf(stderr, "       --amb-base         output variant with ambiguous base (N) [False]\n");
     fprintf(stderr, "    -b --out-bam    FILE  output phased BAM file [NULL]\n");
+    fprintf(stderr, "    -S --out-sam    FILE  output phased SAM file [NULL]\n");
     fprintf(stderr, "    -C --out-cram   FILE  output phased CRAM file [NULL]\n");
+    fprintf(stderr, "    --refine-aln          refine alignment in output SAM/BAM/CRAM [False]\n");
+    fprintf(stderr, "                          Note: output SAM/BAM/CRAM may be unsorted when --refine-aln is set\n");
     // fprintf(stderr, "    -g --gap-aln     STR  put gap on the \'left\' or \'right\' side in alignment [left/l]\n");
     // fprintf(stderr, "                          \'left\':  ATTTG\n");
     // fprintf(stderr, "                                   | |||\n");
@@ -701,11 +725,18 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "    -M --min-mapq    INT  min. mapping quality for long-read alignment to be used [%d]\n", LONGCALLD_MIN_CAND_MQ);
     // fprintf(stderr, "    -B --min-bq      INT  filter out base with base quality < -B/--min-bq [%d]\n", LONGCALLD_MIN_CAND_BQ);
     // fprintf(stderr, "    -p --max-ploidy  INT  max. ploidy [%d]\n", LONGCALLD_DEF_PLOID);
-    fprintf(stderr, "  Variant calling in noisy regions:\n");
-    fprintf(stderr, "    -x --max-xgap    INT  max. number of allowed substitutions/gap-bases in a sliding window(-w/--win-size) [%d]\n", LONGCALLD_NOISY_REG_MAX_XGAPS);
-    fprintf(stderr, "                          window with more than -x subs/gap-bases will be considered as noisy region\n");
-    fprintf(stderr, "    -w --win-size    INT  window size for searching noisy region [%d]\n", LONGCALLD_NOISY_REG_SLIDE_WIN);
-    fprintf(stderr, "    -j --noisy-rat FLOAT  min. ratio of noisy reads in a window to call a noisy region [%.2f]\n", LONGCALLD_NOISY_REG_RATIO);
+    fprintf(stderr, "  Low allele-frequency mosaic/somatic variant calling: (effective when -s/--mosaic/--somatic is used)\n");
+    // fprintf(stderr, "    --alpha          INT  alpha value of beta-binomial distribution [%d]\n", LONGCALLD_SOMATIC_BETA_ALPHA);
+    // fprintf(stderr, "    --beta           INT  beta value of beta-binomial distribution [%d]\n", LONGCALLD_SOMATIC_BETA_BETA);
+    fprintf(stderr, "    --som-alt        INT  min. alt. read coverage for somatic variant [%d]\n", LONGCALLD_MIN_SOMATIC_ALT_DP);
+    fprintf(stderr, "    --som-mei-alt    INT  min. alt. read coverage for somatic MEI variant [%d]\n", LONGCALLD_MIN_SOMATIC_TE_ALT_DP);
+    fprintf(stderr, "    --max-somvar INT,INT  max. number of mosaic/somatic variants allowed in a window (m,w) [%d,%d]\n", LONGCALLD_SOMATIC_WIN_MAX_VARS, LONGCALLD_SOMATIC_WIN);
+    // fprintf(stderr, "  Variant calling in noisy regions:\n");
+    // fprintf(stderr, "    -x --max-xgap    INT  max. number of allowed substitutions/gap-bases in a sliding window(-w/--win-size) [%d]\n", LONGCALLD_NOISY_REG_MAX_XGAPS);
+    // fprintf(stderr, "                          window with more than -x subs/gap-bases will be considered as noisy region\n");
+    // fprintf(stderr, "    -w --win-size    INT  window size for searching noisy region [%d]\n", LONGCALLD_NOISY_REG_HIFI_SLIDE_WIN);
+    // fprintf(stderr, "    -D --merge-dis   INT  default max. distance to merge two potential noisy SV regions [%d]\n", LONGCALLD_NOISY_REG_MERGE_DIS);
+    // fprintf(stderr, "    -j --noisy-rat FLOAT  min. ratio of noisy reads in a window to call a noisy region [%.2f]\n", LONGCALLD_NOISY_REG_RATIO);
     // fprintf(stderr, "    -f --noisy-flank INT  flanking mask window size for noisy region [%d]\n", LONGCALLD_DENSE_FLANK_WIN);
     // fprintf(stderr, "    -c --end-clip    INT  max. number of clipping bases on both ends [%d]\n", LONGCALLD_NOISY_END_CLIP);
     // fprintf(stderr, "                          end-clipping region with more than -c bases will be considered as noisy clipping region\n");
@@ -729,9 +760,21 @@ static void call_var_usage(void) {//main usage
 
 int call_var_main(int argc, char *argv[]) {
     // _err_cmd("%s\n", CMD);
-    int c, op_idx; call_var_opt_t *opt = call_var_init_para();
+    const char *opt_str = "r:T:E:o:O:ml:Hb:C:S:sc:d:M:B:a:n:x:w:D:j:L:f:p:g:Nt:hvV:";
+    int c, op_idx; call_var_opt_t *opt = call_var_init_para(); char *s;
     double realtime0 = realtime();
-    while ((c = getopt_long(argc, argv, "r:o:O:Hb:C:c:d:M:B:a:n:x:w:j:L:f:p:g:Nt:hvV:", call_var_opt, &op_idx)) >= 0) {
+    // first round of getopt_long() to parse preset options
+    while ((c = getopt_long(argc, argv, opt_str, call_var_opt, &op_idx)) >= 0) {
+        switch(c) {
+            case 0: 
+                if (strcmp(call_var_opt[op_idx].name, "hifi") == 0) set_hifi_opt(opt);
+                else if (strcmp(call_var_opt[op_idx].name, "ont") == 0) set_ont_opt(opt);
+                break;
+        }
+    }
+    optind = 1; // reset optind for next getopt_long() call
+    // second round of getopt_long() to parse other options
+    while ((c = getopt_long(argc, argv, opt_str, call_var_opt, &op_idx)) >= 0) {
         switch(c) {
             case 'r': opt->ref_fa_fai_fn = strdup(optarg); break;
             // case 'b': cgp->var_block_size = atoi(optarg); break;
@@ -740,19 +783,32 @@ int call_var_main(int argc, char *argv[]) {
                       else _err_error_exit("\'-O/--out-type\' can only be \'v\' or \'z\'\n");
                       break;
             case 'H': opt->no_vcf_header = 1; break;
+            case 'l': opt->min_sv_len = atoi(optarg); break;
+            case 'T': opt->te_seq_fn = strdup(optarg); make_te_kmer_idx(opt); break;
             case 0: if (strcmp(call_var_opt[op_idx].name, "amb-base") == 0) opt->out_amb_base = 1; 
-                    else if (strcmp(call_var_opt[op_idx].name, "hifi") == 0) set_hifi_opt(opt);
-                    else if (strcmp(call_var_opt[op_idx].name, "ont") == 0) set_ont_opt(opt);
-                    // else if (strcmp(call_var_opt[op_idx].name, "ont-hp-prof") == 0) set_ont_hp_prof(opt, optarg);
+                    // else if (strcmp(call_var_opt[op_idx].name, "hifi") == 0) set_hifi_opt(opt);
+                    // else if (strcmp(call_var_opt[op_idx].name, "ont") == 0) set_ont_opt(opt);
                     else if (strcmp(call_var_opt[op_idx].name, "region-file") == 0 || 
                              strcmp(call_var_opt[op_idx].name, "regions-file") == 0) opt->reg_bed_fn = strdup(optarg);
+                    else if (strcmp(call_var_opt[op_idx].name, "all-ctg") == 0) opt->only_autosome = 0, opt->only_autosome_XY=0;
                     else if (strcmp(call_var_opt[op_idx].name, "autosome") == 0) opt->only_autosome = 1;
                     else if (strcmp(call_var_opt[op_idx].name, "autosome-XY") == 0) opt->only_autosome_XY = 1;
-                    else if (strcmp(call_var_opt[op_idx].name, "somatic-snp") == 0) opt->out_somatic_snp = 1;
-                    else if (strcmp(call_var_opt[op_idx].name, "methylation") == 0) opt->out_methylation = 1;
+                    else if (strcmp(call_var_opt[op_idx].name, "mosaic") == 0) opt->out_somatic = 1;
+                    else if (strcmp(call_var_opt[op_idx].name, "alpha") == 0) opt->somatic_beta_alpha = atoi(optarg);
+                    else if (strcmp(call_var_opt[op_idx].name, "beta") == 0) opt->somatic_beta_beta = atoi(optarg);
+                    else if (strcmp(call_var_opt[op_idx].name, "som-alt") == 0) opt->min_somatic_alt_dp = atoi(optarg);
+                    else if (strcmp(call_var_opt[op_idx].name, "som-mei-alt") == 0) opt->min_somatic_te_dp = atoi(optarg);
+                    else if (strcmp(call_var_opt[op_idx].name, "max-somvar") == 0) {
+                        opt->somatic_win_max_vars = strtol(optarg, &s, 10); 
+                        if (*s == ',') opt->somatic_win = strtol(s+1, &s, 10); break;
+                    } else if (strcmp(call_var_opt[op_idx].name, "refine-aln") == 0) opt->refine_bam = 1;
                     break;
+            case 's': opt->out_somatic = 1; break;
+            case 'm': opt->out_methylation = 1; break;
+            case 'E': set_exclude_ctg(opt, optarg); break;
             case 'b': opt->out_bam = hts_open(optarg, "wb"); opt->out_is_cram = 0; break;
             case 'C': opt->out_bam = hts_open(optarg, "wc"); opt->out_is_cram = 1; break;
+            case 'S': opt->out_bam = hts_open(optarg, "w"); opt->out_is_cram = 0; break;
             case 'c': opt->min_dp = atoi(optarg); break;
             case 'd': opt->min_alt_dp = atoi(optarg); break;
             case 'a': opt->min_af = atof(optarg); break;
@@ -763,7 +819,8 @@ int call_var_main(int argc, char *argv[]) {
             case 'w': opt->noisy_reg_slide_win = atoi(optarg); break;
             case 'p': opt->min_hap_full_reads = atoi(optarg); break;
             // case 'f': opt->min_no_hap_full_reads = atoi(optarg); break;
-            case 'j': opt->min_noisy_reg_ratio = atof(optarg); break;
+            // case 'D': opt->noisy_reg_merge_dis = atoi(optarg); break;
+            // case 'j': opt->min_noisy_reg_ratio = atof(optarg); break;
             case 'L': opt->max_noisy_reg_len = atoi(optarg); break;
             // case 'c': opt->end_clip_reg = atoi(optarg); break;
             // case 'F': opt->end_clip_reg_flank_win = atoi(optarg); break;
@@ -773,21 +830,20 @@ int call_var_main(int argc, char *argv[]) {
             case 'N': opt->disable_read_realign = 1; break;
             case 't': opt->n_threads = atoi(optarg); break;
             case 'h': call_var_free_para(opt); call_var_usage();
-            case 'v': fprintf(stdout, "%s\n", VERSION); call_var_free_para(opt); return 0;
+            case 'v': fprintf(stdout, "%s\n", LONGCALLD_VERSION); call_var_free_para(opt); return 0;
             case 'V': LONGCALLD_VERBOSE = atoi(optarg); break;
-            default: call_var_free_para(opt); call_var_usage();
+            default: call_var_free_para(opt); return 0;
         }
     }
 
-    if (argc - optind == 0) {
+    if (argc - optind < 2) {
         call_var_free_para(opt); call_var_usage();
-    } else if (argc - optind < 2) {
-        _err_error_exit("Reference genome FASTA and alignment BAM are required.\n");
+    // } else if (argc - optind < 2) {
+        // _err_error_exit("Reference genome FASTA and alignment BAM are required.\n");
     } else {
         opt->ref_fa_fn = argv[optind++];
         opt->in_bam_fn = argv[optind++];
     }
-    // }
     // check if input is (short) URL
     opt->ref_fa_fn = retrieve_full_url(opt->ref_fa_fn); opt->in_bam_fn = retrieve_full_url(opt->in_bam_fn);
     // check if hifi and ont are both set

@@ -1,5 +1,5 @@
 # log file
-*.log
+*log
 TODO.md
 # Prerequisites
 *.d
@@ -60,6 +60,7 @@ Mkfile.old
 dkms.conf
 
 # vscode
+.lintr
 .vscode
 
 # gprof

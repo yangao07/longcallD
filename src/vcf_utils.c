@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h> // Add the missing import statement for the 'time' library
+#include <time.h>
 #include "main.h"
 #include "bam_utils.h"
 #include "utils.h"
@@ -18,7 +18,7 @@ void write_vcf_header(bam_hdr_t *hdr, struct call_var_opt_t *opt) {
     htsFile *out_vcf = opt->out_vcf;
     char *sample_name = opt->sample_name;
     bcf_hdr_t *vcf_hdr = bcf_hdr_init("w");
-    if (!vcf_hdr) _err_error_exit("Error: Could not allocate VCF header.\n");
+    if (!vcf_hdr) _err_error_exit("Could not allocate VCF header.\n");
     // File format
     bcf_hdr_append(vcf_hdr, "##fileformat=VCFv4.3");
 
@@ -33,7 +33,7 @@ void write_vcf_header(bam_hdr_t *hdr, struct call_var_opt_t *opt) {
 
     // Source information
     char source_str[100];
-    snprintf(source_str, sizeof(source_str), "##source=%s version=%s", PROG, VERSION);
+    snprintf(source_str, sizeof(source_str), "##source=%s version=%s", PROG, LONGCALLD_VERSION);
     bcf_hdr_append(vcf_hdr, source_str);
 
     // Command line
@@ -60,6 +60,15 @@ void write_vcf_header(bam_hdr_t *hdr, struct call_var_opt_t *opt) {
     bcf_hdr_append(vcf_hdr, "##INFO=<ID=END,Number=1,Type=Integer,Description=\"End position on CHROM\">");
     bcf_hdr_append(vcf_hdr, "##INFO=<ID=SVLEN,Number=1,Type=Integer,Description=\"Length of structural variation\">");
     bcf_hdr_append(vcf_hdr, "##INFO=<ID=SVTYPE,Number=1,Type=String,Description=\"Type of structural variation\">");
+    // TSD info
+    bcf_hdr_append(vcf_hdr, "##INFO=<ID=TSD,Number=1,Type=String,Description=\"Target site duplication sequence\">");
+    bcf_hdr_append(vcf_hdr, "##INFO=<ID=TSDLEN,Number=1,Type=Integer,Description=\"Length of target site duplication\">");
+    bcf_hdr_append(vcf_hdr, "##INFO=<ID=POLYALEN,Number=1,Type=Integer,Description=\"Length of polyA/T sequence\">");
+    // there will be 2 TSDs for DEL
+    bcf_hdr_append(vcf_hdr, "##INFO=<ID=TSDPOS1,Number=1,Type=Integer,Description=\"Start position of first target site duplication on CHROM\">");
+    bcf_hdr_append(vcf_hdr, "##INFO=<ID=TSDPOS2,Number=1,Type=Integer,Description=\"Start position of second target site duplication on CHROM\">");
+    bcf_hdr_append(vcf_hdr, "##INFO=<ID=REPNAME,Number=1,Type=String,Description=\"Repeat name\">");
+    // bcf_hdr_append(vcf_hdr, "##INFO=<ID=REPCLSFAM,Number=1,Type=String,Description=\"Repeat class/family\">");
 
     // FORMAT fields
     bcf_hdr_append(vcf_hdr, "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">");
@@ -80,135 +89,24 @@ void write_vcf_header(bam_hdr_t *hdr, struct call_var_opt_t *opt) {
     opt->vcf_hdr = vcf_hdr;
 }
 
-// Write variants to VCF
-int old_write_var_to_vcf(var_t *vars, const struct call_var_opt_t *opt, char *chrom) {
-    htsFile *out_vcf = opt->out_vcf;  // htsFile pointer
-    int n_vars = vars->n;
-    int n_output_vars = 0;
-    int m = 100000; char *buffer = (char*)malloc(m * sizeof(char));  // Buffer for output string
-    int len = 0;        // Length of the output string
-
-    for (int i = 0; i < n_vars; i++) {
-        var1_t var = vars->vars[i];
-        if (var.n_alt_allele == 0) continue;
-        if (var.DP < opt->min_dp || var.AD[1] < opt->min_alt_dp) continue;
-
-        // Validate bases
-        if (opt->out_amb_base == 0) {
-            uint8_t skip = 0;
-            for (int j = 0; j < var.ref_len; j++) {
-                if (var.ref_bases[j] >= 4) {
-                    if (LONGCALLD_VERBOSE >= 2) 
-                        fprintf(stderr, "Invalid ref base: %s %" PRId64 " %d\n", chrom, var.pos + j, var.ref_bases[j]);
-                    skip = 1; break;
-                }
-            }
-            if (skip) continue;
-
-            for (int j = 0; j < var.n_alt_allele; j++) {
-                for (int k = 0; k < var.alt_len[j]; k++) {
-                    if (var.alt_bases[j][k] >= 4) {
-                        if (LONGCALLD_VERBOSE >= 2) 
-                            fprintf(stderr, "Invalid alt base: %s %" PRId64 " %d\n", chrom, var.pos, var.alt_bases[j][k]);
-                        skip = 1; break;
-                    }
-                }
-                if (skip) break;
-            }
-            if (skip) continue;
-        }
-
-        // Write to buffer
-        len = snprintf(buffer, m, "%s\t%" PRId64 "\t.\t", chrom, var.pos);
-
-        // Write REF
-        int base_len = var.ref_len;
-        for (int j = 0; j < var.n_alt_allele; j++) base_len += var.alt_len[j];
-        if (base_len > 90000) {
-            m = base_len + 10000;
-            buffer = (char*)realloc(buffer, m * sizeof(char));
-        }
-        for (int j = 0; j < var.ref_len; j++) 
-            len += snprintf(buffer + len, sizeof(buffer) - len, "%c", "ACGTN"[var.ref_bases[j]]);
-
-        // Write ALT
-        len += snprintf(buffer + len, sizeof(buffer) - len, "\t");
-        for (int j = 0; j < var.n_alt_allele; j++) {
-            for (int k = 0; k < var.alt_len[j]; k++) 
-                len += snprintf(buffer + len, sizeof(buffer) - len, "%c", "ACGTN"[var.alt_bases[j][k]]);
-            if (j < var.n_alt_allele - 1) len += snprintf(buffer + len, sizeof(buffer) - len, ",");
-        }
-
-        // Structural Variant (SV) annotation
-        int is_sv = 0, k = 0;
-        char SVLEN[1024] = "SVLEN=", tmp[1024];
-        char SVTYPE[1024] = "SVTYPE=";
-        for (int i = 0; i < var.n_alt_allele; i++) {
-            if (abs(var.alt_len[i] - var.ref_len) >= 50) { 
-                if (k > 0) {
-                    strcat(SVLEN, ",");
-                    strcat(SVTYPE, ",");
-                }
-                is_sv = 1;
-                sprintf(tmp, "%d", var.alt_len[i] - var.ref_len);
-                strcat(SVLEN, tmp);
-                sprintf(tmp, "%s", var.alt_len[i] > var.ref_len ? "INS" : "DEL");
-                strcat(SVTYPE, tmp);
-                k++;
-            }
-        }
-
-        // Write QUAL, FILTER, INFO
-        len += snprintf(buffer + len, sizeof(buffer) - len, "\t%d\tPASS\t", var.QUAL);
-        if (var.is_somatic) len += snprintf(buffer + len, sizeof(buffer) - len, "SOMATIC;");
-        len += snprintf(buffer + len, sizeof(buffer) - len, "END=%" PRId64 "", var.pos + var.ref_len - 1);
-        if (is_sv) len += snprintf(buffer + len, sizeof(buffer) - len, ";%s;%s\t", SVTYPE, SVLEN);
-        else len += snprintf(buffer + len, sizeof(buffer) - len, "\t");
-
-        // Write FORMAT and Genotype Data
-        int is_hom = (var.GT[0] == var.GT[1]);
-        if (is_hom) 
-            len += snprintf(buffer + len, sizeof(buffer) - len, "GT:DP:AD:GQ\t%d|%d:%d:", var.GT[0], var.GT[1], var.DP);
-        else 
-            len += snprintf(buffer + len, sizeof(buffer) - len, "GT:DP:AD:GQ:PS\t%d|%d:%d:", var.GT[0], var.GT[1], var.DP);
-
-        for (int j = 0; j < 1 + var.n_alt_allele; j++) {
-            if (j > 0) len += snprintf(buffer + len, sizeof(buffer) - len, ",");
-            len += snprintf(buffer + len, sizeof(buffer) - len, "%d", var.AD[j]);
-        }
-
-        if (is_hom) 
-            len += snprintf(buffer + len, sizeof(buffer) - len, ":%d\n", var.GQ);
-        else 
-            len += snprintf(buffer + len, sizeof(buffer) - len, ":%d:%" PRId64 "\n", var.GQ, var.PS);
-
-        // Write to htsFile
-        if (out_vcf->format.compression!=no_compression) {
-            if (bgzf_write(out_vcf->fp.bgzf, buffer, len) < 0) {
-                _err_error_exit("Error: Could not write to VCF file.\n");
-            }
-        } else {
-            if (hwrite(out_vcf->fp.hfile, buffer, len) < 0) {
-                _err_error_exit("Error: Could not write to VCF file.\n");
-            }
-        }
-        n_output_vars++;
-    }
-    free(buffer);
-    return n_output_vars;
-}
-
 int write_var_to_vcf(var_t *vars, const struct call_var_opt_t *opt, char *chrom) {
     htsFile *out_vcf = opt->out_vcf;  // htsFile pointer
     int n_vars = vars->n;
     int n_output_vars = 0;
-    int m = 100000; char *buffer = (char*)malloc(m * sizeof(char));  // Buffer for output string
+    int buf_m = 50000; char *buffer = (char*)malloc(buf_m * sizeof(char));  // Buffer for output string
     int len = 0;        // Length of the output string
+    int min_sv_len = opt->min_sv_len;
 
-    for (int i = 0; i < n_vars; i++) {
-        var1_t var = vars->vars[i];
+    for (int var_i = 0; var_i < n_vars; var_i++) {
+        var1_t var = vars->vars[var_i];
         if (var.n_alt_allele == 0) continue;
-        if (var.DP < opt->min_dp || var.AD[1] < opt->min_alt_dp) continue;
+        if (var.DP < opt->min_dp) continue;
+        if (opt->out_somatic && var.is_somatic) {
+            if (var.AD[1] < opt->min_somatic_te_dp) continue;
+            else if (var.AD[1] < opt->min_alt_dp && var.tsd_len <= 0) continue; 
+        } else {
+            if (var.AD[1] < opt->min_alt_dp) continue;
+        }
 
         // Validate bases
         if (opt->out_amb_base == 0) {
@@ -236,14 +134,14 @@ int write_var_to_vcf(var_t *vars, const struct call_var_opt_t *opt, char *chrom)
         }
 
         // Write to buffer
-        len = snprintf(buffer, m, "%s\t%" PRId64 "\t.\t", chrom, var.pos);
+        len = snprintf(buffer, buf_m, "%s\t%" PRId64 "\t.\t", chrom, var.pos);
 
         // Write REF
         int base_len = var.ref_len;
         for (int j = 0; j < var.n_alt_allele; j++) base_len += var.alt_len[j];
-        if (base_len > 90000) {
-            m = base_len + 10000;
-            buffer = (char*)realloc(buffer, m * sizeof(char));
+        if (base_len > buf_m) {
+            buf_m = base_len + 10000;
+            buffer = (char*)realloc(buffer, buf_m * sizeof(char));
         }
         for (int j = 0; j < var.ref_len; j++) 
             len += snprintf(buffer + len, sizeof(buffer) - len, "%c", "ACGTN"[var.ref_bases[j]]);
@@ -260,8 +158,8 @@ int write_var_to_vcf(var_t *vars, const struct call_var_opt_t *opt, char *chrom)
         int is_sv = 0, k = 0;
         char SVLEN[1024] = "SVLEN=", tmp[1024];
         char SVTYPE[1024] = "SVTYPE=";
-        for (int i = 0; i < var.n_alt_allele; i++) {
-            if (abs(var.alt_len[i] - var.ref_len) >= 50) { 
+        for (int i = 0; i < var.n_alt_allele; i++) { // assert(var.n_alt_allele == 1)
+            if (abs(var.alt_len[i] - var.ref_len) >= min_sv_len) { 
                 if (k > 0) {
                     strcat(SVLEN, ",");
                     strcat(SVTYPE, ",");
@@ -274,27 +172,42 @@ int write_var_to_vcf(var_t *vars, const struct call_var_opt_t *opt, char *chrom)
                 k++;
             }
         }
-
+        
         // Write QUAL, FILTER, INFO
         len += snprintf(buffer + len, sizeof(buffer) - len, "\t%d\tPASS\t", var.QUAL);
         if (var.is_somatic) len += snprintf(buffer + len, sizeof(buffer) - len, "SOMATIC;");
+        if (var.te_seq_i >= 0) len += snprintf(buffer + len, sizeof(buffer) - len, "MEI;");
         len += snprintf(buffer + len, sizeof(buffer) - len, "END=%" PRId64 "", var.pos + var.ref_len - 1);
-        if (is_sv) len += snprintf(buffer + len, sizeof(buffer) - len, ";%s;%s\t", SVTYPE, SVLEN);
-        else len += snprintf(buffer + len, sizeof(buffer) - len, "\t");
+        if (is_sv) { 
+            len += snprintf(buffer + len, sizeof(buffer) - len, ";%s;%s", SVTYPE, SVLEN);
+            if (var.tsd_len > 0) {
+                len += snprintf(buffer + len, sizeof(buffer) - len, ";TSD=");
+                for (int i = 0; i < var.tsd_len; ++i) len += snprintf(buffer + len, sizeof(buffer) - len, "%c", "ACGTN"[var.tsd_seq[i]]);
+                len += snprintf(buffer + len, sizeof(buffer) - len, ";TSDLEN=%d;POLYALEN=%d;TSDPOS1=%" PRId64 "", var.tsd_len, var.polya_len, var.tsd_pos1);
+                if (var.tsd_pos2 > 0) len += snprintf(buffer + len, sizeof(buffer) - len, ";TSDPOS2=%" PRId64 "", var.tsd_pos2);
+            }
+            if (var.te_seq_i >= 0) len += snprintf(buffer + len, sizeof(buffer) - len, ";REPNAME=%c%s", "+-"[var.te_is_rev], opt->te_seq_names[var.te_seq_i]);
+        }
+        len += snprintf(buffer + len, sizeof(buffer) - len, "\t");
 
         // Write FORMAT and Genotype Data
-        int is_hom = (var.GT[0] == var.GT[1]);
-        if (is_hom) 
-            len += snprintf(buffer + len, sizeof(buffer) - len, "GT:DP:AD:GQ\t%d|%d:%d:", var.GT[0], var.GT[1], var.DP);
+        int gt1 = var.GT[0], gt2 = var.GT[1];
+        int is_hom = gt1 == gt2; int gt_seperator = '|';
+        if (var.PS == 0) {
+            gt_seperator = '/';
+            if (gt1 > gt2) { int tmp = gt1; gt1 = gt2; gt2 = tmp;  }
+        }
+        if (is_hom || var.PS == 0) 
+            len += snprintf(buffer + len, sizeof(buffer) - len, "GT:DP:AD:GQ\t%d%c%d:%d:", gt1, gt_seperator, gt2, var.DP);
         else 
-            len += snprintf(buffer + len, sizeof(buffer) - len, "GT:DP:AD:GQ:PS\t%d|%d:%d:", var.GT[0], var.GT[1], var.DP);
+            len += snprintf(buffer + len, sizeof(buffer) - len, "GT:DP:AD:GQ:PS\t%d%c%d:%d:", gt1, gt_seperator, gt2, var.DP);
 
         for (int j = 0; j < 1 + var.n_alt_allele; j++) {
             if (j > 0) len += snprintf(buffer + len, sizeof(buffer) - len, ",");
             len += snprintf(buffer + len, sizeof(buffer) - len, "%d", var.AD[j]);
         }
 
-        if (is_hom) 
+        if (is_hom || var.PS == 0) 
             len += snprintf(buffer + len, sizeof(buffer) - len, ":%d\n", var.GQ);
         else 
             len += snprintf(buffer + len, sizeof(buffer) - len, ":%d:%" PRId64 "\n", var.GQ, var.PS);
@@ -302,11 +215,11 @@ int write_var_to_vcf(var_t *vars, const struct call_var_opt_t *opt, char *chrom)
         // Write to htsFile
         if (out_vcf->format.compression!=no_compression) {
             if (bgzf_write(out_vcf->fp.bgzf, buffer, len) < 0) {
-                _err_error_exit("Error: Could not write to VCF file.\n");
+                _err_error_exit("Could not write to VCF file.\n");
             }
         } else {
             if (hwrite(out_vcf->fp.hfile, buffer, len) < 0) {
-                _err_error_exit("Error: Could not write to VCF file.\n");
+                _err_error_exit("Could not write to VCF file.\n");
             }
         }
         // fprintf(stdout, "%s", buffer);

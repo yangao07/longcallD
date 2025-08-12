@@ -222,7 +222,7 @@ int compare_by_label_desc(const void *a, const void *b) {
     return intv2->label - intv1->label; // Descending order
 }
 
-cgranges_t *cr_cluster0(cgranges_t *cr, int32_t fixed_merge_win) {
+cgranges_t *cr_cluster0(cgranges_t *cr, int32_t fixed_merge_win, int32_t dynamic_merge_win, int32_t dynamic_merge_label_min) {
     cgranges_t *clustered_cr = cr_init();
 
     for (int32_t i = 0; i < cr->n_ctg; ++i) {
@@ -245,8 +245,14 @@ cgranges_t *cr_cluster0(cgranges_t *cr, int32_t fixed_merge_win) {
                 int32_t next_label = cr->r[k].label;
                 
                 int merge_win;
-                if (fixed_merge_win < 0) merge_win = merged_label < next_label ? merged_label : next_label;
-                else merge_win = fixed_merge_win;
+                if (fixed_merge_win < 0) {
+                    int32_t min_label = merged_label < next_label ? merged_label : next_label;
+                    // if (min_label >= dynamic_merge_label_min) {
+                        // merge_win = dynamic_merge_win > min_label ? dynamic_merge_win : min_label;
+                    // } else {
+                    merge_win = min_label; // Use the label as the merge window XXX merge_lable_min is not used
+                    // }
+                } else merge_win = fixed_merge_win;
                 if (merged_end + merge_win >= next_start) { // merge
                     merged_label = merged_label > next_label ? merged_label : next_label;
                     merged_start = merged_start < next_start ? merged_start : next_start;
@@ -263,10 +269,10 @@ cgranges_t *cr_cluster0(cgranges_t *cr, int32_t fixed_merge_win) {
     return clustered_cr;
 }
 
-cgranges_t *cr_cluster(cgranges_t *cr, int32_t fixed_merge_win) {
+cgranges_t *cr_cluster(cgranges_t *cr, int32_t fixed_merge_win, int32_t dynamic_merge_win, int32_t dynamic_merge_label_min) {
     int cur_cr_n = cr->n_r;
     while (1) {
-        cgranges_t *tmp_cr = cr_cluster0(cr, fixed_merge_win);
+        cgranges_t *tmp_cr = cr_cluster0(cr, fixed_merge_win, dynamic_merge_win, dynamic_merge_label_min);
         cr = tmp_cr;
         if (cr->n_r == cur_cr_n) {
             break;
@@ -276,10 +282,14 @@ cgranges_t *cr_cluster(cgranges_t *cr, int32_t fixed_merge_win) {
     return cr;
 }
 
-cgranges_t *cr_merge(cgranges_t *cr, int32_t fixed_merge_win) {
+// 1) if fixed_merge_win >= 0: merge intervals with a distance <= fixed_merge_win
+// 2) if fixed_merge_win < 0: 
+//    2.1) if label_min >= dynamic_merge_label_min: use Max(dynamic_merge_win, label_min) 
+//    2.2) else: use label_min
+cgranges_t *cr_merge(cgranges_t *cr, int32_t fixed_merge_win, int32_t dynamic_merge_win, int32_t dynamic_merge_label_min) {
     int cur_cr_n = cr->n_r;
     while (1) {
-        cgranges_t *tmp_cr = cr_cluster0(cr, fixed_merge_win);
+        cgranges_t *tmp_cr = cr_cluster0(cr, fixed_merge_win, dynamic_merge_win, dynamic_merge_label_min);
         cr = tmp_cr;
         if (cr->n_r == cur_cr_n) {
             break;
@@ -290,7 +300,7 @@ cgranges_t *cr_merge(cgranges_t *cr, int32_t fixed_merge_win) {
 }
 
 // merge two intervals with a distance <= cr_label
-cgranges_t *cr_merge2(cgranges_t *cr1, cgranges_t *cr2, int32_t fixed_merge_win) {
+cgranges_t *cr_merge2(cgranges_t *cr1, cgranges_t *cr2, int32_t fixed_merge_win, int32_t dynamic_merge_win, int32_t dynamic_merge_label_min) {
     cgranges_t *merged_cr = cr_init();
     
     // Add all intervals from cr1 to merged_cr
@@ -320,7 +330,7 @@ cgranges_t *cr_merge2(cgranges_t *cr1, cgranges_t *cr2, int32_t fixed_merge_win)
     }
     // Now merge intervals within merged_cr
     cr_index(merged_cr);
-    cgranges_t *final_cr = cr_merge(merged_cr, fixed_merge_win);
+    cgranges_t *final_cr = cr_merge(merged_cr, fixed_merge_win, dynamic_merge_win, dynamic_merge_label_min);
     return final_cr;
 }
 
@@ -390,6 +400,26 @@ void cr_index(cgranges_t *cr)
 /*********
  * Query *
  *********/
+
+int64_t cr_max_start_int(const cgranges_t *cr, int32_t ctg_id, int32_t st) // find the largest i such that cr_st(&r[i]) <= st
+{
+    int64_t left, right;
+    const cr_ctg_t *c;
+    const cr_intv_t *r;
+
+    if (ctg_id < 0 || ctg_id >= cr->n_ctg) return -1;
+    c = &cr->ctg[ctg_id];
+    r = &cr->r[c->off];
+    if (c->n == 0) return -1;
+    left = 0, right = c->n;
+    while (right > left) {
+        int64_t mid = left + ((right - left) >> 1);
+        if (cr_st(&r[mid]) <= st) left = mid + 1;
+        else right = mid;
+    }
+    assert(left == right);
+    return left == 0? -1 : c->off + left - 1;
+}
 
 int64_t cr_min_start_int(const cgranges_t *cr, int32_t ctg_id, int32_t st) // find the smallest i such that cr_st(&r[i]) >= st
 {
@@ -478,6 +508,25 @@ int64_t cr_contain_int(const cgranges_t *cr, int32_t ctg_id, int32_t st, int32_t
     return n;
 }
 
+// (st, en] is fully contained in any interval in cr
+int64_t cr_is_contained_int(const cgranges_t *cr, int32_t ctg_id, int32_t st, int32_t en, int64_t **b_, int64_t *m_b_)
+{
+    int64_t n = 0, i, s, e, *b = *b_, m_b = *m_b_;
+    s = cr_max_start_int(cr, ctg_id, st);
+    if (s < 0) return 0;
+    e = cr->ctg[ctg_id].off + cr->ctg[ctg_id].n;
+    for (i = s; i < e; ++i) {
+        const cr_intv_t *r = &cr->r[i];
+        if (cr_st(r) >= en) break;
+        if (cr_st(r) <= st && cr_en(r) >= en) {
+            if (n == m_b) EXPAND(b, m_b);
+            b[n++] = i;
+        }
+    }
+    *b_ = b, *m_b_ = m_b;
+    return n;
+}
+
 int64_t cr_min_start(const cgranges_t *cr, const char *ctg, int32_t st)
 {
     return cr_min_start_int(cr, cr_get_ctg(cr, ctg), st);
@@ -492,3 +541,9 @@ int64_t cr_contain(const cgranges_t *cr, const char *ctg, int32_t st, int32_t en
 {
     return cr_contain_int(cr, cr_get_ctg(cr, ctg), st, en, b_, m_b_);
 }
+
+int64_t cr_is_contained(const cgranges_t *cr, const char *ctg, int32_t st, int32_t en, int64_t **b_, int64_t *m_b_)
+{
+    return cr_is_contained_int(cr, cr_get_ctg(cr, ctg), st, en, b_, m_b_);
+}
+

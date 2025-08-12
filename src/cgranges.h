@@ -70,10 +70,13 @@ cr_intv_t *cr_add(cgranges_t *cr, const char *ctg, int32_t st, int32_t en, int32
 
 // Sort and index intervals
 void cr_index(cgranges_t *cr);
-cgranges_t *cr_merge(cgranges_t *cr, int32_t fixed_merge_win);
-cgranges_t *cr_merge2(cgranges_t *cr1, cgranges_t *cr2, int32_t fixed_merge_win);
+cgranges_t *cr_merge(cgranges_t *cr, int32_t fixed_merge_win, int32_t dynamic_merge_win, int32_t dynamic_merge_label_min);
+cgranges_t *cr_merge2(cgranges_t *cr1, cgranges_t *cr2, int32_t fixed_merge_win, int32_t dynamic_merge_win, int32_t dynamic_merge_label_min);
 
 int64_t cr_overlap(const cgranges_t *cr, const char *ctg, int32_t st, int32_t en, int64_t **b_, int64_t *m_b_);
+// (st, en] in fully contained in any interval in cr
+int64_t cr_is_contained(const cgranges_t *cr, const char *ctg, int32_t st, int32_t en, int64_t **b_, int64_t *m_b_);
+// (st, en] fully covers any interval in cr
 int64_t cr_contain(const cgranges_t *cr, const char *ctg, int32_t st, int32_t en, int64_t **b_, int64_t *m_b_);
 
 // Add a contig and length. Call this for desired contig ordering. _len_ can be 0.

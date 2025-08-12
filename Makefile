@@ -4,13 +4,15 @@ UNAME_S := $(shell uname -s)
 
 # add -fno-tree-vectorize to avoid certain vectorization errors in O3 optimization
 # right now, we are using -O3 for the best performance, and no vectorization errors were found
-EXTRA_FLAGS = -Wall -Wno-unused-function -Wno-misleading-indentation -Wno-unused-variable
-
-# Get the Git commit hash
-GIT_COMMIT := $(shell git rev-parse --short HEAD)
+EXTRA_FLAGS = -Wall -Wno-unused-function -Wno-misleading-indentation -Wno-unused-variable -Wno-alloc-size-larger-than
 
 # Define the version number
-VERSION = 0.0.4-$(GIT_COMMIT)
+LONGCALLD_VERSION =0.0.5
+# Get the Git commit hash
+GIT_COMMIT := $(shell git rev-parse --short HEAD 2> /dev/null)
+ifneq ($(GIT_COMMIT),)
+	LONGCALLD_VERSION = 0.0.5-$(GIT_COMMIT)
+endif
 
 HTSLIB_DIR  = ./htslib
 HTSLIB      = $(HTSLIB_DIR)/libhts.a
@@ -51,22 +53,28 @@ ifneq ($(debug),)
 endif
 
 ABPOA_GDB_LIB = ./abPOA/lib/libabpoa_sse41.a
-ABPOA_NOR_LIB     = ./abPOA/lib/libabpoa.a
+ABPOA_NOR_LIB = ./abPOA/lib/libabpoa.a
+WFA_GDB_LIB   = ./WFA2-lib/lib/libwfa_gdb.a
+WFA_NOR_LIB   = ./WFA2-lib/lib/libwfa.a
+
 # for gdb
 ifneq ($(gdb),)
-	OPT_FLAGS = -g
+	OPT_FLAGS = -O0 -g
 	ABPOA_LIB = $(ABPOA_GDB_LIB)
+	WFA2_LIB  = $(WFA_GDB_LIB)
 else
 	OPT_FLAGS = -O3
 	ABPOA_LIB = $(ABPOA_NOR_LIB)
+	WFA2_LIB  = $(WFA_NOR_LIB)
 endif
 
-CFLAGS = $(OPT_FLAGS) $(EXTRA_FLAGS) -DVERSION=\"$(VERSION)\"
+CFLAGS = $(OPT_FLAGS) $(EXTRA_FLAGS) -DLONGCALLD_VERSION=\"$(LONGCALLD_VERSION)\"
 
 # for gprof
 ifneq ($(pg),)
-	PG_FLAG  = -pg
-	CFLAGS  += -pg
+	OPT_FLAGS = -O0
+	PG_FLAG   = -pg
+	CFLAGS   += -pg
 endif
 
 ifneq ($(PREFIX),)
@@ -100,18 +108,18 @@ $(HTSLIB): $(HTSLIB_DIR)/configure.ac
 	cd $(HTSLIB_DIR); autoreconf -i; ./configure; make CC=${CC}
 
 $(ABPOA_GDB_LIB): 
-	cd $(ABPOA_DIR); make clean libabpoa gdb=1 sse41=1
+	cd $(ABPOA_DIR); make libabpoa gdb=1 sse41=1
 $(ABPOA_NOR_LIB):
-	cd $(ABPOA_DIR); make clean libabpoa
+	cd $(ABPOA_DIR); make libabpoa
 
 $(ABPOA_ALL): $(ABPOA_LIB)
 
 $(WFA2_LIB):
-	cd $(WFA2_DIR); make setup lib_wfa
+	cd $(WFA2_DIR); make setup lib_wfa CC_FLAGS="$(CC_FLAGS) -O3" 
 $(WFA2_ALL): $(WFA2_LIB)
 
 
-$(BIN): $(OBJS)
+$(BIN): $(OBJS) $(ABPOA_LIB) $(HTSLIB) $(WFA2_LIB)
 	if [ ! -d $(BIN_DIR) ]; then mkdir $(BIN_DIR); fi
 	$(CC) $(OBJS) -o $@ $(LIB) $(PG_FLAG)
 
