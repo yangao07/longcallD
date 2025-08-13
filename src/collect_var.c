@@ -1623,7 +1623,7 @@ int make_cand_vars_from_baln0(const call_var_opt_t *opt, bam_chunk_t *chunk, hts
                 i += gap_len;
                 continue;
             }
-            int is_homopolymer_indel = 0, tsd_len = 0, polya_len = 0; uint8_t *tsd_seq=NULL; hts_pos_t tsd_pos1=-1, tsd_pos2=-1; int te_seq_i=-1, te_is_rev;
+            int is_homopolymer_indel = 0, tsd_len = 0, polya_len = 0; uint8_t *tsd_seq=NULL; hts_pos_t tsd_pos1=-1, tsd_pos2=-1; int te_seq_i=-1, te_is_rev=-1;
             if (gap_len >= min_sv_len) tsd_len = collect_te_info_from_cons(opt, chunk, ref_pos, i, BAM_CINS, gap_len, cons_msa_seq, &tsd_seq, &tsd_pos1, &tsd_pos2, &polya_len, &te_seq_i, &te_is_rev);
             else is_homopolymer_indel = var_is_homopolymer_indel(chunk, ref_pos, BAM_CINS, 0, gap_len, cons_msa_seq+i);
             make_cand_vars0((*cand_vars) + n_vars, tid, ref_pos, BAM_CINS, 2, 0, 0, gap_len, cons_msa_seq+i, is_homopolymer_indel, tsd_len, tsd_seq, tsd_pos1, tsd_pos2, polya_len, te_seq_i, te_is_rev);
@@ -1639,7 +1639,7 @@ int make_cand_vars_from_baln0(const call_var_opt_t *opt, bam_chunk_t *chunk, hts
                 i += gap_len; ref_pos += gap_len;
                 continue;
             }
-            int is_homopolymer_indel = 0, tsd_len = 0, polya_len = 0; uint8_t *tsd_seq=NULL; hts_pos_t tsd_pos1=-1, tsd_pos2=-1; int te_seq_i=-1, te_is_rev;
+            int is_homopolymer_indel = 0, tsd_len = 0, polya_len = 0; uint8_t *tsd_seq=NULL; hts_pos_t tsd_pos1=-1, tsd_pos2=-1; int te_seq_i=-1, te_is_rev=-1;
             if (gap_len >= min_sv_len) tsd_len = collect_te_info_from_cons(opt, chunk, ref_pos, i, BAM_CDEL, gap_len, cons_msa_seq, &tsd_seq, &tsd_pos1, &tsd_pos2, &polya_len, &te_seq_i, &te_is_rev);
             else is_homopolymer_indel = var_is_homopolymer_indel(chunk, ref_pos, BAM_CDEL, gap_len, 0, NULL);
             make_cand_vars0((*cand_vars)+n_vars, tid, ref_pos, BAM_CDEL, 2, gap_len, 0, 0, NULL, is_homopolymer_indel, tsd_len, tsd_seq, tsd_pos1, tsd_pos2, polya_len, te_seq_i, te_is_rev);

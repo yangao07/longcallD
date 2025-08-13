@@ -19,7 +19,6 @@
 <!-- * Significant speed improvement (compiling mistake in last release) -->
 * Add -Oz for compressed VCF output
 * Add --exclude-ctg & --all-ctg; --autosome-XY is default now
-<!-- * Add INFO:TANDAM in VCF for tandem duplications -->
 * Fix lower case ref base
 * Fix compiling in macOS-x64
 
@@ -54,6 +53,7 @@ man ./longcallD.1
   - [Build from source](#build-from-source)
 - [Usage](#usage)
   - [Variant calling with PacBio HiFi/Nanopore long reads](#variant-calling-with-pacbio-hifinanopore-long-reads)
+  - [Low allele-frequency mosaic variant calling](#low-allele-frequency-mosaic-variant-calling)
   - [Region-specific variant calling](#region-specific-variant-calling)
   - [Variant calling and output phased long reads](#variant-calling-and-output-phased-long-reads)
   - [Variant calling from remote files](#variant-calling-from-remote-files)
@@ -66,6 +66,11 @@ LongcallD is a **local-haplotagging-based variant caller** designed for detectin
 using long-read sequencing data. It supports both **PacBio HiFi** and **Oxford Nanopore** reads.
 
 LongcallD phases long reads into haplotypes using SNPs and small indels before calling SVs. It outputs phased variant calls in VCF format, including SNPs, small indels, and large SVs (currently only supporting insertions and deletions).
+
+LongcallD (≥v0.0.5) can also call low-allele-frequency mosaic variant when `-s/--mosaic` is used.
+Currently, only SNVs and large indels are supported, no mosaic small indels will be called.
+Specifically, longcallD can sensitively identify mosaic mobile element insertions (MEIs).
+Providing the annotation sequence of common mobile elements, i.e., Alu/L1/SVA, using `-T` is highly recommanded, which is included [here](https://github.com/yangao07/longcallD/tree/main/anno);
 ## Installation
 
 ### Pre-built executables (recommended)
