@@ -1,8 +1,10 @@
 <!-- # LongcallD: local-haplotagging-based small and structural variant calling -->
 
 <!-- [![Latest Release](https://img.shields.io/github/release/yangao07/longcallD.svg?label=Release)](https://github.com/yangao07/longcallD/releases/latest) -->
+[![Latest Release](https://img.shields.io/github/v/tag/yangao07/longcalld?label=Pre-release)](https://github.com/yangao07/longcallD/releases/latest)
 [![Github All Releases](https://img.shields.io/github/downloads/yangao07/longcallD/total.svg?label=Download)](https://github.com/yangao07/longcallD/releases)
-[![Bioconda Install](https://img.shields.io/conda/dn/bioconda/longcallD.svg?style=flag&label=Bioconda)](https://anaconda.org/bioconda/longcalld)
+[![Bioconda Version](https://img.shields.io/conda/vn/bioconda/longcallD.svg?style=flag&label=Bioconda)](https://anaconda.org/bioconda/longcalld)
+[![Bioconda Install](https://img.shields.io/conda/dn/bioconda/longcallD.svg?style=flag&label=Conda-install)](https://anaconda.org/bioconda/longcalld)
 [![C/C++ CI](https://github.com/yangao07/longcallD/actions/workflows/linux-CI.yml/badge.svg)](https://github.com/yangao07/longcallD/actions/workflows/linux-CI.yml)
 [![C/C++ CI](https://github.com/yangao07/longcallD/actions/workflows/macos-CI.yml/badge.svg)](https://github.com/yangao07/longcallD/actions/workflows/macos-CI.yml)
 [![License](https://img.shields.io/badge/License-MIT-black.svg)](https://github.com/yangao07/longcallD/blob/main/LICENSE)
@@ -70,7 +72,7 @@ LongcallD phases long reads into haplotypes using SNPs and small indels before c
 LongcallD (≥v0.0.5) can also call low-allele-frequency mosaic variant when `-s/--mosaic` is used.
 Currently, only SNVs and large indels are supported, no mosaic small indels will be called.
 Specifically, longcallD can sensitively identify mosaic mobile element insertions (MEIs).
-Providing the annotation sequence of common mobile elements, i.e., Alu/L1/SVA, using `-T` is highly recommanded, which is included [here](https://github.com/yangao07/longcallD/tree/main/anno);
+Providing the annotation sequence of common mobile elements, i.e., Alu/L1/SVA, using `-T` is highly recommanded, which is included [here](https://github.com/yangao07/longcallD/tree/main/anno).
 ## Installation
 
 ### Pre-built executables (recommended)
