@@ -685,13 +685,6 @@ int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, int read_i, const struct ca
     digar->qual = (uint8_t*)malloc(qlen * sizeof(uint8_t));
     for (int i = 0; i < qlen; ++i) {
         digar->qual[i] = bam_get_qual(read)[i];
-        if (digar->qual[i] > 99) {
-            fprintf(stderr, "Warning: read %s has base quality %d > 99, set to 99\n", bam_get_qname(read), digar->qual[i]);
-            digar->qual[i] = 99;
-        } else if (digar->qual[i] < 0) {
-            fprintf(stderr, "Warning: read %s has invalid base quality %d\n", bam_get_qname(read), digar->qual[i]);
-            digar->qual[i] = 0;
-        }
         chunk->qual_counts[digar->qual[i]]++;
     }
     int _n_digar = 0, _m_digar = 2 * n_cigar; digar1_t *_digars = (digar1_t*)malloc(_m_digar * sizeof(digar1_t));
@@ -843,13 +836,6 @@ int collect_digar_from_cs_tag(bam_chunk_t *chunk, int read_i, const struct call_
     digar->qual = (uint8_t*)malloc(qlen * sizeof(uint8_t));
     for (int i = 0; i < qlen; ++i) {
         digar->qual[i] = bam_get_qual(read)[i];
-        if (digar->qual[i] > 99) {
-            fprintf(stderr, "Warning: read %s has base quality %d > 99, set to 99\n", bam_get_qname(read), digar->qual[i]);
-            digar->qual[i] = 99;
-        } else if (digar->qual[i] < 0) {
-            fprintf(stderr, "Warning: read %s has invalid base quality %d\n", bam_get_qname(read), digar->qual[i]);
-            digar->qual[i] = 0;
-        }
         chunk->qual_counts[digar->qual[i]]++;
     }
     int _n_digar = 0, _m_digar = 2 * n_cigar; digar1_t *_digars = (digar1_t*)malloc(_m_digar * sizeof(digar1_t));
@@ -1015,13 +1001,6 @@ int collect_digar_from_MD_tag(bam_chunk_t *chunk, int read_i, const struct call_
     digar->qual = (uint8_t*)malloc(qlen * sizeof(uint8_t));
     for (int i = 0; i < qlen; ++i) {
         digar->qual[i] = bam_get_qual(read)[i];
-        if (digar->qual[i] > 99) {
-            fprintf(stderr, "Warning: read %s has base quality %d > 99, set to 99\n", bam_get_qname(read), digar->qual[i]);
-            digar->qual[i] = 99;
-        } else if (digar->qual[i] < 0) {
-            fprintf(stderr, "Warning: read %s has invalid base quality %d\n", bam_get_qname(read), digar->qual[i]);
-            digar->qual[i] = 0;
-        }
         chunk->qual_counts[digar->qual[i]]++;
     }
     int _n_digar = 0, _m_digar = 2 * n_cigar; digar1_t *_digars = (digar1_t*)malloc(_m_digar * sizeof(digar1_t));
@@ -1199,17 +1178,7 @@ int collect_digar_from_ref_seq(bam_chunk_t *chunk, int read_i, const struct call
     digar->qual = (uint8_t*)malloc(qlen);
     for (int i = 0; i < qlen; ++i) {
         digar->qual[i] = bam_get_qual(read)[i];
-        if (digar->qual[i] > 99) {
-            fprintf(stderr, "Warning: read %s has base quality %d > 99, set to 99\n", bam_get_qname(read), digar->qual[i]);
-            digar->qual[i] = 99;
-        } else if (digar->qual[i] < 0) {
-            fprintf(stderr, "Warning: read %s has invalid base quality %d\n", bam_get_qname(read), digar->qual[i]);
-            digar->qual[i] = 0;
-        }
         chunk->qual_counts[digar->qual[i]]++;
-    }
-    if (strcmp("SRR25029837.8497337", bam_get_qname(read)) == 0) {
-        fprintf(stderr, "DBG: ref_seq: %.*s\n", (int)(ref_end-ref_beg+1), ref_seq);
     }
     int _n_digar = 0, _m_digar = 2 * n_cigar; digar1_t *_digars = (digar1_t*)malloc(_m_digar * sizeof(digar1_t));
     int rlen = bam_cigar2rlen(n_cigar, cigar); int tlen = chunk->whole_ref_len;
@@ -1356,7 +1325,7 @@ int bam_chunk_init0(bam_chunk_t *chunk, int n_reads) {
     chunk->ref_seq = NULL;
     chunk->low_comp_cr = NULL;
     // intermediate
-    chunk->qual_counts = (int*)calloc(100, sizeof(int));
+    chunk->qual_counts = (int*)calloc(256, sizeof(int));
     chunk->is_skipped = (uint8_t*)calloc(n_reads, sizeof(uint8_t));
     chunk->n_clean_agree_snps = (int*)malloc(n_reads * sizeof(int));
     chunk->n_clean_conflict_snps = (int*)malloc(n_reads * sizeof(int));
@@ -1520,6 +1489,11 @@ void get_bam_chunk_reg_ref_seq0(faidx_t *fai, bam_chunk_t *chunk, hts_pos_t beg,
 
     int len;
     chunk->ref_seq = faidx_fetch_seq(fai, chunk->tname, ref_beg, ref_end, &len); // ref_beg & ref_end: 0-based
+    if (chunk->ref_seq == NULL || len <= 0) {
+        _err_error("Failed to fetch reference sequence for %s:%" PRId64 "-%" PRId64 " from the fasta file.\n", chunk->tname, beg, end);
+        _err_error_exit("Please make sure the reference genome and the alignment file match.\n");
+                         
+    }
     chunk->ref_beg = ref_beg+1;   // 1-based
     chunk->ref_end = ref_beg+len; // 1-based
 

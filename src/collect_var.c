@@ -265,12 +265,18 @@ int collect_cand_vars(const call_var_opt_t *opt, bam_chunk_t *chunk, int n_var_s
 int var_is_strand_bias(cand_var_t *var, const call_var_opt_t *opt) {
     int for_alt_cov = var->strand_to_alle_covs[0][1]; // forward strand alt coverage
     int rev_alt_cov = var->strand_to_alle_covs[1][1]; // reverse strand alt coverage
+    int for_ref_cov = var->strand_to_alle_covs[0][0]; // forward strand ref coverage
+    int rev_ref_cov = var->strand_to_alle_covs[1][0]; // reverse strand ref coverage
     int expected_alt_cov = (for_alt_cov + rev_alt_cov) / 2; // expected alt coverage
     if (expected_alt_cov == 0) return 0; // no alt coverage, no strand bias
     // check if strand bias is significant
     float fisher_p = fisher_exact_test(for_alt_cov, rev_alt_cov, expected_alt_cov, expected_alt_cov, opt);
-    if (fisher_p < opt->strand_bias_pval) return 1; // significant strand bias
-    else return 0; // no significant strand bias
+    // float fisher_p = fisher_exact_test(for_alt_cov, rev_alt_cov, for_ref_cov, rev_ref_cov, opt);
+    if (fisher_p < opt->strand_bias_pval) {
+        // fprintf(stderr, "ONT-StrandBias: %" PRId64 " for_alt_cov=%d, rev_alt_cov=%d, for_ref_cov=%d, rev_ref_cov=%d, fisher p-value=%.5f\n",
+                // var->pos, for_alt_cov, rev_alt_cov, for_ref_cov, rev_ref_cov, fisher_p);
+        return 1; // significant strand bias
+    } else return 0; // no significant strand bias
     // strand bias: 1) >=3 vs 0, 2) >= 3 folds
     // int min_fold = 3;
     // if (var->alle_covs[1] < min_fold) return 0;
@@ -1005,10 +1011,11 @@ void collect_digars_from_bam(bam_chunk_t *chunk, const struct call_var_pl_t *pl)
         if (ret < 0) chunk->is_skipped[i] = BAM_RECORD_WRONG_MAP;
     }
     // print chunk->qual_counts
-    int valid_quals[100], n_valid_quals = 0; // XXX MAX_QUAL = 99 
+    int n_all_quals = 256;
+    int valid_quals[256], n_valid_quals = 0; // XXX MAX_QUAL = 255
     int64_t n_total_counts = 0;
-    for (int i = 0; i < 100; ++i) n_total_counts += chunk->qual_counts[i];
-    for (int i = 0; i < 100; ++i) {
+    for (int i = 0; i < n_all_quals; ++i) n_total_counts += chunk->qual_counts[i];
+    for (int i = 0; i < n_all_quals; ++i) {
         if (chunk->qual_counts[i] <= 0) continue; // skip 0 counts
         if (chunk->qual_counts[i] >= 0.001 * n_total_counts) valid_quals[n_valid_quals++] = i;
         // if (LONGCALLD_VERBOSE >= 0) {

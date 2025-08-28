@@ -497,6 +497,7 @@ static void collect_regions(call_var_pl_t *pl, call_var_opt_t *opt, int n_region
     }
     // check if region(s) is provided
     if (n_regions > 0) {
+        opt->only_autosome = 0, opt->only_autosome_XY=0;
         if (opt->reg_bed_fn != NULL) {
             _err_error("Both region(s) and region bed file are provided. Only region(s) will be used.\n");
         }
@@ -511,6 +512,7 @@ static void collect_regions(call_var_pl_t *pl, call_var_opt_t *opt, int n_region
             return collect_regions_from_region_list(opt, pl, iter, n_regions, regions);
         }
     } else if (opt->reg_bed_fn != NULL) { // check if region bed file is provided
+        opt->only_autosome = 0, opt->only_autosome_XY=0;
         collect_regions_from_bed_file(opt, pl);
         if (pl->n_reg_chunks == 0) {
             _err_error("Failed to parse provided region bed file: %s\n", opt->reg_bed_fn);
@@ -677,7 +679,7 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "\n");
 
     fprintf(stderr, "Options:\n");
-    fprintf(stderr, "  Intput:\n");
+    fprintf(stderr, "  Input:\n");
     fprintf(stderr, "    --hifi                HiFi reads [Default]\n");
     fprintf(stderr, "    --ont                 ONT reads [False]\n");
     fprintf(stderr, "    --region-file   FILE  region bed file [NULL]\n");

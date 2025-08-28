@@ -68,7 +68,7 @@
 #define LONGCALLD_MIN_SOMATIC_TE_ALT_DP 1 // >= 1 read supporting somatic TE variant
 // fisher is NOT used for PacBio-HiFi
 #define LONGCALLD_MIN_SOMATIC_FISHER_PVAL 0.05
-#define LONGCALLD_STRAND_BIAS_PVAL_ONT 0.05
+#define LONGCALLD_STRAND_BIAS_PVAL_ONT 0.01
 // BLT50: 1/10/3 works better
 // #define LONGCALLD_SOMATIC_BETA_ALPHA 2 // beta prior for somatic variant calling
 // #define LONGCALLD_SOMATIC_BETA_BETA 10 // beta prior for somatic variant calling
