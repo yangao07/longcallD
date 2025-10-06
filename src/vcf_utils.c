@@ -65,6 +65,7 @@ void write_vcf_header(bam_hdr_t *hdr, struct call_var_opt_t *opt) {
     bcf_hdr_append(vcf_hdr, "##INFO=<ID=TSDLEN,Number=1,Type=Integer,Description=\"Length of target site duplication\">");
     bcf_hdr_append(vcf_hdr, "##INFO=<ID=POLYALEN,Number=1,Type=Integer,Description=\"Length of polyA/T sequence\">");
     // there will be 2 TSDs for DEL
+    bcf_hdr_append(vcf_hdr, "##INFO=<ID=MEI,Number=0,Type=Flag,Description=\"Mobile element insertion\">");
     bcf_hdr_append(vcf_hdr, "##INFO=<ID=TSDPOS1,Number=1,Type=Integer,Description=\"Start position of first target site duplication on CHROM\">");
     bcf_hdr_append(vcf_hdr, "##INFO=<ID=TSDPOS2,Number=1,Type=Integer,Description=\"Start position of second target site duplication on CHROM\">");
     bcf_hdr_append(vcf_hdr, "##INFO=<ID=REPNAME,Number=1,Type=String,Description=\"Repeat name\">");
