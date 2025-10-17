@@ -12,7 +12,3 @@
 	path = WFA2-lib
 	url = https://github.com/smarco/WFA2-lib.git
 	ignore = dirty
-
-[submodule "edlib"]
-	path = edlib
-	url = https://github.com/Martinsos/edlib.git
