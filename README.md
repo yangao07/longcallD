@@ -11,29 +11,22 @@
 <!-- [![Published in Bioinformatics](https://img.shields.io/badge/Published%20in-Bioinformatics-blue.svg)](https://dx.doi.org/10.1093/bioinformatics/btaa963) -->
 <!-- [![GitHub Issues](https://img.shields.io/github/issues/yangao07/longcallD.svg?label=Issues)](https://github.com/yangao07/longcallD/issues) -->
 
-## Updates (pre-release v0.0.5)
+## Updates (pre-release v0.0.6)
 
-* Add -s/--somatic/--mosaic to output low AF somatic/mosaic variant
-* Add -T/--trans-elem; output TE (transposable/mobile element, Alu/L1/SVA) information for INS/DEL
-* Add INFO:TSD;REPNAME in VCF for TE INS/DEL
-* Add --refine-aln: refine read alignment based on MSA in output SAM/BAM/CRAM
-* Fix a SegFault in ONT mode regarding BAM/SA tag
-<!-- * Significant speed improvement (compiling mistake in last release) -->
-* Add -Oz for compressed VCF output
-* Add --exclude-ctg & --all-ctg; --autosome-XY is default now
-* Fix lower case ref base
-* Fix compiling in macOS-x64
+* Fix corrupted VCF output in v0.0.5
+* Low memory usage (especially when mosaic variant calling enabled)
+<!-- * Add [longdust](https://github.com/lh3/longdust) for long low-complexity regions -->
 
 
 ## Getting Started
 ```sh
 # Download pre-built executables and test data (recommended)
 # Linux-x64
-wget https://github.com/yangao07/longcallD/releases/download/v0.0.5/longcallD-v0.0.5_x64-linux.tar.gz
-tar -zxvf longcallD-v0.0.5_x64-linux.tar.gz && cd longcallD-v0.0.5_x64-linux
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.6/longcallD-v0.0.6_x64-linux.tar.gz
+tar -zxvf longcallD-v0.0.6_x64-linux.tar.gz && cd longcallD-v0.0.6_x64-linux
 # MacOS-arm64
-wget https://github.com/yangao07/longcallD/releases/download/v0.0.5/longcallD-v0.0.5_arm64-macos.tar.gz
-tar -zxvf longcallD-v0.0.5_arm64-macos.tar.gz && cd longcallD-v0.0.5_arm64-macos
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.6/longcallD-v0.0.6_arm64-macos.tar.gz
+tar -zxvf longcallD-v0.0.6_arm64-macos.tar.gz && cd longcallD-v0.0.6_arm64-macos
 
 # PacBio HiFi reads
 ./longcallD call ./test_data/chr11_2M.fa ./test_data/HG002_chr11_hifi_test.bam --hifi > HG002_hifi_test.vcf
@@ -45,7 +38,7 @@ man ./longcallD.1
 ``` -->
 
 ## Table of Contents
-- [Updates (pre-release v0.0.5)](#updates-pre-release-v005)
+- [Updates (pre-release v0.0.6)](#updates-pre-release-v006)
 - [Getting Started](#getting-started)
 - [Table of Contents](#table-of-contents)
 - [Introduction](#introduction)
@@ -78,13 +71,13 @@ Providing the annotation sequence of common mobile elements, i.e., Alu/L1/SVA, u
 ### Pre-built executables (recommended)
 **Linux-x64**
 ```
-wget https://github.com/yangao07/longcallD/releases/download/v0.0.5/longcallD-v0.0.5_x64-linux.tar.gz
-tar -zxvf longcallD-v0.0.5_x64-linux.tar.gz
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.6/longcallD-v0.0.6_x64-linux.tar.gz
+tar -zxvf longcallD-v0.0.6_x64-linux.tar.gz
 ```
 **MacOS-arm64**
 ```
-wget https://github.com/yangao07/longcallD/releases/download/v0.0.5/longcallD-v0.0.5_arm64-macos.tar.gz
-tar -zxvf longcallD-v0.0.5_arm64-macos.tar.gz
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.6/longcallD-v0.0.6_arm64-macos.tar.gz
+tar -zxvf longcallD-v0.0.6_arm64-macos.tar.gz
 ```
 
 **Linux-arm64/macOS-x64**
@@ -101,9 +94,9 @@ conda install -c bioconda longcalld
 To compile longcallD from source, ensure you have **GCC/clang(9.0+)** and **zlib/libbz2/liblzma/libcurl** (for htslib) installed. 
 It is recommended to use the [latest release](https://github.com/yangao07/longcallD/releases).
 ```
-wget https://github.com/yangao07/longcallD/releases/download/v0.0.5/longcallD-v0.0.5.tar.gz
-tar -zxvf longcallD-v0.0.5.tar.gz
-cd longcallD-v0.0.5; make
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.6/longcallD-v0.0.6.tar.gz
+tar -zxvf longcallD-v0.0.6.tar.gz
+cd longcallD-v0.0.6; make
 ```
 
 ## Usage
@@ -151,8 +144,9 @@ LongcallD is dependent on the following libraries, we are grateful to all the de
 * [htslib](https://github.com/samtools/htslib): read/write BAM/CRAM/VCF
 * [abPOA](https://github.com/yangao07/abPOA): consensus calling
 * [WFA](https://github.com/smarco/WFA2-lib): pairwise alignment
+* [edlib](https://github.com/Martinsos/edlib): fast sequence similarity calculation
 * [cgranges](https://github.com/lh3/cgranges): interval operations
-* [sdust](https://github.com/lh3/sdust): identify low-complexity regions
+* [sdust](https://github.com/lh3/sdust) and [longdust](https://github.com/lh3/longdust): identify low-complexity regions
 
 ## Contact
 

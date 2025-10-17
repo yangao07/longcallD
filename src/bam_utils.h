@@ -94,20 +94,21 @@ struct var_site_t;
 struct read_var_profile_t;
 struct call_var_io_aux_t;
 
-static inline int double_check_digar(digar_t *digar) {
-    if (digar->n_digar == 0) return 0;
-    for (int i = digar->n_digar-2; i > 0; --i) {
-        int qi, last_i = i-1; int last_qi = digar->digars[last_i].qi;
-        if (digar->digars[last_i].type == BAM_CEQUAL ||
-            digar->digars[last_i].type == BAM_CMATCH ||
-            digar->digars[last_i].type == BAM_CDIFF ||
-            digar->digars[last_i].type == BAM_CINS ||
-            digar->digars[last_i].type == BAM_CSOFT_CLIP ||
-            digar->digars[last_i].type == BAM_CHARD_CLIP) {
-                qi = last_qi + digar->digars[last_i].len;
+// static inline int double_check_digar(digar_t *digar) {
+static inline int double_check_digar(digar1_t *digars, int n_digar) {
+    if (n_digar == 0) return 0;
+    for (int i = n_digar-2; i > 0; --i) {
+        int qi, last_i = i-1; int last_qi = digars[last_i].qi;
+        if (digars[last_i].type == BAM_CEQUAL ||
+            digars[last_i].type == BAM_CMATCH ||
+            digars[last_i].type == BAM_CDIFF ||
+            digars[last_i].type == BAM_CINS ||
+            digars[last_i].type == BAM_CSOFT_CLIP ||
+            digars[last_i].type == BAM_CHARD_CLIP) {
+                qi = last_qi + digars[last_i].len;
         } else qi = last_qi;
-        if (qi != digar->digars[i].qi) {
-            fprintf(stderr, "Error: digar->qi[%d]=%d, digar->qi[%d]=%d\n", i, digar->digars[i].qi, last_i, qi);
+        if (qi != digars[i].qi) {
+            fprintf(stderr, "Error: digars[%d]=%d, digars[%d]=%d\n", i, digars[i].qi, last_i, qi);
             return 1;
         }
     }

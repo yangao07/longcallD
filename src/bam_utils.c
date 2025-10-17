@@ -549,7 +549,7 @@ digar1_t *push_digar_alt_seq(digar1_t *digar, int *n_digar, int *m_digar, digar1
     } else {
         if (digar[*n_digar-1].type == BAM_CINS) {
             uint8_t *alt_seq = (uint8_t*)realloc(digar[*n_digar-1].alt_seq, (digar[*n_digar-1].len + d.len) * sizeof(uint8_t));
-            for (int i = digar[*n_digar-1].len; i < digar[*n_digar-1].len + d.len; ++i) 
+            for (int i = digar[*n_digar-1].len; i < digar[*n_digar-1].len + d.len; ++i)
                 alt_seq[i] = d.alt_seq[i - digar[*n_digar-1].len];
             digar[*n_digar-1].alt_seq = alt_seq;
         }
@@ -1200,7 +1200,7 @@ int collect_digar_from_ref_seq(bam_chunk_t *chunk, int read_i, const struct call
             int eq_len = 0;
             for (int j = 0; j < len; ++j) {
                 // Get the reference base
-                if (pos <= ref_beg || pos > ref_end) {
+                if (pos < ref_beg || pos > ref_end) {
                     if (LONGCALLD_VERBOSE >= 3) {
                         fprintf(stderr, "pos: %" PRIi64 " (%" PRIi64 "-%" PRIi64 ")\t", pos, ref_beg, ref_end);
                         fprintf(stderr, "Read exceed reference region sequence: %s", bam_get_qname(read));
@@ -1938,12 +1938,12 @@ char *extract_sample_name_from_bam_header(bam_hdr_t *header) {
             } else {
                 if (strcmp(sample_name, ks.s) != 0) {
                     free(ks.s);
-                    _err_warning("Multiple RG/SM found in the alignment header, using the first one: %s\n", sample_name);
+                    _err_warning("Multiple RG/SM found in alignment file header, using the first one: %s\n", sample_name);
                     return sample_name;
                 } free(ks.s);
             }
         }
     }
-    if (sample_name != NULL) _err_info("Sample name from alignment header: %s\n", sample_name);
+    if (sample_name != NULL) _err_info("Sample name from alignment file header: %s\n", sample_name);
     return sample_name;
 }

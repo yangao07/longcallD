@@ -293,12 +293,13 @@ void var1_free(var1_t *v) {
 static void collect_bam_call_var_worker_for(void *_data, long ii, int tid) {
     call_var_step_t *step = (call_var_step_t*)_data;
     bam_chunk_t *c = step->chunks + ii;
-    if (LONGCALLD_VERBOSE >= 1) fprintf(stderr, "[%s] thread-id: %d, chunk: %ld (%d)\n", __func__, tid, ii, step->n_chunks);
+    if (LONGCALLD_VERBOSE >= 1) fprintf(stderr, "[%s] thread-id: %d, chunk: %ld (%d) ... \n", __func__, tid, ii, step->n_chunks);
     // if (collect_ref_seq_bam_main(step->pl, step->pl->io_aux+tid, step->pl->reg_chunk_i, ii, c) > 0) {
     collect_ref_seq_bam_main(step->pl, step->pl->io_aux+tid, step->pl->reg_chunk_i, ii, c);
-        collect_var_main(step->pl, c);
+    collect_var_main(step->pl, c);
     // }
     bam_chunk_mid_free(c);
+    if (LONGCALLD_VERBOSE >= 1) fprintf(stderr, "[%s] thread-id: %d, chunk: %ld (%d) ... done\n", __func__, tid, ii, step->n_chunks);
 }
 
 // merge variants from two chunks
@@ -422,6 +423,7 @@ static void collect_regions_from_region_list(call_var_opt_t *opt, call_var_pl_t 
                 reg_chunks->reg_ends[reg_chunks->n_regions] = end;
                 reg_chunks->n_regions++;
             }
+            last_tid = tid;
         }
     }
     if (pl->reg_chunks[pl->n_reg_chunks].n_regions > 0) pl->n_reg_chunks++;
@@ -573,7 +575,7 @@ static void call_var_pl_open_fa_bam(call_var_opt_t *opt, call_var_pl_t *pl, char
         pl->io_aux[i].header = sam_hdr_read(pl->io_aux[i].bam);
         if (pl->io_aux[i].header == NULL) {
             sam_close(pl->io_aux[i].bam);
-            _err_error_exit("Failed to read alignment header \'%s\'\n", opt->in_bam_fn);
+            _err_error_exit("Failed to read alignment file header \'%s\'\n", opt->in_bam_fn);
         }
         pl->io_aux[i].fai = fai_load3(opt->ref_fa_fn, opt->ref_fa_fai_fn, NULL, FAI_CREATE);
         if (pl->io_aux[i].fai == NULL) {
@@ -622,11 +624,12 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
     if (step == 0) { // step 0: read bam records into BAM chunks, call variants
         if (pl->reg_chunk_i >= pl->n_reg_chunks) return 0;
         if (LONGCALLD_VERBOSE >= 1) _err_info("Step 0: load BAM & call variants.\n");
+        // _err_info("Processing contig(s): %d/%d ...\n", pl->reg_chunk_i+1, pl->n_reg_chunks);
         call_var_step_t *s = calloc(1, sizeof(call_var_step_t));
         s->pl = pl;
         s->n_chunks = pl->reg_chunks[pl->reg_chunk_i].n_regions;
         s->chunks = calloc(s->n_chunks, sizeof(bam_chunk_t));
-        if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "n_chunks: %d\n", s->n_chunks);
+        // _err_info("Processing ctg-id: %d, n_chunks: %d (%d/%d)\n", pl->reg_chunks[pl->reg_chunk_i].reg_tids[0], s->n_chunks, pl->reg_chunk_i+1, pl->n_reg_chunks);
         kt_for(pl->n_threads, collect_bam_call_var_worker_for, s, s->n_chunks);
         pl->reg_chunk_i++;
         return s;
@@ -644,7 +647,7 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
         for (int i = 0; i < ((call_var_step_t*)in)->n_chunks; ++i) {
             n_processed_reads += (((call_var_step_t*)in)->chunks[i].n_reads - ((call_var_step_t*)in)->chunks[i].n_up_ovlp_reads);
         }
-        if (n_processed_reads > 0) _err_info("Processed %" PRIi64 " reads\n", n_processed_reads);
+        if (n_processed_reads > 0) _err_info("Processed %" PRIi64 " reads, %d/%d chunks\n", n_processed_reads, pl->reg_chunk_i, pl->n_reg_chunks);
         return in;
     } else if (step == 2) { // step 3: write the buffer to output
         if (LONGCALLD_VERBOSE >= 1) _err_info("Step 3: output variants (& phased bam)\n");

@@ -1,6 +1,13 @@
+GCC_CHECK := $(shell gcc --version | head -n 1 | grep -i "clang")
+
 # Check if the OS is macOS or linux
 UNAME_S := $(shell uname -s)
 
+ifeq ($(GCC_CHECK),) # gcc
+	CXXFLAGS = -std=c++11
+else # clang
+	CXXFLAGS = -std=c++11 -stdlib=libc++
+endif
 
 # add -fno-tree-vectorize to avoid certain vectorization errors in O3 optimization
 # right now, we are using -O3 for the best performance, and no vectorization errors were found
@@ -17,6 +24,10 @@ endif
 HTSLIB_DIR  = ./htslib
 HTSLIB      = $(HTSLIB_DIR)/libhts.a
 
+EDLIB_DIR     = ./edlib
+EDLIB_INC_DIR = ./edlib/include
+EDLIB         = $(EDLIB_DIR)/src/edlib.o
+
 ABPOA_DIR   = ./abPOA
 ABPOA_LIB   = ./abPOA/lib/libabpoa.a
 ABPOA_INC_DIR = $(ABPOA_DIR)/include
@@ -26,7 +37,7 @@ WFA2_LIB    = $(WFA2_DIR)/lib/libwfa.a
 
 LIB_PATH    =
 LIB         = $(HTSLIB) $(ABPOA_LIB) $(WFA2_LIB) $(LIB_PATH) -lm -lz -lpthread -llzma -lbz2 -lcurl
-INCLUDE     = -I $(HTSLIB_DIR) -I $(ABPOA_INC_DIR) -I $(WFA2_DIR)
+INCLUDE     = -I $(HTSLIB_DIR) -I $(EDLIB_INC_DIR) -I $(ABPOA_INC_DIR) -I $(WFA2_DIR)
 
 # Try linking against libdeflate
 ifeq ($(shell echo "int main() {return 0;}" | ${CC} -x c - $(LIB_PATH) -ldeflate >/dev/null 2>&1 && echo "yes"),yes)
@@ -72,7 +83,7 @@ CFLAGS = $(OPT_FLAGS) $(EXTRA_FLAGS) -DLONGCALLD_VERSION=\"$(LONGCALLD_VERSION)\
 
 # for gprof
 ifneq ($(pg),)
-	OPT_FLAGS = -O0
+	OPT_FLAGS = -O3
 	PG_FLAG   = -pg
 	CFLAGS   += -pg
 endif
@@ -88,10 +99,14 @@ INC_DIR = ./include
 SRC_DIR = ./src
 
 HTS_ALL = hts_all
+EDLIB_ALL = edlib_all
 ABPOA_ALL = abpoa_all
 WFA2_ALL = wfa2_all
-CSOURCE    = $(wildcard ${SRC_DIR}/*.c) 
-OBJS    = $(CSOURCE:.c=.o)
+CSOURCE    = $(wildcard ${SRC_DIR}/*.c)
+CPPSOURCE  = $(wildcard $(SRC_DIR)/*.cpp)
+CPPSOURCE += $(EDLIB_DIR)/src/edlib.cpp
+
+OBJS    = $(CSOURCE:.c=.o) $(CPPSOURCE:.cpp=.o)
 BIN     = $(BIN_DIR)/longcallD
 ifneq ($(gdb),)
 	BIN = $(BIN_DIR)/gdb_longcallD
@@ -100,12 +115,16 @@ endif
 .c.o:
 	$(CC) -c $(CFLAGS) $(INCLUDE) $< -o $@
 
-all: $(HTS_ALL) $(ABPOA_LIB) $(WFA2_LIB) $(BIN)
+all: $(HTS_ALL) $(EDLIB) $(ABPOA_LIB) $(WFA2_LIB) $(BIN)
 
 $(HTS_ALL): $(HTSLIB)
 
 $(HTSLIB): $(HTSLIB_DIR)/configure.ac
 	cd $(HTSLIB_DIR); autoreconf -i; ./configure; make CC=${CC}
+
+$(EDLIB): $(EDLIB_DIR)/src/edlib.cpp $(EDLIB_DIR)/include/edlib.h
+	$(CXX) $(CFLAGS) $(CXXFLAGS) -c $< $(INCLUDE) -o $@
+$(EDLIB_ALL): $(EDLIB)
 
 $(ABPOA_GDB_LIB): 
 	cd $(ABPOA_DIR); make libabpoa gdb=1 sse41=1
@@ -121,7 +140,8 @@ $(WFA2_ALL): $(WFA2_LIB)
 
 $(BIN): $(OBJS) $(ABPOA_LIB) $(HTSLIB) $(WFA2_LIB)
 	if [ ! -d $(BIN_DIR) ]; then mkdir $(BIN_DIR); fi
-	$(CC) $(OBJS) -o $@ $(LIB) $(PG_FLAG)
+	$(CXX) $(OBJS) -o $@ $(LIB) $(PG_FLAG)
+# 	$(CC) $(OBJS) -o $@ $(LIB) $(PG_FLAG)
 
 $(SRC_DIR)/align.o: $(SRC_DIR)/align.c $(SRC_DIR)/align.h $(SRC_DIR)/utils.h $(SRC_DIR)/bam_utils.h $(SRC_DIR)/seq.h
 	$(CC) -c -DUSE_SIMDE -DSIMDE_ENABLE_NATIVE_ALIASES $(CFLAGS) $< $(INCLUDE) -o $@

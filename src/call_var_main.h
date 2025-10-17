@@ -35,7 +35,7 @@
 #define LONGCALLD_MAX_READ_DEPTH 500 // vars with >500 reads will be skipped
 #define LONGCALLD_MAX_NOISY_REG_READS 1000 // regions with >1000 reads will be skipped
 #define LONGCALLD_NOISY_END_CLIP 30 // 100 // >= 100 bp clipping on both ends will be considered as long clipping
-#define LONGCALLD_NOISY_END_CLIP_WIN 100 // 100 bp next to the long end-clipping will be considered as low-quality region
+#define LONGCALLD_NOISY_END_CLIP_WIN 500 // 100 bp next to the long end-clipping will be considered as low-quality region
 #define LONGCALLD_NOISY_REG_MERGE_DIS 500 // 500 bp, merge noisy regions within 500 bp
 #define LONGCALLD_NOISY_REG_FLANK_LEN 10 // during re-alignment, include 10-bp flanking region for both ends of noisy region
 

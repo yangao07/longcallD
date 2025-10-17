@@ -117,7 +117,6 @@ int fuzzy_ovlp_var_site(var_site_t *var1, var_site_t *var2) {
 
 // allow cyclic permutation match
 int vntr_fuzzy_comp_seq(const call_var_opt_t *opt, uint8_t *seq1, int len1, uint8_t *seq2, int len2) {
-    int n_eq=0;
     uint8_t *long_seq, *short_seq; int long_len, short_len;
     if (len1 > len2) {
         long_seq = (uint8_t*)malloc(len1*2*sizeof(uint8_t));
@@ -136,12 +135,15 @@ int vntr_fuzzy_comp_seq(const call_var_opt_t *opt, uint8_t *seq1, int len1, uint
         long_len = len2*2;
         short_seq = seq1; short_len = len1;
     }
-    uint8_t *seq1_aln_str, *seq2_aln_str; int aln_len;
-    wfa_end2end_aln(long_seq, long_len, short_seq, short_len, opt->gap_aln, opt->match, opt->mismatch, opt->gap_open1, opt->gap_ext1, opt->gap_open2, opt->gap_ext2, NULL, NULL, &seq1_aln_str, &seq2_aln_str, &aln_len);
-    for (int i = 0; i < aln_len; ++i) {
-        if (seq1_aln_str[i] != 5 && seq2_aln_str[i] == seq1_aln_str[i]) n_eq++;
-    }
-    free(seq1_aln_str); free(long_seq);
+    int n_eq=0, n_xid=0;
+    // uint8_t *seq1_aln_str, *seq2_aln_str; int aln_len;
+    // wfa_end2end_aln(long_seq, long_len, short_seq, short_len, opt->gap_aln, opt->match, opt->mismatch, opt->gap_open1, opt->gap_ext1, opt->gap_open2, opt->gap_ext2, NULL, NULL, &seq1_aln_str, &seq2_aln_str, &aln_len);
+    // for (int i = 0; i < aln_len; ++i) {
+        // if (seq1_aln_str[i] != 5 && seq2_aln_str[i] == seq1_aln_str[i]) n_eq++;
+    // }
+    // free(seq1_aln_str); 
+    edlib_infix_aln(long_seq, long_len, short_seq, short_len, &n_eq, &n_xid);
+    free(long_seq);
     if (n_eq >= short_len * 0.8) return 0;
     else return 1;
 }
@@ -481,7 +483,7 @@ static void collect_noisy_reg_start_end(bam_chunk_t *chunk, const call_var_opt_t
     }
     int n_noisy_regs = chunk->chunk_noisy_regs->n_r;
     for (int reg_i = 0, var_i = 0; reg_i < n_noisy_regs && var_i < chunk->n_cand_vars;) {
-        if (var_i_to_cate[var_i] == LONGCALLD_LOW_COV_VAR) {
+        if (var_i_to_cate[var_i] & LONGCALLD_NOT_CAND_VAR_CATE) { // skip non-candidate variants
             var_i++; continue;
         }
         cand_var_t *var = chunk->cand_vars + var_i;
@@ -508,25 +510,43 @@ static void collect_noisy_reg_start_end(bam_chunk_t *chunk, const call_var_opt_t
         cur_start = ori_reg_start-flank_len;
         // iterate from the rightmost var to the leftmost var, check if _cur_start_ meet the criteria
         for (int var_i = max_left_var_i[reg_i]; var_i >= 0; --var_i) {
-            if (var_i_to_cate[var_i] == LONGCALLD_LOW_COV_VAR) continue;
+            if (var_i_to_cate[var_i] & LONGCALLD_NOT_CAND_VAR_CATE) continue;
             cand_var_t *var = chunk->cand_vars+var_i;
             int32_t var_start = var->pos, var_end = var->pos + var->ref_len - 1;
             if (var_end < cur_start) break;
-            else cur_start = var_start-flank_len;
+            else if (var_start-flank_len < cur_start) cur_start = var_start - flank_len;
         }
         start[reg_i] = cur_start;
         // end
         cur_end = ori_reg_end + flank_len;
         for (int var_i = min_right_var_i[reg_i]; var_i < chunk->n_cand_vars; ++var_i) {
-            if (var_i_to_cate[var_i] == LONGCALLD_LOW_COV_VAR) continue;
+            if (var_i_to_cate[var_i] & LONGCALLD_NOT_CAND_VAR_CATE) continue;
             cand_var_t *var = chunk->cand_vars+var_i;
             int32_t var_start = var->pos, var_end = var->pos + var->ref_len - 1;
             if (var_start > cur_end) break;
-            else cur_end = var_end + flank_len;
+            else if (var_end + flank_len > cur_end) cur_end = var_end + flank_len;
         }
         end[reg_i] = cur_end;
     }
     free(max_left_var_i); free(min_right_var_i);
+}
+
+
+void cr_extend_noisy_regs_with_low_comp(bam_chunk_t *chunk, const call_var_opt_t *opt) {
+    cgranges_t *low_comp_cr = chunk->low_comp_cr;
+    if (low_comp_cr != NULL && low_comp_cr->n_r > 0) {
+        cgranges_t *new_noisy_regs = cr_init();
+        for (int i = 0; i < chunk->chunk_noisy_regs->n_r; ++i) {
+            int32_t start = cr_start(chunk->chunk_noisy_regs, i)+1;
+            int32_t end = cr_end(chunk->chunk_noisy_regs, i);
+            int32_t new_start = start, new_end = end;
+            low_comp_cr_start_end(low_comp_cr, start, end, &new_start, &new_end);
+            cr_add(new_noisy_regs, "cr", new_start-1, new_end, cr_label(chunk->chunk_noisy_regs, i));
+        }
+        cr_index(new_noisy_regs); cr_destroy(chunk->chunk_noisy_regs);
+        chunk->chunk_noisy_regs = new_noisy_regs;
+    }
+    chunk->chunk_noisy_regs = cr_merge(chunk->chunk_noisy_regs, -1, opt->noisy_reg_merge_dis, opt->min_sv_len);
 }
 
 // only merge same type of noisy regions, i.e., DEL/INS, avoid merging large DELs with other small DELs/INSs
@@ -540,6 +560,8 @@ void pre_process_noisy_regs(bam_chunk_t *chunk, call_var_opt_t *opt) {
             fprintf(stderr, "NoisyReg: %s:%d-%d %d\n", chunk->tname, cr_start(chunk->chunk_noisy_regs, i), cr_end(chunk->chunk_noisy_regs, i), cr_label(chunk->chunk_noisy_regs, i));
         }
     }
+    // extend noisy regions based on low-complexity regions
+    // cr_extend_noisy_regs_with_low_comp(chunk, opt);
     chunk->chunk_noisy_regs = cr_merge(chunk->chunk_noisy_regs, -1, opt->noisy_reg_merge_dis, opt->min_sv_len);
     if (LONGCALLD_VERBOSE >= 3) {
         fprintf(stderr, "After merge: %s:%" PRIi64 "-%" PRIi64 " %" PRIi64 " noisy regions\n", chunk->tname, chunk->reg_beg, chunk->reg_end, chunk->chunk_noisy_regs->n_r);
@@ -698,26 +720,6 @@ int var_is_low_comp(bam_chunk_t *chunk, const call_var_opt_t *opt, cand_var_t *v
         if (var_is_homopolymer(opt, ref_seq, ref_beg, ref_end, var) || var_is_repeat_region(opt, ref_seq, ref_beg, ref_end, var)) return 1;
         return 0;
     } else return 1;
-}
-
-// XXX to do
-int var_is_ovlp_others(bam_chunk_t *chunk, int var_i) {
-    int ovlp = 0;
-    int *var_i_to_cate = chunk->var_i_to_cate;
-    for (int i = var_i - 1; i >= 0; --i) {
-        int var_cate = var_i_to_cate[i];
-        if (var_cate == LONGCALLD_LOW_COV_VAR || var_cate == LONGCALLD_NON_VAR || var_cate == LONGCALLD_STRAND_BIAS_VAR) continue;
-        cand_var_t *var1 = chunk->cand_vars + var_i;
-
-
-    }
-    for (int i = var_i + 1; i < chunk->n_cand_vars; ++i) {
-        int var_cate = var_i_to_cate[i];
-        if (var_cate == LONGCALLD_LOW_COV_VAR || var_cate == LONGCALLD_NON_VAR || var_cate == LONGCALLD_STRAND_BIAS_VAR) continue;
-    }
-
-
-    return ovlp;
 }
 
 // SNV/DEL/INS: n_reads >= 2
@@ -940,7 +942,7 @@ int classify_cand_vars(bam_chunk_t *chunk, int n_var_sites, const call_var_opt_t
     for (int i = 0; i < n_var_sites; ++i) {
         cand_var_t *var = cand_vars+i;
         var_cate = var_i_to_cate[i];
-        if (var_cate == LONGCALLD_LOW_COV_VAR || var_cate == LONGCALLD_NON_VAR || var_cate == LONGCALLD_STRAND_BIAS_VAR) continue;
+        if (var_cate & LONGCALLD_NOT_CAND_VAR_CATE) continue;
         if (chunk->chunk_noisy_regs != NULL && chunk->chunk_noisy_regs->n_r > 0) {
             // int noisy_ovlp_n = cr_overlap(chunk->chunk_noisy_regs, "cr", var->pos-1, var->pos+var->ref_len, &ovlp_b, &max_b);
             if (cr_is_contained(chunk->chunk_noisy_regs, "cr", var->pos-1, var->pos+var->ref_len, &ovlp_b, &max_b) > 0) {
@@ -1023,11 +1025,17 @@ void collect_digars_from_bam(bam_chunk_t *chunk, const struct call_var_pl_t *pl)
         // }
     }
     // collect 1st quartile/median/3rd quartile
-    chunk->min_qual = valid_quals[0];
-    chunk->first_quar_qual = valid_quals[n_valid_quals/4];
-    chunk->median_qual = valid_quals[n_valid_quals/2];
-    chunk->third_quar_qual = valid_quals[n_valid_quals*3/4];
-    chunk->max_qual = valid_quals[n_valid_quals-1];
+    if (n_valid_quals == 0) { // set all qual as 255
+        chunk->min_qual = 0; chunk->first_quar_qual = 0;
+        chunk->median_qual = 0; chunk->third_quar_qual = 0;
+        chunk->max_qual = 0;
+    } else {
+        chunk->min_qual = valid_quals[0];
+        chunk->first_quar_qual = valid_quals[n_valid_quals/4];
+        chunk->median_qual = valid_quals[n_valid_quals/2];
+        chunk->third_quar_qual = valid_quals[n_valid_quals*3/4];
+        chunk->max_qual = valid_quals[n_valid_quals-1];
+    }
     // fprintf(stderr, "n_valid: %d, min: %d, 1st quartile: %d, median: %d, 3rd quartile: %d, max: %d\n", n_valid_quals, chunk->min_qual, chunk->first_quar_qual, chunk->median_qual, chunk->third_quar_qual, chunk->max_qual);
     if (LONGCALLD_VERBOSE < 2) {
         for (int i = 0; i < chunk->m_reads; ++i) bam_destroy1(chunk->reads[i]);
@@ -2157,9 +2165,9 @@ int merge_somatic_vars2(const call_var_opt_t *opt, int n_vars1, cand_var_t *vars
         var_site_t var_site2 = make_var_site_from_cand_var(vars2+j);
         int ret = fuzzy_comp_var_site(opt, &var_site1, &var_site2);
         // int ret = exact_comp_var_site_ins(opt, &var_site1, &var_site2);
-        // fprintf(stderr, "ExactInsCompCandVar ret: %d %" PRId64 " %d-%c-%d vs %" PRId64 " %d-%c-%d\n", ret,
-                // vars1[i].pos, vars1[i].ref_len, BAM_CIGAR_STR[vars1[i].var_type], vars1[i].alt_len,
-                // vars2[j].pos, vars2[j].ref_len, BAM_CIGAR_STR[vars2[j].var_type], vars2[j].alt_len);
+        // fprintf(stderr, "ExactInsCompCandVar ret: %d %" PRId64 " %d-%c-%d (%d) vs %" PRId64 " %d-%c-%d (%d)\n", ret,
+                // vars1[i].pos, vars1[i].ref_len, BAM_CIGAR_STR[vars1[i].var_type], vars1[i].alt_len, vars1[i].alle_covs[1],
+                // vars2[j].pos, vars2[j].ref_len, BAM_CIGAR_STR[vars2[j].var_type], vars2[j].alt_len, vars2[j].alle_covs[1]);
         if (ret == 0) {
             vars1[i].alle_covs[1]++; vars2[j].alle_covs[1]--;
             i++; j++;
@@ -2240,7 +2248,7 @@ int make_somatic_vars_from_aln_str(const call_var_opt_t *opt, bam_chunk_t *chunk
     int n_total_reads = 0, n_somatic_vars = 0, m_somatic_vars = 0;
     for (int i = 0; i < n_cons; ++i) {
         n_total_reads += clu_n_seqs[i];
-        m_somatic_vars += aln_strs[i]->aln_len;
+        m_somatic_vars += (aln_strs[i]->aln_len) * 4;
     }
     *noisy_somatic_vars = (cand_var_t *)malloc(m_somatic_vars * sizeof(cand_var_t));
     *noisy_somatic_var_cate = (int *)malloc(m_somatic_vars * sizeof(int));
@@ -2315,8 +2323,9 @@ int make_somatic_vars_from_aln_str(const call_var_opt_t *opt, bam_chunk_t *chunk
                     // if ((read_wise_noisy_somatic_vars[i][j].var_type == BAM_CINS || read_wise_noisy_somatic_vars[i][j].var_type == BAM_CDEL) && read_wise_noisy_somatic_vars[i][j].alle_covs[1] >= 3) {
                         // call cons XXX
                     // }
-                    // fprintf(stderr, "n: %d, m: %d\n", n_somatic_vars, m_somatic_vars);
-                    // fprintf(stderr, "%" PRId64 "\t%d-%c-%d\t%d\t%d\t%c\n", read_wise_noisy_somatic_vars[i][j].pos, read_wise_noisy_somatic_vars[i][j].ref_len, BAM_CIGAR_STR[read_wise_noisy_somatic_vars[i][j].var_type], read_wise_noisy_somatic_vars[i][j].alt_len,
+                    // fprintf(stderr, "i: %d, n: %d, m: %d\n", i, n_somatic_vars, m_somatic_vars);
+                    // fprintf(stderr, "%" PRId64 "\t%d-%c-%d (%c)\t%d\t%d\t%c\n", read_wise_noisy_somatic_vars[i][j].pos, read_wise_noisy_somatic_vars[i][j].ref_len, BAM_CIGAR_STR[read_wise_noisy_somatic_vars[i][j].var_type], read_wise_noisy_somatic_vars[i][j].alt_len,
+                            // "ACGTN"[read_wise_noisy_somatic_vars[i][j].alt_seq[0]],
                             // read_wise_noisy_somatic_vars[i][j].alle_covs[0], read_wise_noisy_somatic_vars[i][j].alle_covs[1], LONGCALLD_VAR_CATE_TYPE(read_wise_noisy_somatic_var_cate[i][j]));
                     (*noisy_somatic_vars)[n_somatic_vars] = read_wise_noisy_somatic_vars[i][j];
                     (*noisy_somatic_var_cate)[n_somatic_vars++] = LONGCALLD_CAND_SOMATIC_VAR;
@@ -2483,7 +2492,7 @@ int collect_noisy_vars1(bam_chunk_t *chunk, const call_var_opt_t *opt, int noisy
         merge_var_profile(opt, chunk, n_noisy_vars, noisy_vars, noisy_var_cate, noisy_rvp);
         merge_var_profile(opt, chunk, n_noisy_somatic_var, noisy_somatic_vars, noisy_somatic_var_cate, noisy_somatic_rvp);
     } else merge_var_profile(opt, chunk, n_noisy_vars, noisy_vars, noisy_var_cate, noisy_rvp);
-    if (LONGCALLD_VERBOSE >= 2) {
+    if (LONGCALLD_VERBOSE >= 1) {
         fprintf(stderr, "NoisyReg: chunk_reg: %s:%" PRIi64 "-%" PRIi64 ", reg: %s:%" PRIi64 "-%" PRIi64 " %" PRIi64 " (%d)\t", chunk->tname, chunk->reg_beg, chunk->reg_end, 
                         chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end-noisy_reg_beg+1, n_noisy_reads);
         fprintf(stderr, "Real time: %.3f sec.\n", realtime() - realtime0);
@@ -2631,6 +2640,7 @@ void mark_invalid_somatic_reads(const call_var_opt_t *opt, bam_chunk_t *chunk) {
 void collect_somatic_var(bam_chunk_t *chunk, const call_var_opt_t *opt) {
     // loop through all reads, mark non-somatic-var reads, i.e., dense seq error; long clipping; weak phasing;
     // for read with dense seq errors or long clipping, mark it as skipped for somatic variant calling, potentially sequencing artifact or alignment artifact
+    if (LONGCALLD_VERBOSE >= 1) fprintf(stderr, "Collecting somatic variants ...\n");
     mark_invalid_somatic_reads(opt, chunk);
     // loop through all candidate variants
     // 1) SOMATIC SNV; 2) SOMATIC SVs; 3) refCall germline variants

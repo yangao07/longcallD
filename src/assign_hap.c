@@ -1010,6 +1010,10 @@ int var_is_homopolymer_error(const call_var_opt_t *opt, bam_chunk_t *chunk, int 
     hts_pos_t ref_reg_beg = low_comp_beg - opt->noisy_reg_flank_len, ref_reg_end = low_comp_end + opt->noisy_reg_flank_len;
     int alt_ref_pos = var_pos - ref_reg_beg; // alt_qi in read_reg_seq
     collect_noisy_read_info1(opt, chunk, read_i, ref_reg_beg, ref_reg_end, &read_reg_len, &read_reg_seq, &full_cover, &read_reg_beg, &read_reg_end);
+    // if not fully cover the region, return 0
+    if (full_cover != (LONGCALLD_NOISY_LEFT_COVER | LONGCALLD_NOISY_RIGHT_COVER)) {
+        free(read_reg_seq); return 1; // seq error
+    }
     // add var->alt_seq to ref_reg_seq
     int all_ins_len = 0;
     for (int i = 0; i < chunk->n_cand_vars; ++i) {
@@ -1040,11 +1044,13 @@ int var_is_homopolymer_error(const call_var_opt_t *opt, bam_chunk_t *chunk, int 
         int allele_i = var->hap_to_cons_alle[hap];
         if (allele_i != 1) continue;
         // last_pos ... var_pos-1
-        for (hts_pos_t j = last_pos; j < var_pos; ++j) hap_reg_seq[hap_reg_len++] = nst_nt4_table[(int)chunk->ref_seq[j - chunk->ref_beg]];
-        // alt_seq
-        for (int j = 0; j < var->alt_len; ++j) hap_reg_seq[hap_reg_len++] = var->alt_seq[j];
-        // update last_pos as var_end + 1
-        last_pos = var_end + 1;
+        if (var_end + 1 > last_pos) {
+            for (hts_pos_t j = last_pos; j < var_pos; ++j) hap_reg_seq[hap_reg_len++] = nst_nt4_table[(int)chunk->ref_seq[j - chunk->ref_beg]];
+            // alt_seq
+            for (int j = 0; j < var->alt_len; ++j) hap_reg_seq[hap_reg_len++] = var->alt_seq[j];
+            // update last_pos as var_end + 1
+            last_pos = var_end + 1;
+        }
     }
     // last_pos ... ref_reg_end
     for (hts_pos_t j = last_pos; j <= ref_reg_end; ++j) {
@@ -1220,8 +1226,13 @@ cand_somatic_var_aux_info_t *collect_somatic_var_aux_info(const call_var_opt_t *
             aux_info->no_near_long_clipping[alt_i] = 1 - has_near_long_clipping(chunk, var_i, d, alt_i);
             // fprintf(stderr, "%" PRIi64 "\n", var->pos);
             if (var->var_type == BAM_CDIFF) {
-                if (aux_info->is_low_comp > 0) aux_info->is_not_homopolymer_error[alt_i] = 1-var_is_homopolymer_error(opt, chunk, hap, read_i, low_comp_beg, low_comp_end, var->pos);
-                else aux_info->is_not_homopolymer_error[alt_i] = 1-var_is_homopolymer_error(opt, chunk, hap, read_i, var->pos, var->pos+var->ref_len-1, var->pos);
+                if (aux_info->is_low_comp > 0) {
+                    if (low_comp_end - low_comp_beg + 1 > 50) {
+                        hts_pos_t _low_com_beg = MAX_OF_TWO(low_comp_beg, var->pos - 25);
+                        hts_pos_t _low_comp_end = MIN_OF_TWO(low_comp_end, var->pos + var->ref_len - 1 + 25);
+                        aux_info->is_not_homopolymer_error[alt_i] = 1-var_is_homopolymer_error(opt, chunk, hap, read_i, _low_com_beg, _low_comp_end, var->pos);
+                    } else aux_info->is_not_homopolymer_error[alt_i] = 1-var_is_homopolymer_error(opt, chunk, hap, read_i, low_comp_beg, low_comp_end, var->pos);
+                } else aux_info->is_not_homopolymer_error[alt_i] = 1-var_is_homopolymer_error(opt, chunk, hap, read_i, var->pos, var->pos+var->ref_len-1, var->pos);
             } else aux_info->is_not_homopolymer_error[alt_i] = 1; // default value, no need to check
             // var is in low-complexity region, check if the read has error in low-complexity region
             if (aux_info->is_low_comp == 1) aux_info->low_comp_reg_has_no_error[alt_i] = 1-var_low_comp_reg_has_error(chunk, var_i, d, low_comp_beg, low_comp_end);
@@ -1470,6 +1481,7 @@ void mark_skip_somatic_reads_based_on_invalid_var(bam_chunk_t *chunk, int var_i)
         }
         chunk->is_skipped_for_somatic[read_i] = 1; // tag read as skipped for somatic variant calling
     }
+    if (ovlp_b) free(ovlp_b);
 }
 
 void mark_invalid_somatic_vars(int somatic_win, int somatic_max_var, hts_pos_t *somatic_var_beg, hts_pos_t *somatic_var_end, int n_somatic_vars, int *is_invalid_somatic) {
