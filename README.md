@@ -49,10 +49,10 @@ man ./longcallD.1
   - [Build from source](#build-from-source)
 - [Usage](#usage)
   - [Variant calling with PacBio HiFi/Nanopore long reads](#variant-calling-with-pacbio-hifinanopore-long-reads)
-  - [Variant calling with multiple input BAM/CRAM files of the same sample](#variant-calling-with-multiple-input-bamcram-files-of-the-same-sample)
+  - [Multiple input BAM/CRAM files of the same sample](#multiple-input-bamcram-files-of-the-same-sample)
   - [Low allele-frequency mosaic variant calling](#low-allele-frequency-mosaic-variant-calling)
   - [Region-specific variant calling](#region-specific-variant-calling)
-  - [Variant calling and output phased (\& refined) long-read BAM/CRAM](#variant-calling-and-output-phased--refined-long-read-bamcram)
+  - [Output phased (\& refined) long-read BAM/CRAM](#output-phased--refined-long-read-bamcram)
   - [Variant calling from remote files](#variant-calling-from-remote-files)
 - [Memory usage](#memory-usage)
 - [Acknowledgements](#acknowledgements)
@@ -110,7 +110,7 @@ longcallD call -t16 ref.fa hifi.bam > hifi.vcf         # default for PacBio HiFi
 longcallD call -t16 ref.fa ont.bam --ont > ont.vcf     # for ONT reads
 ```
 
-### Variant calling with multiple input BAM/CRAM files of the same sample
+### Multiple input BAM/CRAM files of the same sample
 You can provide multiple BAM/CRAM files of the same sample for variant calling using `--input-is-list` or `-X`:
 ```
 longcallD call -t16 --input-is-list ref.fa bam_list.txt > sample.vcf
@@ -142,7 +142,7 @@ longcallD call -t16 ref.fa hifi.bam --region-file reg.bed > hifi_regs.vcf
 longcallD call -t16 ref.fa hifi.bam --autosome > hifi_autosome.vcf
 ```
 
-### Variant calling and output phased (& refined) long-read BAM/CRAM
+### Output phased (& refined) long-read BAM/CRAM
 ```
 longcallD call -t16 ref.fa hifi.bam --hifi -b hifi_phased.bam > hifi.vcf                  # output phased HiFi reads (BAM tag: HP & PS)
 longcallD call -t16 ref.fa ont.bam --ont --refine-aln -b ont_phased_refined.bam > ont.vcf # output phased & refined ONT reads (BAM tag: HP & PS)
