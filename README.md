@@ -50,7 +50,7 @@ man ./longcallD.1
 - [Usage](#usage)
   - [Variant calling with PacBio HiFi/Nanopore long reads](#variant-calling-with-pacbio-hifinanopore-long-reads)
   - [Multiple input BAM/CRAM files of the same sample](#multiple-input-bamcram-files-of-the-same-sample)
-  - [Low allele-frequency mosaic variant calling](#low-allele-frequency-mosaic-variant-calling)
+  - [Low allele-fraction mosaic variant calling](#low-allele-fraction-mosaic-variant-calling)
   - [Region-specific variant calling](#region-specific-variant-calling)
   - [Output phased (\& refined) long-read BAM/CRAM](#output-phased--refined-long-read-bamcram)
   - [Variant calling from remote files](#variant-calling-from-remote-files)
@@ -65,7 +65,7 @@ using long-read sequencing data. It supports both **PacBio HiFi** and **Oxford N
 
 LongcallD phases long reads into haplotypes using SNPs and small indels before calling SVs. It outputs phased variant calls in VCF format, including SNPs, small indels, and large SVs (currently only supporting insertions and deletions).
 
-LongcallD (≥v0.0.5) can also call low-allele-frequency mosaic variant when `-s/--mosaic` is used.
+LongcallD (≥v0.0.5) can also call low-allele-fraction mosaic variant when `-s/--mosaic` is used.
 Currently, only SNVs and large indels are supported, no mosaic small indels will be called.
 Specifically, longcallD can sensitively identify mosaic mobile element insertions (MEIs).
 Providing the annotation sequence of common mobile elements, i.e., Alu/L1/SVA, using `-T` is highly recommanded, which is included [here](https://github.com/yangao07/longcallD/tree/main/anno).
@@ -124,8 +124,8 @@ or
 longcallD call -t16 ref.fa sample_part1.bam -X sample_part2.bam -X sample_part3.bam > sample.vcf
 ```
 
-### Low allele-frequency mosaic variant calling
-With `-s`, longcallD will detect both germline and low-frequency somatic/mosaic variants.
+### Low allele-fraction mosaic variant calling
+With `-s`, longcallD will detect both germline and low-fraction somatic/mosaic variants.
 
 For each somatic/mosaic variant, a `SOMATIC` tag will be added to the INFO field in the output VCF.
 ```
