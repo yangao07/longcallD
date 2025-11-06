@@ -7,7 +7,7 @@
 #include "collect_var.h"
 
 #define LONGCALLD_BAM_CHUNK_READ_COUNT 4000
-#define LONGCALLD_BAM_CHUNK_REG_SIZE 50000 // 0.5M/1M
+#define LONGCALLD_BAM_CHUNK_REG_SIZE 500000 // 0.5M/1M
 // region-based BAM_CHUNK: no split for a single chromosome
 //                         multi regions may be merged into a single chunk if n_regs < 64
 // #define LONGCALLD_BAM_MIN_REG_CHUNK_PER_RUN 64 // n_threads * 4
