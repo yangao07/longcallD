@@ -582,7 +582,7 @@ static int select_somatic_phase_set0(hts_pos_t *uniq_phase_set, int n_uniq_phase
     free(phase_set_to_total_depth);
     int has_valid_ps = 0;
     for (int i = 0; i < n_uniq_phase_set; ++i) {
-        int skip = 0, n_hap_with_alt = 0, n_valid_hap_with_alt = 0; //, n_total_alt = 0, n_total_ref = 0;
+        int n_hap_with_alt = 0, n_valid_hap_with_alt = 0; //, n_total_alt = 0, n_total_ref = 0;
         for (int hap = 1; hap <= 2; ++hap) {
             // check if this hap has alt reads
             int n_alt = phase_set_to_hap_alle_profile[i][hap][1], n_ref = phase_set_to_hap_alle_profile[i][hap][0];
@@ -972,11 +972,13 @@ int is_diff_between_ref_hap_aln(const call_var_opt_t *opt, uint8_t *read_reg_seq
     // wfa alignment between read_reg_seq and hap_reg_seq
     uint8_t *read_hap_aln_str, *read_ref_aln_str, *hap_aln_str, *ref_aln_str;
     int hap_aln_len = 0, ref_aln_len = 0;
-    wfa_end2end_aln(hap_reg_seq, hap_reg_len, read_reg_seq, read_reg_len, opt->gap_aln, opt->match, opt->mismatch, opt->gap_open1, opt->gap_ext1,
-                    opt->gap_open2, opt->gap_ext2, NULL, NULL, &hap_aln_str, &read_hap_aln_str, &hap_aln_len);
+    wfa_end2end_aln(hap_reg_seq, hap_reg_len, read_reg_seq, read_reg_len,
+                    opt->gap_aln, opt->mismatch, opt->gap_open1, opt->gap_ext1, opt->gap_open2, opt->gap_ext2, LONGCALLD_WFA_ADAPTIVE, LONGCALLD_WFA_AFFINE_1P, // wf-adaptive, affine-1p
+                    NULL, NULL, &hap_aln_str, &read_hap_aln_str, &hap_aln_len);
     // wfa alignment between read_reg_seq and ref_reg_seq
-    wfa_end2end_aln(ref_reg_seq, ref_reg_len, read_reg_seq, read_reg_len, opt->gap_aln, opt->match, opt->mismatch, opt->gap_open1, opt->gap_ext1,
-                    opt->gap_open2, opt->gap_ext2, NULL, NULL, &ref_aln_str, &read_ref_aln_str, &ref_aln_len);
+    wfa_end2end_aln(ref_reg_seq, ref_reg_len, read_reg_seq, read_reg_len,
+                    opt->gap_aln, opt->mismatch, opt->gap_open1, opt->gap_ext1, opt->gap_open2, opt->gap_ext2, LONGCALLD_WFA_ADAPTIVE, LONGCALLD_WFA_AFFINE_1P, // wf-adaptive, affine-1p
+                    NULL, NULL, &ref_aln_str, &read_ref_aln_str, &ref_aln_len);
     // check if the alignment at position alt_qi is the same or not
     int hap_aln_i = -1, ref_aln_i = -1;
     int read_aln_i = -1, alt_read_pos = -1;
@@ -1320,7 +1322,6 @@ int var_is_germline(const call_var_opt_t *opt, bam_chunk_t *chunk, int var_i, ca
     }
     // 2. check if the variant has artifact low-complexity insertion sequences
     var_win = 50; // only check 50 bases around the variant
-    int not_germline = 0;
     for (int i = var_i+1; i < chunk->n_cand_vars; ++i) {
         if (!(var_i_to_cate[i] & LONGCALLD_CAND_GERMLINE_VAR_CATE)) continue; // skip non-germline vars
         cand_var_t *var1 = chunk->cand_vars + i;
@@ -1382,6 +1383,7 @@ int phased_sv_is_somatic(const call_var_opt_t *opt, bam_chunk_t *chunk, int var_
         if (var->alle_covs[1] < opt->min_somatic_te_dp || sv_is_te(chunk->cand_vars + var_i) == 0)
             return 0;
     }
+    // fprintf(stderr, "checking sv at %s:%" PRIi64 "%d-%c-%d\n", chunk->tname, var->pos, var->ref_len, BAM_CIGAR_STR[var->var_type], var->alt_len);
     if (var_is_germline(opt, chunk, var_i, aux_info)) return 0;
     if (var->alle_covs[1] == 1 && somatic_var_seq_is_low_comp(chunk, var_i)) return 0;
     if (median_int(aux_info->no_dense_diff, aux_info->hap_alt_dp) == 0) return 0;

@@ -7,7 +7,7 @@
 #include "collect_var.h"
 
 #define LONGCALLD_BAM_CHUNK_READ_COUNT 4000
-#define LONGCALLD_BAM_CHUNK_REG_SIZE 500000 // 0.5M/1M
+#define LONGCALLD_BAM_CHUNK_REG_SIZE 50000 // 0.5M/1M
 // region-based BAM_CHUNK: no split for a single chromosome
 //                         multi regions may be merged into a single chunk if n_regs < 64
 // #define LONGCALLD_BAM_MIN_REG_CHUNK_PER_RUN 64 // n_threads * 4
@@ -62,8 +62,9 @@ typedef struct bam_chunk_t {
     // should always be 1 region XXX
     cgranges_t *low_comp_cr; // tandem_rep_cr;
     int n_reads, m_reads;
-    int n_up_ovlp_reads, n_down_ovlp_reads; // number of reads overlapping with up/downstream bam chunk
-    int *up_ovlp_read_i, *down_ovlp_read_i;
+    int n_bam; // for each input bam, record the number of region-overlapping reads
+    int *n_up_ovlp_reads, *n_down_ovlp_reads; // number of reads overlapping with up/downstream bam chunk
+    int **up_ovlp_read_i, **down_ovlp_read_i;
     bam1_t **reads;
     // intermidiate
     int *n_clean_agree_snps, *n_clean_conflict_snps; // size: m_reads; XXX include both het and hom clean vars
@@ -108,7 +109,7 @@ static inline int double_check_digar(digar1_t *digars, int n_digar) {
                 qi = last_qi + digars[last_i].len;
         } else qi = last_qi;
         if (qi != digars[i].qi) {
-            fprintf(stderr, "Error: digars[%d]=%d, digars[%d]=%d\n", i, digars[i].qi, last_i, qi);
+            // fprintf(stderr, "Error: digars[%d]=%d, digars[%d]=%d\n", i, digars[i].qi, last_i, qi);
             return 1;
         }
     }
@@ -164,13 +165,13 @@ int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, int read_i, const struct ca
 int collect_digar_from_cs_tag(bam_chunk_t *chunk, int read_i, const struct call_var_opt_t *opt, digar_t *digar);
 int collect_digar_from_MD_tag(bam_chunk_t *chunk, int read_i, const struct call_var_opt_t *opt, digar_t *digar);
 int collect_digar_from_ref_seq(bam_chunk_t *chunk, int read_i, const struct call_var_opt_t *opt, digar_t *digar);
-int update_cand_vars_from_digar(const struct call_var_opt_t *opt, bam_chunk_t *chunk, digar_t *digar, int n_var_sites, struct var_site_t *var_sites, int start_i, struct cand_var_t *cand_vars);
+int update_cand_vars_from_digar(const struct call_var_opt_t *opt, bam_chunk_t *chunk, digar_t *digar, int n_var_sites, struct var_site_t *var_sites, struct cand_var_t *cand_vars);
 void update_read_var_profile_with_allele(int var_i, int allele_i, int alt_qi, read_var_profile_t *read_var_profile);
-int update_read_vs_all_var_profile_from_digar(const struct call_var_opt_t *opt, bam_chunk_t *chunk, digar_t *digar, int n_cand_vars, struct cand_var_t *cand_vars, int *var_i_to_cate, int start_var_i, struct read_var_profile_t *read_var_profile);
-int update_read_vs_somatic_var_profile_from_digar(const struct call_var_opt_t *opt, bam_chunk_t *chunk, digar_t *digar, int n_cand_vars, struct cand_var_t *cand_vars, int start_var_i, struct read_var_profile_t *read_var_profile);
+int update_read_vs_all_var_profile_from_digar(const struct call_var_opt_t *opt, bam_chunk_t *chunk, digar_t *digar, int n_cand_vars, struct cand_var_t *cand_vars, int *var_i_to_cate, struct read_var_profile_t *read_var_profile);
+int update_read_vs_somatic_var_profile_from_digar(const struct call_var_opt_t *opt, bam_chunk_t *chunk, digar_t *digar, int n_cand_vars, struct cand_var_t *cand_vars, struct read_var_profile_t *read_var_profile);
 
 int collect_ref_seq_bam_main(const struct call_var_pl_t *pl, struct call_var_io_aux_t *io_aux, int reg_chunk_i, int reg_i, bam_chunk_t *chunks);
-int write_read_to_bam(bam_chunk_t *chunk, const struct call_var_opt_t *opt);
+int write_read_to_bam(bam_chunk_t *chunk, const struct call_var_opt_t *opt, const struct call_var_io_aux_t *io_aux);
 void bam_chunk_mid_free(bam_chunk_t *chunk);
 void bam_chunks_mid_free(bam_chunk_t *chunks, int n_chunks);
 void bam_chunk_post_free(bam_chunk_t *chunk);

@@ -51,7 +51,7 @@ int collect_rev_kmer(uint8_t *seq, int seq_len, int seq_id, int k, kmer32_v *a) 
 // collect consecutive kmers: 0, 1, 2, ...
 int collect_kmer(uint8_t *seq, int seq_len, int seq_id, int k, kmer32_v *a) {
     assert(k > 0 && k <= 16);
-    void *km = 0; uint32_t shift1 = 2 * (k - 1);
+    void *km = 0;
     kv_resize(kmer32_t, km, *a, seq_len);
     // forawrd
     int i, l; uint32_t hash_key = 0;
@@ -150,7 +150,7 @@ int make_te_kmer_idx(call_var_opt_t *opt) {
 // collect non-consecutive kmers: 0, k, 2k, ...
 int collect_query_kmer(uint8_t *seq, int seq_len, int seq_id, int k, kmer32_v *a) {
     assert(k > 0 && k <= 16);
-    void *km = 0; uint32_t shift1 = 2 * (k - 1);
+    void *km = 0;
     kv_resize(kmer32_t, km, *a, seq_len/k+1);
     // forawrd
     int i, l; uint32_t hash_key = 0;
@@ -189,13 +189,13 @@ int collect_kmer_hist(kmer32_v *read_kmers, kmer32_hash_t *h) {
 }
 
 // for somatic/mosaic SVs
-int check_tandem_dup(uint8_t *cand_query_seq, int cand_qlen, uint8_t *cand_target_seq, int cand_tlen) {
-    int q_count = 0, t_count = 0;
-    // collect all k-mers from cand_target_seq
-    // collect query_kmers from cand_query_seq
-    // check how fraction of query_kmers are in cand_target_seq
-    return 0;
-}
+// int check_tandem_dup(uint8_t *cand_query_seq, int cand_qlen, uint8_t *cand_target_seq, int cand_tlen) {
+//     int q_count = 0, t_count = 0;
+//     // collect all k-mers from cand_target_seq
+//     // collect query_kmers from cand_query_seq
+//     // check how fraction of query_kmers are in cand_target_seq
+//     return 0;
+// }
 
 int check_low_complexity(uint8_t *cand_query_seq, int cand_qlen, float low_comp_frac) {
     if (cand_qlen < 50) return 0;

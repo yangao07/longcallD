@@ -6,6 +6,8 @@
 #include "kseq.h"
 #include "khash.h"
 #include "cgranges.h"
+#include "bam_utils.h"
+#include "htslib/sam.h"
 #include "htslib/hts.h"
 #include "htslib/faidx.h"
 KSEQ_INIT(gzFile, gzread)
@@ -63,6 +65,9 @@ typedef struct {
 uint8_t *get_bseq(char *seq, int seq_len);
 uint8_t get_bseq1(char *seq, hts_pos_t beg, hts_pos_t end, hts_pos_t pos);
 // char *get_rc_seq(char *seq, int seq_len);
+int collect_reg_ref_cseq(bam_chunk_t *chunk, hts_pos_t *reg_beg, hts_pos_t *reg_end, char **ref_cseq);
+int collect_reg_ref_bseq(bam_chunk_t *chunk, hts_pos_t *reg_beg, hts_pos_t *reg_end, uint8_t **ref_bseq);
+double calc_read_error_rate(int len, uint8_t *qual);
 
 // ref_seq_t *ref_seq_init();
 // ref_seq_t *ref_seq_realloc(ref_seq_t *r);

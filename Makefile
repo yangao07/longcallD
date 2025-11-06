@@ -11,14 +11,17 @@ endif
 
 # add -fno-tree-vectorize to avoid certain vectorization errors in O3 optimization
 # right now, we are using -O3 for the best performance, and no vectorization errors were found
-EXTRA_FLAGS = -Wall -Wno-unused-function -Wno-misleading-indentation -Wno-unused-variable -Wno-alloc-size-larger-than
+EXTRA_FLAGS = -Wall -Wno-misleading-indentation -Wno-unused-function #-Wno-unused-variable -Wno-alloc-size-larger-than
 
 # Define the version number
-LONGCALLD_VERSION =0.0.5
+VERSION=0.0.6
+# LONGCALLD_VERSION =0.0.6
 # Get the Git commit hash
 GIT_COMMIT := $(shell git rev-parse --short HEAD 2> /dev/null)
 ifneq ($(GIT_COMMIT),)
-	LONGCALLD_VERSION = 0.0.5-$(GIT_COMMIT)
+	LONGCALLD_VERSION = $(VERSION)-$(GIT_COMMIT)
+else
+	LONGCALLD_VERSION = $(VERSION)
 endif
 
 HTSLIB_DIR  = ./htslib
@@ -170,6 +173,6 @@ clean_all:
 clean_hts:
 	rm -f $(HTSLIB)
 clean_abpoa:
-	rm -f $(ABPOA_LIB)
+	rm -f $(ABPOA_LIB) $(ABPOA_DIR)/src/*.o
 clean_wfa2:
 	rm -f $(WFA2_LIB)

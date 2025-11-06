@@ -515,7 +515,7 @@ char *retrieve_full_url(const char *url) {
     } else {
         fprintf(stderr, "Failed to initialize curl\n");
     }
-	if (full_url && LONGCALLD_VERBOSE >= 1) _err_info("Full URL: %s -> %s\n", url, full_url);
+	if (full_url && LONGCALLD_VERBOSE >= 2) _err_info("Full URL: %s -> %s\n", url, full_url);
     
     // If no new URL was retrieved, return a duplicate of the original URL
     return full_url ? full_url : strdup(url);

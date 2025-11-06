@@ -9,7 +9,7 @@
 const char PROG[20] = "longcallD";
 const char DESCRIP[100] = "local-haplotagging-based small and structural variant calling";
 #ifndef LONGCALLD_VERSION
-const char LONGCALLD_VERSION[20] = "0.0.5";
+const char LONGCALLD_VERSION[20] = "0.0.6";
 #endif
 const char CONTACT[50] = "yangao@ds.dfci.harvard.edu";
 int LONGCALLD_VERBOSE = 0;

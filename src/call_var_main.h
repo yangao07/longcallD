@@ -43,8 +43,11 @@
 #define LONGCALLD_NOISY_REG_READS 2 // >= 5 reads supporting noisy region
 // #define LONGCALLD_NOISY_REG_RATIO 0.20 // >= 25% reads supporting noisy region
 
+#define LONGCALLD_MIN_NOISY_REG_SIZE_TO_SAMPLE_READS 1000 // >=10kb noisy region, sample reads for re-alignment
+#define LONGCALLD_PARTIAL_ALN_RATIO 1.1 // max length ratio for partial alignment, i.e. longer_aln_len / shorter_aln_len <= 1.1
+
 #define LONGCALLD_MIN_HAP_FULL_READS 1 // >= 1full read supporting each haplotype
-#define LONGCALLD_MIN_HAP_READS 2 // >= 3 reads supporting each haplotype, including partial/clipped reads, call consensus from >= 3 reads
+#define LONGCALLD_MIN_HAP_READS 2 // >= 2 reads supporting each haplotype, including partial/clipped reads, call consensus from >= 3 reads
 // #define LONGCALLD_MIN_NO_HAP_FULL_READS 10 // >10 total full reads in noisy region
 #define LONGCALLD_MIN_READ_TO_HAP_CONS_SIM 0.9 // for reads with >= 90% equal bases, assign haplotype
 // SV related parameters
@@ -125,7 +128,8 @@ typedef struct call_var_opt_t {
     // input
     char *ref_fa_fn, *ref_fa_fai_fn;
     char *reg_bed_fn;
-    char *in_bam_fn; char *sample_name;
+    char *sample_name;
+    int n_in_bam_fn, m_in_bam_fn, input_is_list; char **in_bam_fns;
     uint8_t is_pb_hifi, is_ont; float strand_bias_pval; // for ONT reads
     // variant calling regions
     uint8_t only_autosome, only_autosome_XY;
@@ -144,20 +148,21 @@ typedef struct call_var_opt_t {
     int end_clip_reg, end_clip_reg_flank_win;
     int noisy_reg_merge_dis, noisy_reg_flank_len; // noisy_reg_merge_win; // for re-alignment
     // filters for noisy region, i.e., coverage/ratio
-    int max_noisy_reg_reads, max_noisy_reg_len, min_noisy_reg_reads; 
+    int max_noisy_reg_reads, max_noisy_reg_len; //, min_noisy_reg_reads; 
     double max_var_ratio_per_read, max_noisy_frac_per_read; //, min_noisy_reg_ratio;
     int min_hap_full_reads, min_hap_reads; //, min_no_hap_full_reads;
     // alignment
     int match, mismatch, gap_open1, gap_ext1, gap_open2, gap_ext2;
     int gap_aln; // default: 1: left (minimap2, abpoa), 2: right (wfa2)
-    double min_read_to_hap_cons_sim;
-    int disable_read_realign; // disable re-alignment/MSA, only use variant calling from consensus sequence
-                              // phasing is based on read cluster of the current haplotype, so not error-robust
+    double min_read_to_hap_cons_sim, partial_aln_ratio;
+    int min_noisy_reg_size_to_sample_reads; //, sampling_hap_read_count, sampling_non_hap_read_count;
+    // int disable_read_sampling; // disable read-sampling in long noisy regions; by default read sampling is enabled; disable to capture mosaic variants in long noisy regions
     // TSD & polyA/T
     int min_tsd_len, max_tsd_len, min_polya_len; float min_polya_ratio;
     // Alu/L1/SVA sequences
     char *te_seq_fn; char **te_seq_names; int n_te_seqs;
     int te_kmer_len; kmer32_hash_t **te_for_h, **te_rev_h;
+    int output_sv_reads; // output supporting read IDs for each SV
     // general
     // int max_ploidy;
     int pl_threads, n_threads;
@@ -166,7 +171,7 @@ typedef struct call_var_opt_t {
 
     // output
     int min_sv_len; // classify as SV if length >= min_sv_len (50)
-    htsFile *out_bam; uint8_t out_is_cram; uint8_t refine_bam; // phased bam
+    htsFile *out_aln_fp; uint8_t out_aln_is_cram; uint8_t refine_bam; // phased bam
     htsFile *out_vcf; bcf_hdr_t *vcf_hdr; char *out_vcf_fn; char out_vcf_type; // u/b/v/z
     double p_error, log_p, log_1p, log_2; int max_gq; int max_qual;
     int8_t no_vcf_header, out_amb_base, out_somatic, out_methylation;
@@ -179,7 +184,8 @@ typedef struct {
 
 typedef struct call_var_io_aux_t {
     faidx_t *fai;
-    int hts_fmt; samFile *bam; bam_hdr_t *header; hts_idx_t *idx;
+    int n_bam;
+    samFile **bams; bam_hdr_t **headers; hts_idx_t **idxs;
 } call_var_io_aux_t; // per thread
 
 // shared data for all threads

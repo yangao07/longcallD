@@ -14,8 +14,9 @@
 ## Updates (pre-release v0.0.6)
 
 * Fix corrupted VCF output in v0.0.5
-* Low memory usage (especially when mosaic variant calling enabled)
-<!-- * Add [longdust](https://github.com/lh3/longdust) for long low-complexity regions -->
+* Fix missing MEI header in VCF output
+* Improved run time and memory usage (especially when mosaic variant calling enabled)
+* Add `--input-is-list` and `-X` to support multiple input BAM/CRAM files of the same sample for variant calling
 
 
 ## Getting Started
@@ -48,10 +49,12 @@ man ./longcallD.1
   - [Build from source](#build-from-source)
 - [Usage](#usage)
   - [Variant calling with PacBio HiFi/Nanopore long reads](#variant-calling-with-pacbio-hifinanopore-long-reads)
+  - [Variant calling with multiple input BAM/CRAM files of the same sample](#variant-calling-with-multiple-input-bamcram-files-of-the-same-sample)
   - [Low allele-frequency mosaic variant calling](#low-allele-frequency-mosaic-variant-calling)
   - [Region-specific variant calling](#region-specific-variant-calling)
-  - [Variant calling and output phased long reads](#variant-calling-and-output-phased-long-reads)
+  - [Variant calling and output phased (\& refined) long-read BAM/CRAM](#variant-calling-and-output-phased--refined-long-read-bamcram)
   - [Variant calling from remote files](#variant-calling-from-remote-files)
+- [Memory usage](#memory-usage)
 - [Acknowledgements](#acknowledgements)
 - [Contact](#contact)
 
@@ -107,14 +110,27 @@ longcallD call -t16 ref.fa hifi.bam > hifi.vcf         # default for PacBio HiFi
 longcallD call -t16 ref.fa ont.bam --ont > ont.vcf     # for ONT reads
 ```
 
+### Variant calling with multiple input BAM/CRAM files of the same sample
+You can provide multiple BAM/CRAM files of the same sample for variant calling using `--input-is-list` or `-X`:
+```
+longcallD call -t16 --input-is-list ref.fa bam_list.txt > sample.vcf
+# where bam_list.txt contains:
+# sample_part1.bam
+# sample_part2.bam
+# sample_part3.bam
+```
+or
+```
+longcallD call -t16 ref.fa sample_part1.bam -X sample_part2.bam -X sample_part3.bam > sample.vcf
+```
+
 ### Low allele-frequency mosaic variant calling
-With `-s`, longcallD will detect both germline and somatic/mosaic variants.
+With `-s`, longcallD will detect both germline and low-frequency somatic/mosaic variants.
 
 For each somatic/mosaic variant, a `SOMATIC` tag will be added to the INFO field in the output VCF.
 ```
 longcallD call -s -t16 ref.fa hifi.bam > hifi.vcf
 longcallD call -s -t16 ref.fa hifi.bam -T AluY_L1_SVA_cons_noPA.fa > hifi.vcf # add MEI information in INFO field
-longcallD call -s -t16 ref.fa ont.bam --ont > ont.vcf
 ```
 
 ### Region-specific variant calling
@@ -126,10 +142,10 @@ longcallD call -t16 ref.fa hifi.bam --region-file reg.bed > hifi_regs.vcf
 longcallD call -t16 ref.fa hifi.bam --autosome > hifi_autosome.vcf
 ```
 
-### Variant calling and output phased long reads
+### Variant calling and output phased (& refined) long-read BAM/CRAM
 ```
-longcallD call -t16 ref.fa hifi.bam --hifi -b hifi_phased.bam > hifi.vcf  # output phased HiFi reads (BAM tag: HP & PS)
-longcallD call -t16 ref.fa ont.bam --ont -b ont_phased.bam > ont.vcf      # output phased ONT reads (BAM tag: HP & PS)
+longcallD call -t16 ref.fa hifi.bam --hifi -b hifi_phased.bam > hifi.vcf                  # output phased HiFi reads (BAM tag: HP & PS)
+longcallD call -t16 ref.fa ont.bam --ont --refine-aln -b ont_phased_refined.bam > ont.vcf # output phased & refined ONT reads (BAM tag: HP & PS)
 ```
 ### Variant calling from remote files
 ```
@@ -137,6 +153,14 @@ ref=https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/references/
 bam=https://ftp-trace.ncbi.nlm.nih.gov/giab/ftp/data/AshkenazimTrio/HG002_NA24385_son/PacBio_HiFi-Revio_20231031/HG002_PacBio-HiFi-Revio_20231031_48x_GRCh38-GIABv3.bam
 longcallD call -t16 $ref $bam chr11:10,229,956-10,256,221 chr12:10,576,356-10,583,438 > hifi_regs.vcf
 ```
+
+## Memory usage
+As longcallD performs multiple-sequence alignment/re-alignment, which are memory-intensive, it usually uses more memory than other variant callers.
+The peak memory usage mainly depends on the number of threads (`-t/--threads`), the sequencing coverage, and the read length.
+For human genome sequencing data with ~40x coverage, longcallD typically uses around **1GB** (**HiFi**) or **2GB** (**ONT R10**) memory per thread for germline variant calling.
+
+If you encounter memory issues, you can use `--region-file` to limit the genomic regions being processed.
+Human genome region list excluding centromeres are provided [here](https://github.com/yangao07/longcallD/blob/main/anno/).
 
 ## Acknowledgements
 LongcallD is dependent on the following libraries, we are grateful to all the developers/maintainers:
@@ -146,7 +170,7 @@ LongcallD is dependent on the following libraries, we are grateful to all the de
 * [WFA](https://github.com/smarco/WFA2-lib): pairwise alignment
 * [edlib](https://github.com/Martinsos/edlib): fast sequence similarity calculation
 * [cgranges](https://github.com/lh3/cgranges): interval operations
-* [sdust](https://github.com/lh3/sdust) and [longdust](https://github.com/lh3/longdust): identify low-complexity regions
+* [sdust](https://github.com/lh3/sdust): identify low-complexity regions
 
 ## Contact
 

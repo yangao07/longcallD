@@ -56,24 +56,25 @@ void write_vcf_header(bam_hdr_t *hdr, struct call_var_opt_t *opt) {
     bcf_hdr_append(vcf_hdr, "##FILTER=<ID=NoCall,Description=\"Site has depth=0 resulting in no call\">");
 
     // INFO fields
+    bcf_hdr_append(vcf_hdr, "##INFO=<ID=END,Number=1,Type=Integer,Description=\"End position of the variant described in this record\">");
     bcf_hdr_append(vcf_hdr, "##INFO=<ID=SOMATIC,Number=0,Type=Flag,Description=\"Somatic/mosaic variant\">");
-    bcf_hdr_append(vcf_hdr, "##INFO=<ID=END,Number=1,Type=Integer,Description=\"End position on CHROM\">");
-    bcf_hdr_append(vcf_hdr, "##INFO=<ID=SVLEN,Number=1,Type=Integer,Description=\"Length of structural variation\">");
-    bcf_hdr_append(vcf_hdr, "##INFO=<ID=SVTYPE,Number=1,Type=String,Description=\"Type of structural variation\">");
+    bcf_hdr_append(vcf_hdr, "##INFO=<ID=SVTYPE,Number=1,Type=String,Description=\"Type of structural variant\">");
+    bcf_hdr_append(vcf_hdr, "##INFO=<ID=SVLEN,Number=A,Type=Integer,Description=\"Difference in length between REF and ALT alleles\">");
+    bcf_hdr_append(vcf_hdr, "##INFO=<ID=SVREADS,Number=.,Type=String,Description=\"IDs of reads supporting the SV\">");
     // TSD info
-    bcf_hdr_append(vcf_hdr, "##INFO=<ID=TSD,Number=1,Type=String,Description=\"Target site duplication sequence\">");
-    bcf_hdr_append(vcf_hdr, "##INFO=<ID=TSDLEN,Number=1,Type=Integer,Description=\"Length of target site duplication\">");
-    bcf_hdr_append(vcf_hdr, "##INFO=<ID=POLYALEN,Number=1,Type=Integer,Description=\"Length of polyA/T sequence\">");
+    bcf_hdr_append(vcf_hdr, "##INFO=<ID=TSD,Number=A,Type=String,Description=\"Target site duplication sequence\">");
+    bcf_hdr_append(vcf_hdr, "##INFO=<ID=TSDLEN,Number=A,Type=Integer,Description=\"Length of target site duplication\">");
+    bcf_hdr_append(vcf_hdr, "##INFO=<ID=POLYALEN,Number=A,Type=Integer,Description=\"Length of polyA/T sequence\">");
     // there will be 2 TSDs for DEL
     bcf_hdr_append(vcf_hdr, "##INFO=<ID=MEI,Number=0,Type=Flag,Description=\"Mobile element insertion\">");
-    bcf_hdr_append(vcf_hdr, "##INFO=<ID=TSDPOS1,Number=1,Type=Integer,Description=\"Start position of first target site duplication on CHROM\">");
-    bcf_hdr_append(vcf_hdr, "##INFO=<ID=TSDPOS2,Number=1,Type=Integer,Description=\"Start position of second target site duplication on CHROM\">");
-    bcf_hdr_append(vcf_hdr, "##INFO=<ID=REPNAME,Number=1,Type=String,Description=\"Repeat name\">");
+    bcf_hdr_append(vcf_hdr, "##INFO=<ID=TSDPOS1,Number=A,Type=Integer,Description=\"Start position of first target site duplication on CHROM\">");
+    bcf_hdr_append(vcf_hdr, "##INFO=<ID=TSDPOS2,Number=A,Type=Integer,Description=\"Start position of second target site duplication on CHROM\">");
+    bcf_hdr_append(vcf_hdr, "##INFO=<ID=REPNAME,Number=A,Type=String,Description=\"Repeat name\">");
     // bcf_hdr_append(vcf_hdr, "##INFO=<ID=REPCLSFAM,Number=1,Type=String,Description=\"Repeat class/family\">");
 
     // FORMAT fields
     bcf_hdr_append(vcf_hdr, "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">");
-    bcf_hdr_append(vcf_hdr, "##FORMAT=<ID=GQ,Number=1,Type=Integer,Description=\"Conditional genotype quality\">");
+    bcf_hdr_append(vcf_hdr, "##FORMAT=<ID=GQ,Number=1,Type=Integer,Description=\"Genotype quality\">");
     bcf_hdr_append(vcf_hdr, "##FORMAT=<ID=DP,Number=1,Type=Integer,Description=\"Total read depth\">");
     bcf_hdr_append(vcf_hdr, "##FORMAT=<ID=AD,Number=R,Type=Integer,Description=\"Read depth for each allele\">");
     bcf_hdr_append(vcf_hdr, "##FORMAT=<ID=PL,Number=G,Type=Integer,Description=\"Phred-scaled genotype likelihoods rounded to the closest integer\">");

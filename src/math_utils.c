@@ -171,7 +171,7 @@ double fisher_exact_test(int a, int b, int c, int d, const call_var_opt_t *opt) 
 
 // Fisher's exact test (one-tailed - less)
 double fisher_exact_test_left(int a, int b, int c, int d, const call_var_opt_t *opt) {
-    double log_p_observed = log_hypergeometric(a, b, c, d, opt);
+    // double log_p_observed = log_hypergeometric(a, b, c, d, opt);
     double total_p = 0.0;
     
     int min_a = (0 > (a + c) - (a + b + c + d)) ? 0 : (a + c) - (b + d);
@@ -191,7 +191,6 @@ double fisher_exact_test_left(int a, int b, int c, int d, const call_var_opt_t *
 
 // Fisher's exact test (one-tailed - greater)
 double fisher_exact_test_right(int a, int b, int c, int d, const call_var_opt_t *opt) {
-    double log_p_observed = log_hypergeometric(a, b, c, d, opt);
     double total_p = 0.0;
     
     int max_a = (a + b) < (a + c) ? (a + b) : (a + c);

@@ -2,6 +2,7 @@
 #include "utils.h"
 #include "htslib/kstring.h"
 #include "htslib/faidx.h"
+#include <math.h>
 
 #define nt_A 0
 #define nt_C 1
@@ -325,7 +326,7 @@ trans_ele_anno_t *read_trans_ele_anno_from_embl(const char* fn) {
     if (fp == NULL) _err_error_exit("Failed to open Dfam file: %s\n", fn);
     trans_ele_anno_t *t = trans_ele_anno_init();
     char line[1024];
-    int n_rep = 0, is_in_rep_mask_anno = 0;
+    int is_in_rep_mask_anno = 0;
     while (gzgets(fp, line, 1024) != NULL) {
         line[strcspn(line, "\r\n")] = '\0';
         if (strncmp("ID   ", line, 5) == 0) {
@@ -398,4 +399,38 @@ void free_trans_ele_anno(trans_ele_anno_t *t) {
     }
     kh_destroy(str, t->h);
     free(t);
+}
+
+int collect_reg_ref_cseq(bam_chunk_t *chunk, hts_pos_t *reg_beg, hts_pos_t *reg_end, char **ref_cseq) {
+    char *ref_seq = chunk->ref_seq; hts_pos_t ref_beg = chunk->ref_beg, ref_end = chunk->ref_end;
+    if (*reg_beg < ref_beg) *reg_beg = ref_beg;
+    if (*reg_end > ref_end) *reg_end = ref_end;
+    *ref_cseq = (char*)malloc((*reg_end - *reg_beg + 1) * sizeof(char));
+    for (int i = *reg_beg; i <= *reg_end; ++i) { // collect upper-case ref seq
+        (*ref_cseq)[i-*reg_beg] = toupper(ref_seq[i-ref_beg]);
+    }
+    return (*reg_end - *reg_beg + 1);
+}
+
+int collect_reg_ref_bseq(bam_chunk_t *chunk, hts_pos_t *reg_beg, hts_pos_t *reg_end, uint8_t **ref_bseq) {
+    char *ref_seq = chunk->ref_seq; hts_pos_t ref_beg = chunk->ref_beg, ref_end = chunk->ref_end;
+    if (*reg_beg < ref_beg) *reg_beg = ref_beg;
+    if (*reg_end > ref_end) *reg_end = ref_end;
+
+    // fprintf(stderr, "Collecting ref_bseq: %" PRIi64 " %" PRIi64 " %" PRIi64 " %" PRIi64 "\n", reg_beg, reg_end, ref_beg, ref_end);
+    *ref_bseq = (uint8_t*)malloc((*reg_end - *reg_beg + 1) * sizeof(uint8_t));
+    for (int i = *reg_beg; i <= *reg_end; ++i) {
+        (*ref_bseq)[i-*reg_beg] = nst_nt4_table[(int)ref_seq[i-ref_beg]];
+    }
+    return (*reg_end - *reg_beg + 1);
+}
+
+// Calculate the per-base expected error rate from Phred scores.
+double calc_read_error_rate(int len, uint8_t *qual) {
+    if (len <= 0 || qual == NULL) return 0.0;
+    double expected_errors = 0.0;
+    for (int i = 0; i < len; ++i) {
+        expected_errors += pow(10.0, -((double)qual[i]) / 10.0);
+    }
+    return expected_errors / len;
 }

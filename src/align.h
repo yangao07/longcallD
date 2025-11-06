@@ -31,6 +31,14 @@
 #define LONGCALLD_EXT_ALN_LEFT_TO_RIGHT 1
 #define LONGCALLD_EXT_ALN_RIGHT_TO_LEFT  2
 
+
+#define LONGCALLD_WFA_NO_HEURISTIC 0
+#define LONGCALLD_WFA_ADAPTIVE 1
+#define LONGCALLD_WFA_ZDROP 2
+
+#define LONGCALLD_WFA_AFFINE_1P 0
+#define LONGCALLD_WFA_AFFINE_2P 1
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -47,11 +55,10 @@ int edlib_infix_aln(uint8_t *target, int tlen, uint8_t *query, int qlen, int *n_
 // int wfa_aln(int gap_pos, char *pattern, int plen, char *text, int tlen, uint32_t **cigar_buf);
 int end2end_aln(const call_var_opt_t *opt, char *pattern, int plen, uint8_t *text, int tlen, uint32_t **cigar_buf);
 int wfa_end2end_aln(uint8_t *pattern, int plen, uint8_t *text, int tlen,
-                    int gap_aln, int a, int b, int q, int e, int q2, int e2, uint32_t **cigar_buf, int *cigar_length,
-                    uint8_t **pattern_alg, uint8_t **text_alg, int *alg_length);
+                    int gap_aln, int a, int b, int q, int e, int q2, int e2, int use_heuristic,
+                    uint32_t **cigar_buf, int *cigar_length, uint8_t **pattern_alg, uint8_t **text_alg, int *alg_length);
 int wfa_heuristic_aln(uint8_t *pattern, int plen, uint8_t *text, int tlen, int a, int b, int q, int e, int q2, int e2, int *n_eq, int *n_xid);
-int collect_reg_ref_cseq(bam_chunk_t *chunk, hts_pos_t *reg_beg, hts_pos_t *reg_end, char **ref_cseq);
-int collect_reg_ref_bseq(bam_chunk_t *chunk, hts_pos_t *reg_beg, hts_pos_t *reg_end, uint8_t **ref_bseq);
+
 int collect_noisy_reg_aln_strs(const call_var_opt_t *opt, bam_chunk_t *chunk, hts_pos_t noisy_reg_beg, hts_pos_t noisy_reg_end, 
                                int noisy_reg_i, int n_noisy_reg_reads, int *noisy_reads, uint8_t *ref_seq, int ref_seq_len,
                                int *clu_n_seqs, int **clu_read_ids, aln_str_t **aln_strs);

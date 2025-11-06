@@ -257,13 +257,14 @@ int get_digar_ave_qual(digar1_t *digar, const uint8_t *qual) {
 // D: M -> 1 DEL
 // XXX no minor_alt_allele here, will be used in read_var_profile
 // here, minor_alt_allele will be simply treated as non-alt, i.e., ref allele
-int update_cand_vars_from_digar(const call_var_opt_t *opt, bam_chunk_t *chunk, digar_t *digar, int n_var_sites, var_site_t *var_sites, int start_i, cand_var_t *cand_vars) {
-    int cur_start_i, site_i, digar_i = 0;
+int update_cand_vars_from_digar(const call_var_opt_t *opt, bam_chunk_t *chunk, digar_t *digar, int n_var_sites, var_site_t *var_sites, cand_var_t *cand_vars) {
+    int site_i, digar_i = 0;
     // hts_pos_t pos_start = read->core.pos+1, pos_end = bam_endpos(read);
     hts_pos_t pos_start = digar->beg, pos_end = digar->end;
     digar1_t *digars = digar->digars; uint8_t strand = digar->is_rev;
 
-    cur_start_i = site_i = get_var_site_start(var_sites, start_i, n_var_sites, pos_start);
+    // int cur_start_i = site_i = get_var_site_start(var_sites, start_i, n_var_sites, pos_start);
+    site_i = get_var_site_start(var_sites, 0, n_var_sites, pos_start);
     int tid = chunk->tid; // read->core.tid;
     // compare sorted var_sites and digars
     // both var_sites and digars are sorted by pos/type/ref_len
@@ -294,7 +295,8 @@ int update_cand_vars_from_digar(const call_var_opt_t *opt, bam_chunk_t *chunk, d
         // update_var_site_with_allele(cand_vars+site_i, is_in_noisy_reg(cand_vars[site_i].pos, digar->noisy_regs), strand, 0);
         update_var_site_with_allele(cand_vars+site_i, 0, strand, 0);
     }
-    return cur_start_i;
+    // return cur_start_i;
+    return 0;
 }
 
 // int get_alt_allele_idx(cand_var_t *cand_var, digar1_t *digar, const uint8_t *bseq) {
@@ -320,12 +322,12 @@ int update_cand_vars_from_digar(const call_var_opt_t *opt, bam_chunk_t *chunk, d
 // }
 
 // update both cand_vars' total_cov/allele_cov and read_var_profile
-int update_read_vs_somatic_var_profile_from_digar(const call_var_opt_t *opt, bam_chunk_t *chunk, digar_t *digar, int n_cand_vars, cand_var_t *cand_vars, int start_var_i, read_var_profile_t *read_var_profile) {
-    int cur_start_i, var_i, digar_i = 0, var_read_pos = -1, allele_i=-1;
+int update_read_vs_somatic_var_profile_from_digar(const call_var_opt_t *opt, bam_chunk_t *chunk, digar_t *digar, int n_cand_vars, cand_var_t *cand_vars, read_var_profile_t *read_var_profile) {
+    int var_i, digar_i = 0, var_read_pos = -1, allele_i=-1;
     // hts_pos_t pos_start = read->core.pos+1, pos_end = bam_endpos(read);
     hts_pos_t pos_start = digar->beg, pos_end = digar->end;
     digar1_t *digar1 = digar->digars;
-    cur_start_i = var_i = get_var_start(cand_vars, start_var_i, n_cand_vars, pos_start);
+    var_i = get_var_start(cand_vars, 0, n_cand_vars, pos_start);
     int tid = chunk->tid; //read->core.tid;
     // compare sorted cand_vars and digars
     // both cand_vars and digars are sorted by pos/type/ref_len
@@ -344,7 +346,7 @@ int update_read_vs_somatic_var_profile_from_digar(const call_var_opt_t *opt, bam
             // left side
             if (is_ovlp == 0 || ret != 0) { // check if nearby INS digar_var_site is a match
                 int _is_ovlp, _ret, _digar_i;
-                for (int _digar_i = digar_i-1; _digar_i >= 0; --_digar_i) {
+                for (_digar_i = digar_i-1; _digar_i >= 0; --_digar_i) {
                     if (digar1[_digar_i].type != BAM_CINS || digar1[_digar_i].len < opt->min_sv_len) continue;
                     if (digar1[_digar_i].pos < var_site0.pos - var_site0.alt_len) break; // no overlap
                     var_site_t _digar_var_site = make_var_site_from_digar(tid, digar1+_digar_i);
@@ -359,7 +361,7 @@ int update_read_vs_somatic_var_profile_from_digar(const call_var_opt_t *opt, bam
             // right side
             if (is_ovlp == 0 || ret != 0) { // check if nearby INS digar_var_site is a match
                 int _is_ovlp, _ret, _digar_i;
-                for (int _digar_i = digar_i+1; _digar_i < digar->n_digar; ++_digar_i) {
+                for (_digar_i = digar_i+1; _digar_i < digar->n_digar; ++_digar_i) {
                     if (digar1[_digar_i].type != BAM_CINS || digar1[_digar_i].len < opt->min_sv_len) continue;
                     if (digar1[_digar_i].pos > var_site0.pos + var_site0.alt_len) break; // no overlap
                     var_site_t _digar_var_site = make_var_site_from_digar(tid, digar1+_digar_i);
@@ -409,16 +411,17 @@ int update_read_vs_somatic_var_profile_from_digar(const call_var_opt_t *opt, bam
         cand_vars[var_i].alle_covs[0] += 1; // ref allele
         update_read_var_profile_with_allele(var_i, 0, -1, read_var_profile);
     }
-    return cur_start_i;
+    return 0;
 }
 
 // for germline and somatic: for SNP/small indels in clean regions, require exact match
 // for somatic: for large indels, allow in-exact match
-int update_read_vs_all_var_profile_from_digar(const call_var_opt_t *opt, bam_chunk_t *chunk, digar_t *digar, int n_cand_vars, cand_var_t *cand_vars, int *var_i_to_cate, int start_var_i, read_var_profile_t *read_var_profile) {
-    int cur_start_i, var_i, digar_i = 0, var_read_pos = -1, allele_i=-1;
+int update_read_vs_all_var_profile_from_digar(const call_var_opt_t *opt, bam_chunk_t *chunk, digar_t *digar, int n_cand_vars, cand_var_t *cand_vars, int *var_i_to_cate, read_var_profile_t *read_var_profile) {
+    int var_i, digar_i = 0, var_read_pos = -1, allele_i=-1;
     hts_pos_t pos_start = digar->beg, pos_end = digar->end;
     digar1_t *digar1 = digar->digars;
-    cur_start_i = var_i = get_var_start(cand_vars, start_var_i, n_cand_vars, pos_start);
+    // int cur_start_i = var_i = get_var_start(cand_vars, start_var_i, n_cand_vars, pos_start);
+    var_i = get_var_start(cand_vars, 0, n_cand_vars, pos_start);
     int tid = chunk->tid; //read->core.tid;
     // compare sorted cand_vars and digars
     // both cand_vars and digars are sorted by pos/type/ref_len
@@ -441,7 +444,7 @@ int update_read_vs_all_var_profile_from_digar(const call_var_opt_t *opt, bam_chu
                 // left side
                 if (is_ovlp == 0 || ret != 0) { // check if nearby INS digar_var_site is a match
                     int _is_ovlp, _ret, _digar_i;
-                    for (int _digar_i = digar_i-1; _digar_i >= 0; --_digar_i) {
+                    for (_digar_i = digar_i-1; _digar_i >= 0; --_digar_i) {
                         if (digar1[_digar_i].type != BAM_CINS || digar1[_digar_i].len < opt->min_sv_len) continue;
                         if (digar1[_digar_i].pos < var_site0.pos - var_site0.alt_len) break; // no overlap
                         var_site_t _digar_var_site = make_var_site_from_digar(tid, digar1+_digar_i);
@@ -456,7 +459,7 @@ int update_read_vs_all_var_profile_from_digar(const call_var_opt_t *opt, bam_chu
                 // right side
                 if (is_ovlp == 0 || ret != 0) { // check if nearby INS digar_var_site is a match
                     int _is_ovlp, _ret, _digar_i;
-                    for (int _digar_i = digar_i+1; _digar_i < digar->n_digar; ++_digar_i) {
+                    for (_digar_i = digar_i+1; _digar_i < digar->n_digar; ++_digar_i) {
                         if (digar1[_digar_i].type != BAM_CINS || digar1[_digar_i].len < opt->min_sv_len) continue;
                         if (digar1[_digar_i].pos > var_site0.pos + var_site0.alt_len) break; // no overlap
                         var_site_t _digar_var_site = make_var_site_from_digar(tid, digar1+_digar_i);
@@ -516,7 +519,8 @@ int update_read_vs_all_var_profile_from_digar(const call_var_opt_t *opt, bam_chu
         }
         update_read_var_profile_with_allele(var_i, 0, -1, read_var_profile);
     }
-    return cur_start_i;
+    // return cur_start_i;
+    return 0;
 }
 
 void set_digar(digar1_t *digar, hts_pos_t pos, int type, int len, int qi, int is_low_qual, uint8_t *alt_seq) {
@@ -839,7 +843,7 @@ int collect_digar_from_cs_tag(bam_chunk_t *chunk, int read_i, const struct call_
         chunk->qual_counts[digar->qual[i]]++;
     }
     int _n_digar = 0, _m_digar = 2 * n_cigar; digar1_t *_digars = (digar1_t*)malloc(_m_digar * sizeof(digar1_t));
-    char *cs = bam_aux2Z(cs_tag); int cs_i = 0, cs_len = strlen(cs);
+    char *cs = bam_aux2Z(cs_tag);
     int rlen = bam_cigar2rlen(n_cigar, cigar); int tlen = chunk->whole_ref_len;
     xid_queue_t *q = init_xid_queue(rlen, max_s, win);
     hts_pos_t noisy_start = -1, noisy_end = -1; int cr_q_start = -1, cr_q_end = -1;
@@ -1316,11 +1320,18 @@ int collect_digar_from_ref_seq(bam_chunk_t *chunk, int read_i, const struct call
     return skip == 1 ? -1 : 0;
 }
 
-int bam_chunk_init0(bam_chunk_t *chunk, int n_reads) {
+int bam_chunk_init0(bam_chunk_t *chunk, int n_reads, int n_bam) {
     // input
     chunk->n_reads = 0; chunk->m_reads = n_reads;
-    chunk->n_up_ovlp_reads = 0; chunk->up_ovlp_read_i = (int*)malloc(n_reads * sizeof(int));
-    chunk->n_down_ovlp_reads = 0; chunk->down_ovlp_read_i = (int*)malloc(n_reads * sizeof(int));
+    chunk->n_bam = n_bam;
+    chunk->n_up_ovlp_reads = (int*)calloc(n_bam, sizeof(int));
+    chunk->up_ovlp_read_i = (int**)malloc(n_bam * sizeof(int*));
+    chunk->n_down_ovlp_reads = (int*)calloc(n_bam, sizeof(int));
+    chunk->down_ovlp_read_i = (int**)malloc(n_bam * sizeof(int*));
+    for (int i = 0; i < n_bam; ++i) {
+        chunk->up_ovlp_read_i[i] = (int*)malloc(n_reads * sizeof(int));
+        chunk->down_ovlp_read_i[i] = (int*)malloc(n_reads * sizeof(int));
+    }
     chunk->reads = (bam1_t**)malloc(n_reads * sizeof(bam1_t*));
     chunk->ref_seq = NULL;
     chunk->low_comp_cr = NULL;
@@ -1353,8 +1364,10 @@ int bam_chunk_init0(bam_chunk_t *chunk, int n_reads) {
 int bam_chunk_realloc(bam_chunk_t *chunk) {
     int m_reads = chunk->m_reads * 2;
     chunk->reads = (bam1_t**)realloc(chunk->reads, m_reads * sizeof(bam1_t*));
-    chunk->up_ovlp_read_i = (int*)realloc(chunk->up_ovlp_read_i, m_reads * sizeof(int));
-    chunk->down_ovlp_read_i = (int*)realloc(chunk->down_ovlp_read_i, m_reads * sizeof(int));
+    for (int i = 0; i < chunk->n_bam; ++i) {
+        chunk->up_ovlp_read_i[i] = (int*)realloc(chunk->up_ovlp_read_i[i], m_reads * sizeof(int));
+        chunk->down_ovlp_read_i[i] = (int*)realloc(chunk->down_ovlp_read_i[i], m_reads * sizeof(int));
+    }
     chunk->is_skipped = (uint8_t*)realloc(chunk->is_skipped, m_reads * sizeof(uint8_t));
     chunk->n_clean_agree_snps = (int*)realloc(chunk->n_clean_agree_snps, m_reads * sizeof(int));
     chunk->n_clean_conflict_snps = (int*)realloc(chunk->n_clean_conflict_snps, m_reads * sizeof(int));
@@ -1417,8 +1430,11 @@ void bam_chunk_free(bam_chunk_t *chunk) {
     free(chunk->n_clean_agree_snps); free(chunk->n_clean_conflict_snps);
     free(chunk->is_ont_palindrome); free(chunk->is_skipped_for_somatic);
     free(chunk->haps); free(chunk->phase_sets); free(chunk->phase_scores);
-    if (chunk->up_ovlp_read_i != NULL) free(chunk->up_ovlp_read_i);
-    if (chunk->down_ovlp_read_i != NULL) free(chunk->down_ovlp_read_i);
+    for (int i = 0; i < chunk->n_bam; ++i) {
+        if (chunk->up_ovlp_read_i[i] != NULL) free(chunk->up_ovlp_read_i[i]);
+        if (chunk->down_ovlp_read_i[i] != NULL) free(chunk->down_ovlp_read_i[i]);
+    }
+    free(chunk->n_up_ovlp_reads); free(chunk->n_down_ovlp_reads);
 }
 
 void bam_chunk_free_digar(bam_chunk_t *chunk) {
@@ -1441,8 +1457,12 @@ void bam_chunk_post_free(bam_chunk_t *chunk) {
     free(chunk->n_clean_agree_snps); free(chunk->n_clean_conflict_snps);
     free(chunk->is_ont_palindrome); free(chunk->is_skipped_for_somatic);
     free(chunk->haps); free(chunk->phase_sets); free(chunk->phase_scores);
-    if (chunk->up_ovlp_read_i != NULL) free(chunk->up_ovlp_read_i);
-    if (chunk->down_ovlp_read_i != NULL) free(chunk->down_ovlp_read_i);
+    for (int i = 0; i < chunk->n_bam; ++i) {
+        if (chunk->up_ovlp_read_i[i] != NULL) free(chunk->up_ovlp_read_i[i]);
+        if (chunk->down_ovlp_read_i[i] != NULL) free(chunk->down_ovlp_read_i[i]);
+    }
+    free(chunk->n_up_ovlp_reads); free(chunk->n_down_ovlp_reads);
+    free(chunk->up_ovlp_read_i); free(chunk->down_ovlp_read_i);
     bam_chunk_free_digar(chunk);
     if (LONGCALLD_VERBOSE >= 2) {
         for (int i = 0; i < chunk->m_reads; i++) {
@@ -1546,31 +1566,32 @@ int collect_ref_seq_bam_main(const struct call_var_pl_t *pl, struct call_var_io_
     int tid = pl->reg_chunks[reg_chunk_i].reg_tids[reg_i];
     hts_pos_t reg_beg = pl->reg_chunks[reg_chunk_i].reg_begs[reg_i];
     hts_pos_t reg_end = pl->reg_chunks[reg_chunk_i].reg_ends[reg_i];
+    call_var_opt_t *opt = pl->opt;
 
-    // create iterator for the region
-    hts_itr_t *iter = sam_itr_queryi(io_aux->idx, tid, reg_beg-1, reg_end); // (reg_beg-1, reg_end] ==> [reg_beg, reg_end]
-    if (iter == NULL) {
-        _err_warning("Failed to create iterator for region: %s:%" PRId64 "-%" PRId64 "\n", io_aux->header->target_name[tid], reg_beg, reg_end);
-        return -1;
-    } else {
-        call_var_opt_t *opt = pl->opt;
+    int min_mapq = opt->min_mq;
+    bam_chunk_init0(chunk, 4096, io_aux->n_bam);
+    chunk->reg_chunk_i = reg_chunk_i; chunk->reg_i = reg_i;
+    chunk->tid = tid; chunk->tname = io_aux->headers[0]->target_name[tid]; chunk->reg_beg = reg_beg; chunk->reg_end = reg_end;
+    hts_pos_t min_read_beg = reg_beg, max_read_end = reg_end;
+    for (int i = 0; i < io_aux->n_bam; ++i) {
+        // create iterator for the region
+        hts_itr_t *iter = sam_itr_queryi(io_aux->idxs[i], tid, reg_beg-1, reg_end); // (reg_beg-1, reg_end] ==> [reg_beg, reg_end]
+        if (iter == NULL) {
+            _err_warning("Failed to create iterator for region: %s:%" PRId64 "-%" PRId64 "\n", io_aux->headers[i]->target_name[tid], reg_beg, reg_end);
+            return -1;
+        }
         // load bam records
-        samFile *in_bam = io_aux->bam; bam_hdr_t *header = io_aux->header;
-        int min_mapq = opt->min_mq;
-        bam_chunk_init0(chunk, 4096);
-        chunk->reg_chunk_i = reg_chunk_i; chunk->reg_i = reg_i;
-        chunk->tid = tid; chunk->tname = header->target_name[tid]; chunk->reg_beg = reg_beg; chunk->reg_end = reg_end;
-        hts_pos_t min_read_beg = reg_beg, max_read_end = reg_end;
+        samFile *in_bam = io_aux->bams[i];
         while (sam_itr_next(in_bam, iter, chunk->reads[chunk->n_reads]) >= 0) {
             if (chunk->reads[chunk->n_reads]->core.flag & (BAM_FUNMAP | BAM_FSECONDARY | BAM_FSUPPLEMENTARY)) continue; // BAM_FSUPPLEMENTARY
             if (chunk->reads[chunk->n_reads]->core.qual < min_mapq) continue;
             // fprintf(stderr, "CHUNK-READ: %s %d-%d\n", bam_get_qname(chunk->reads[chunk->n_reads]), chunk->reg_beg, chunk->reg_end);
             // check if read is overlapping with previous region
             if (is_ovlp_with_prev_region(pl, chunk, chunk->reads[chunk->n_reads])) {
-                chunk->up_ovlp_read_i[chunk->n_up_ovlp_reads++] = chunk->n_reads;
+                chunk->up_ovlp_read_i[i][chunk->n_up_ovlp_reads[i]++] = chunk->n_reads;
             }
             if (is_ovlp_with_next_region(pl, chunk, chunk->reads[chunk->n_reads])) {
-                chunk->down_ovlp_read_i[chunk->n_down_ovlp_reads++] = chunk->n_reads;
+                chunk->down_ovlp_read_i[i][chunk->n_down_ovlp_reads[i]++] = chunk->n_reads;
             }
             // update min_read_beg, max_read_end
             if (chunk->reads[chunk->n_reads]->core.pos+1 < min_read_beg) min_read_beg = chunk->reads[chunk->n_reads]->core.pos+1;
@@ -1580,15 +1601,14 @@ int collect_ref_seq_bam_main(const struct call_var_pl_t *pl, struct call_var_io_
             if (chunk->n_reads == chunk->m_reads) bam_chunk_realloc(chunk);
         }
         bam_itr_destroy(iter);
-        if (chunk->n_reads <= 0) return 0;
-        // load ref seq
-        get_bam_chunk_reg_ref_seq0(io_aux->fai, chunk, min_read_beg, max_read_end);
-        if (LONGCALLD_VERBOSE >= 2) {
-            fprintf(stderr, "CHUNK: tname: %s, tid: %d, beg: %" PRId64 ", end: %" PRId64 ", n_reads: %d\n", chunk->tname, chunk->tid, chunk->reg_beg, chunk->reg_end, chunk->n_reads);
-        }
-        return chunk->n_reads;
     }
-
+    if (chunk->n_reads <= 0) return 0;
+    // load ref seq
+    get_bam_chunk_reg_ref_seq0(io_aux->fai, chunk, min_read_beg, max_read_end);
+    if (LONGCALLD_VERBOSE >= 2) {
+        fprintf(stderr, "CHUNK: tname: %s, tid: %d, beg: %" PRId64 ", end: %" PRId64 ", n_reads: %d\n", chunk->tname, chunk->tid, chunk->reg_beg, chunk->reg_end, chunk->n_reads);
+    }
+    return chunk->n_reads;
 }
 
 int cigar_is_idential(const uint32_t *cigar, int n_cigar, const uint32_t *new_cigar, int new_n_cigar) {
@@ -1817,14 +1837,14 @@ int refine_bam1(bam_chunk_t *chunk, int read_i, bam1_t *b) {
     return 0;
 }
 
-int write_unprocessed_read_to_bam(bam_chunk_t *chunk, bam_hdr_t *header, htsFile *out_bam, bam1_t *read) {
+int write_unprocessed_read_to_bam(bam_chunk_t *chunk, bam_hdr_t *header, htsFile *out_aln_fp, bam1_t *read) {
     // write unprocessed read to bam
     uint8_t *hp = bam_aux_get(read, "HP");
     if (hp != NULL) bam_aux_del(read, hp);
 
     uint8_t *ps_tag = bam_aux_get(read, "PS");
     if (ps_tag != NULL) bam_aux_del(read, ps_tag);
-    if (sam_write1(out_bam, header, read) < 0) _err_error_exit("Failed to write BAM record. %s:%" PRIi64 " %s\n", chunk->tname, read->core.pos+1, bam_get_qname(read));
+    if (sam_write1(out_aln_fp, header, read) < 0) _err_error_exit("Failed to write BAM record. %s:%" PRIi64 " %s\n", chunk->tname, read->core.pos+1, bam_get_qname(read));
     return 0;
 }
 
@@ -1871,58 +1891,58 @@ int write_processed_read_to_bam(const call_var_opt_t *opt, bam_chunk_t *chunk, b
         if (ps_tag != NULL) bam_aux_del(read, ps_tag);
     }
     // write to bam
-    if (sam_write1(opt->out_bam, header, read) < 0) _err_error_exit("Failed to write BAM record. %s:%" PRIi64 " %s\n", chunk->tname, read->core.pos+1, bam_get_qname(read));
+    if (sam_write1(opt->out_aln_fp, header, read) < 0) _err_error_exit("Failed to write BAM record. %s:%" PRIi64 " %s\n", chunk->tname, read->core.pos+1, bam_get_qname(read));
     return 0;
 }
 
 // open & read bam, then output phased bam
-int write_read_to_bam(bam_chunk_t *chunk, const struct call_var_opt_t *opt) {
+int write_read_to_bam(bam_chunk_t *chunk, const struct call_var_opt_t *opt, const struct call_var_io_aux_t *io_aux) {
     int n_out_reads = 0;
     int min_mapq = opt->min_mq;
     hts_pos_t reg_beg = chunk->reg_beg, reg_end = chunk->reg_end; int tid = chunk->tid;
-    samFile *in_bam = sam_open(opt->in_bam_fn, "r"); if (in_bam == NULL) _err_error_exit("Failed to open alignment file \'%s\'\n", opt->in_bam_fn);
-    const htsFormat *fmt = hts_get_format(in_bam); if (fmt == NULL) _err_error_exit("Failed to get format of alignment file \'%s\'\n", opt->in_bam_fn);
-    if (fmt->format != bam && fmt->format != cram) {
-        sam_close(in_bam); _err_error_exit("Input file must be BAM or CRAM format.\n");
-    }
-    hts_tpool *p = hts_tpool_init(MAX_OF_TWO(1, opt->pl_threads));
-    htsThreadPool thread_pool = {p, 0};
-    if (hts_set_thread_pool(in_bam, &thread_pool) != 0) _err_error_exit("Failed to set thread pool.\n");
-    bam_hdr_t *header = sam_hdr_read(in_bam); if (header == NULL) _err_error_exit("Failed to read header \'%s\'\n", opt->in_bam_fn);
-    faidx_t *fai = fai_load3(opt->ref_fa_fn, opt->ref_fa_fai_fn, NULL, FAI_CREATE);
-    if (fai == NULL) _err_error_exit("Failed to load/build reference fasta index \'%s\'\n", opt->ref_fa_fn);
-    if (fmt->format == cram) {
-        if (hts_set_fai_filename(in_bam, opt->ref_fa_fn) != 0) {
-            fai_destroy(fai); hts_tpool_destroy(p); sam_hdr_destroy(header); sam_close(in_bam);
-            _err_error_exit("Failed to set reference file for CRAM decoding: %s %s\n", opt->in_bam_fn, opt->ref_fa_fn);
+    faidx_t *fai = io_aux->fai;
+    int global_read_i = 0;
+    for (int i = 0; i < chunk->n_bam; ++i) {
+        samFile *in_bam = sam_open(opt->in_bam_fns[i], "r"); if (in_bam == NULL) _err_error_exit("Failed to open alignment file \'%s\'\n", opt->in_bam_fns[i]);
+        const htsFormat *fmt = hts_get_format(in_bam); if (fmt == NULL) _err_error_exit("Failed to get format of alignment file \'%s\'\n", opt->in_bam_fns[i]);
+        if (fmt->format != bam && fmt->format != cram) {
+            sam_close(in_bam); _err_error_exit("Input file must be BAM or CRAM format.\n");
         }
-    }
-    hts_idx_t *idx = sam_index_load(in_bam, opt->in_bam_fn); if (idx == NULL) _err_error_exit("Failed to load index \'%s\'\n", opt->in_bam_fn);
-    hts_itr_t *iter = sam_itr_queryi(idx, tid, reg_beg-1, reg_end); // (reg_beg-1, reg_end] ==> [reg_beg, reg_end]
-    if (iter == NULL) {
-        _err_warning("Failed to create iterator for region: %s:%" PRId64 "-%" PRId64 ". Skipping.\n", header->target_name[tid], reg_beg, reg_end);
-    } else {
-        // load bam records
-        bam1_t *read = bam_init1();
-        int read_i = 0, start_to_output = 0;
-        int min_mapq = opt->min_mq;
-        while (sam_itr_next(in_bam, iter, read) >= 0) {
-            if (read->core.flag & (BAM_FUNMAP | BAM_FSECONDARY | BAM_FSUPPLEMENTARY) || read->core.qual < min_mapq) {
-                if (start_to_output == 1) write_unprocessed_read_to_bam(chunk, header, opt->out_bam, read);
-                continue;
+        hts_tpool *p = hts_tpool_init(MAX_OF_TWO(1, opt->pl_threads));
+        htsThreadPool thread_pool = {p, 0};
+        if (hts_set_thread_pool(in_bam, &thread_pool) != 0) _err_error_exit("Failed to set thread pool.\n");
+        bam_hdr_t *header = sam_hdr_read(in_bam); if (header == NULL) _err_error_exit("Failed to read header \'%s\'\n", opt->in_bam_fns[i]);
+        if (fmt->format == cram) {
+            if (hts_set_fai_filename(in_bam, opt->ref_fa_fn) != 0) {
+                fai_destroy(fai); hts_tpool_destroy(p); sam_hdr_destroy(header); sam_close(in_bam);
+                _err_error_exit("Failed to set reference file for CRAM decoding: %s %s\n", opt->in_bam_fns[i], opt->ref_fa_fn);
             }
-            // check if read is overlapping with previous region
-            if (read_i >= chunk->n_up_ovlp_reads) {
-                start_to_output = 1; // start to output reads
-                write_processed_read_to_bam(opt, chunk, header, read, read_i);
-                n_out_reads++;
-            }
-            read_i++;
         }
-        bam_itr_destroy(iter); bam_destroy1(read);
+        hts_idx_t *idx = sam_index_load(in_bam, opt->in_bam_fns[i]); if (idx == NULL) _err_error_exit("Failed to load index \'%s\'\n", opt->in_bam_fns[i]);
+        hts_itr_t *iter = sam_itr_queryi(idx, tid, reg_beg-1, reg_end); // (reg_beg-1, reg_end] ==> [reg_beg, reg_end]
+        if (iter == NULL) {
+            _err_warning("Failed to create iterator for region: %s:%" PRId64 "-%" PRId64 ". Skipping.\n", header->target_name[tid], reg_beg, reg_end);
+        } else {
+            // load bam records
+            bam1_t *read = bam_init1();
+            int read_i = 0, start_to_output = 0;
+            while (sam_itr_next(in_bam, iter, read) >= 0) {
+                if (read->core.flag & (BAM_FUNMAP | BAM_FSECONDARY | BAM_FSUPPLEMENTARY) || read->core.qual < min_mapq) {
+                    if (start_to_output == 1) write_unprocessed_read_to_bam(chunk, header, opt->out_aln_fp, read);
+                    continue;
+                }
+                // check if read is overlapping with previous region
+                if (read_i >= chunk->n_up_ovlp_reads[i]) {
+                    start_to_output = 1; // start to output reads
+                    write_processed_read_to_bam(opt, chunk, header, read, global_read_i);
+                    n_out_reads++;
+                }
+                read_i++; global_read_i++;
+            }
+            bam_itr_destroy(iter); bam_destroy1(read);
+        }
+        hts_idx_destroy(idx); sam_hdr_destroy(header); sam_close(in_bam); hts_tpool_destroy(p); 
     }
-    fai_destroy(fai); hts_idx_destroy(idx);
-    sam_hdr_destroy(header); sam_close(in_bam); hts_tpool_destroy(p); 
     return n_out_reads;
 }
 
