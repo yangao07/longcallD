@@ -50,7 +50,7 @@ man ./longcallD.1
 - [Usage](#usage)
   - [Variant calling with PacBio HiFi/Nanopore long reads](#variant-calling-with-pacbio-hifinanopore-long-reads)
   - [Multiple input BAM/CRAM files of the same sample](#multiple-input-bamcram-files-of-the-same-sample)
-  - [Low allele-fraction mosaic variant calling](#low-allele-fraction-mosaic-variant-calling)
+  - [Low-allele-fraction mosaic variant calling](#low-allele-fraction-mosaic-variant-calling)
   - [Region-specific variant calling](#region-specific-variant-calling)
   - [Output phased (\& refined) long-read BAM/CRAM](#output-phased--refined-long-read-bamcram)
   - [Variant calling from remote files](#variant-calling-from-remote-files)
@@ -124,8 +124,8 @@ or
 longcallD call -t16 ref.fa sample_part1.bam -X sample_part2.bam -X sample_part3.bam > sample.vcf
 ```
 
-### Low allele-fraction mosaic variant calling
-With `-s`, longcallD will detect both germline and low-fraction somatic/mosaic variants.
+### Low-allele-fraction mosaic variant calling
+With `-s`, longcallD will detect both germline and low-allele-fraction somatic/mosaic variants.
 
 For each somatic/mosaic variant, a `SOMATIC` tag will be added to the INFO field in the output VCF.
 ```
