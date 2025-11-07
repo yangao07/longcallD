@@ -155,12 +155,11 @@ longcallD call -t16 $ref $bam chr11:10,229,956-10,256,221 chr12:10,576,356-10,58
 ```
 
 ## Memory usage
-As longcallD performs multiple sequence alignment/re-alignment, which are memory-intensive, it usually uses more memory than other variant callers.
-The peak memory usage mainly depends on the number of threads (`-t/--threads`), the sequencing coverage, and the read length.
-For human genome sequencing data with ~40x coverage, longcallD typically uses around **1GB** (**HiFi**) or **2GB** (**ONT R10**) memory per thread for germline variant calling.
+Because longcallD performs multiple sequence alignment and re-alignment, both are memory-intensive tasks, it generally requires more memory than other variant callers. Peak memory consumption depends primarily on the number of threads (`-t/--threads`), sequencing coverage, and read length. For human whole-genome datasets at ~40× coverage, longcallD typically uses about **1 GB** (**HiFi**) or **2 GB** (**ONT R10**) of memory _per thread_ for germline variant calling.
 
-If you encounter memory issues, you can use `--region-file` to limit the genomic regions being processed.
-Human genome region list excluding centromeres are provided [here](https://github.com/yangao07/longcallD/blob/main/anno/).
+Memory usage and runtime increase further when mosaic variant calling is enabled.
+
+If you encounter memory constraints, you may restrict processing to specific genomic regions using `--region-file`. A region list for the human genome that excludes centromeres is available [here](https://github.com/yangao07/longcallD/blob/main/anno/).
 
 ## Acknowledgements
 LongcallD is dependent on the following libraries, we are grateful to all the developers/maintainers:
