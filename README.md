@@ -1,7 +1,7 @@
 <!-- # LongcallD: local-haplotagging-based small and structural variant calling -->
 
 <!-- [![Latest Release](https://img.shields.io/github/release/yangao07/longcallD.svg?label=Release)](https://github.com/yangao07/longcallD/releases/latest) -->
-[![Latest Release](https://img.shields.io/github/v/tag/yangao07/longcalld?label=Pre-release)](https://github.com/yangao07/longcallD/releases/latest)
+[![Latest Release](https://img.shields.io/github/v/tag/yangao07/longcalld?label=Release)](https://github.com/yangao07/longcallD/releases/latest)
 [![Github All Releases](https://img.shields.io/github/downloads/yangao07/longcallD/total.svg?label=Download)](https://github.com/yangao07/longcallD/releases)
 [![Bioconda Version](https://img.shields.io/conda/vn/bioconda/longcallD.svg?style=flag&label=Bioconda)](https://anaconda.org/bioconda/longcalld)
 [![Bioconda Install](https://img.shields.io/conda/dn/bioconda/longcallD.svg?style=flag&label=Conda-install)](https://anaconda.org/bioconda/longcalld)
