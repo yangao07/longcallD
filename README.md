@@ -155,7 +155,7 @@ longcallD call -t16 $ref $bam chr11:10,229,956-10,256,221 chr12:10,576,356-10,58
 ```
 
 ## Memory usage
-As longcallD performs multiple-sequence alignment/re-alignment, which are memory-intensive, it usually uses more memory than other variant callers.
+As longcallD performs multiple sequence alignment/re-alignment, which are memory-intensive, it usually uses more memory than other variant callers.
 The peak memory usage mainly depends on the number of threads (`-t/--threads`), the sequencing coverage, and the read length.
 For human genome sequencing data with ~40x coverage, longcallD typically uses around **1GB** (**HiFi**) or **2GB** (**ONT R10**) memory per thread for germline variant calling.
 
