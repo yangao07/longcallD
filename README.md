@@ -11,7 +11,7 @@
 <!-- [![Published in Bioinformatics](https://img.shields.io/badge/Published%20in-Bioinformatics-blue.svg)](https://dx.doi.org/10.1093/bioinformatics/btaa963) -->
 <!-- [![GitHub Issues](https://img.shields.io/github/issues/yangao07/longcallD.svg?label=Issues)](https://github.com/yangao07/longcallD/issues) -->
 
-## Updates (pre-release v0.0.6)
+## Updates (release v0.0.6)
 
 * Fix corrupted VCF output in v0.0.5
 * Fix missing MEI header in VCF output
@@ -39,7 +39,7 @@ man ./longcallD.1
 ``` -->
 
 ## Table of Contents
-- [Updates (pre-release v0.0.6)](#updates-pre-release-v006)
+- [Updates (release v0.0.6)](#updates-release-v006)
 - [Getting Started](#getting-started)
 - [Table of Contents](#table-of-contents)
 - [Introduction](#introduction)
