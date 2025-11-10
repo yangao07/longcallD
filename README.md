@@ -95,7 +95,6 @@ conda install -c bioconda longcalld
 
 ### Build from source
 To compile longcallD from source, ensure you have **GCC/clang(9.0+)** and **zlib/libbz2/liblzma/libcurl** (for htslib) installed. 
-It is recommended to use the [latest release](https://github.com/yangao07/longcallD/releases).
 ```
 wget https://github.com/yangao07/longcallD/releases/download/v0.0.6/longcallD-v0.0.6.tar.gz
 tar -zxvf longcallD-v0.0.6.tar.gz
