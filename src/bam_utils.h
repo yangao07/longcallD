@@ -61,7 +61,7 @@ typedef struct bam_chunk_t {
     //   ref_beg <= reg_beg < reg_end <= ref_end, ref_seq may include additional flanking regions (50kb)
     // should always be 1 region XXX
     cgranges_t *low_comp_cr; // tandem_rep_cr;
-    int n_reads, m_reads;
+    int n_reads, m_reads; int *ordered_read_ids; // size: m_reads, for multiple input bams, merge sort reads by pos, end, NM, name
     int n_bam; // for each input bam, record the number of region-overlapping reads
     int *n_up_ovlp_reads, *n_down_ovlp_reads; // number of reads overlapping with up/downstream bam chunk
     int **up_ovlp_read_i, **down_ovlp_read_i;

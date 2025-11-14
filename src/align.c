@@ -708,7 +708,7 @@ int collect_partial_aln_beg_end(const call_var_opt_t *opt, int sampling_reads,
                 // int edit_dis = edlib_edit_distance(target, tlen, query, qlen);
                 // if (edit_dis > MIN_OF_TWO(tlen, qlen) * 0.05) {
                 int x_gaps = edlib_xgaps(target, tlen, query, qlen);
-                if (x_gaps > MIN_OF_TWO(tlen, qlen) * 0.05) {
+                if (x_gaps > MIN_OF_TWO(tlen, qlen) * 0.10) {
                     // if (LONGCALLD_VERBOSE >= 3) fprintf(stderr, "Skipped in POA due to high edit distance (%d vs %d): %d\n", tlen, qlen, edit_dis);
                     if (LONGCALLD_VERBOSE >= 3) fprintf(stderr, "Skipped in POA due to high # of X-gaps (%d vs %d): %d\n", tlen, qlen, x_gaps);
                     return 0;
@@ -755,8 +755,8 @@ int abpoa_partial_aln_msa_cons(const call_var_opt_t *opt, abpoa_t *ab, int sampl
         ab = abpoa_init(); needs_free_ab = 1;
     }
     abpoa_para_t *abpt = abpoa_init_para();
-    if (opt->out_somatic) abpt->wf = 0.01; // more accurate for somatic variant calling
-    else abpt->wf = 0.001; // limit memory usage for long sequences
+    // if (opt->out_somatic) abpt->wf = 0.01; // more accurate for somatic variant calling
+    // else abpt->wf = 0.001; // limit memory usage for long sequences
     abpt->cons_algrm = ABPOA_MF;
     abpt->sub_aln = 1;
     abpt->inc_path_score = 1;
@@ -861,8 +861,8 @@ int abpoa_partial_aln_msa_cons(const call_var_opt_t *opt, abpoa_t *ab, int sampl
                         int *clu_n_seqs, int **clu_read_ids, int *msa_seq_len, uint8_t ***msa_seq) {
     abpoa_t *ab = abpoa_init();
     abpoa_para_t *abpt = abpoa_init_para();
-    if (opt->out_somatic) abpt->wf = 0.01; // XXX for more accurate somatic variant calling
-    else abpt->wf = 0.001; // limit memory usage for long sequences
+    // if (opt->out_somatic) abpt->wf = 0.01; // XXX for more accurate somatic variant calling
+    // else abpt->wf = 0.001; // limit memory usage for long sequences
     abpt->inc_path_score = 1;
     abpt->out_msa = 0; abpt->out_cons = 1;
     if (msa_seq != NULL && msa_seq_len != NULL) abpt->out_msa = 1; else abpt->out_msa = 0;

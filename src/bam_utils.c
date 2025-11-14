@@ -1322,7 +1322,7 @@ int collect_digar_from_ref_seq(bam_chunk_t *chunk, int read_i, const struct call
 
 int bam_chunk_init0(bam_chunk_t *chunk, int n_reads, int n_bam) {
     // input
-    chunk->n_reads = 0; chunk->m_reads = n_reads;
+    chunk->n_reads = 0; chunk->m_reads = n_reads; chunk->ordered_read_ids = (int*)malloc(n_reads * sizeof(int));
     chunk->n_bam = n_bam;
     chunk->n_up_ovlp_reads = (int*)calloc(n_bam, sizeof(int));
     chunk->up_ovlp_read_i = (int**)malloc(n_bam * sizeof(int*));
@@ -1364,6 +1364,7 @@ int bam_chunk_init0(bam_chunk_t *chunk, int n_reads, int n_bam) {
 int bam_chunk_realloc(bam_chunk_t *chunk) {
     int m_reads = chunk->m_reads * 2;
     chunk->reads = (bam1_t**)realloc(chunk->reads, m_reads * sizeof(bam1_t*));
+    chunk->ordered_read_ids = (int*)realloc(chunk->ordered_read_ids, m_reads * sizeof(int));
     for (int i = 0; i < chunk->n_bam; ++i) {
         chunk->up_ovlp_read_i[i] = (int*)realloc(chunk->up_ovlp_read_i[i], m_reads * sizeof(int));
         chunk->down_ovlp_read_i[i] = (int*)realloc(chunk->down_ovlp_read_i[i], m_reads * sizeof(int));
@@ -1408,6 +1409,7 @@ void bam_chunk_free(bam_chunk_t *chunk) {
             cr_destroy(chunk->digars[i].noisy_regs);
         }
     }
+    free(chunk->ordered_read_ids);
     if (LONGCALLD_VERBOSE >= 2) {
         for (int i = 0; i < chunk->m_reads; i++) {
             bam_destroy1(chunk->reads[i]);
@@ -1470,6 +1472,7 @@ void bam_chunk_post_free(bam_chunk_t *chunk) {
         }
         free(chunk->reads);
     }
+    free(chunk->ordered_read_ids);
 }
 
 // free variables that will not be used in stitch & make variants
@@ -1560,6 +1563,48 @@ static int is_ovlp_with_next_region(const struct call_var_pl_t *pl, bam_chunk_t 
     }
 }
 
+typedef struct {
+    int read_i;
+    hts_pos_t pos, end;
+    int NM;
+    char *qname;
+} bam_read_sort_t;
+
+int comp_bam_read_sort(const void *a, const void *b) {
+    const bam_read_sort_t *ra = (const bam_read_sort_t *)a;
+    const bam_read_sort_t *rb = (const bam_read_sort_t *)b;
+    if (ra->pos != rb->pos) return (ra->pos < rb->pos) ? -1 : 1;
+    if (ra->end != rb->end) return (ra->end < rb->end) ? 1 : -1;
+    if (ra->NM != rb->NM) return (ra->NM < rb->NM) ? -1 : 1;
+    return strcmp(ra->qname, rb->qname);
+}
+
+int bam_get_NM(bam1_t *read) {
+    uint8_t *nm_ptr = bam_aux_get(read, "NM");
+    if (nm_ptr != NULL) {
+        return bam_aux2i(nm_ptr);
+    } else {
+        return 0;
+    }
+}
+
+void sort_chunk_reads(bam_chunk_t *chunk) {
+    bam_read_sort_t *read_sorts = (bam_read_sort_t*)malloc(chunk->n_reads * sizeof(bam_read_sort_t));
+    for (int i = 0; i < chunk->n_reads; ++i) {
+        read_sorts[i].read_i = i;
+        read_sorts[i].pos = chunk->reads[i]->core.pos;
+        read_sorts[i].end = bam_endpos(chunk->reads[i]);
+        read_sorts[i].NM = bam_get_NM(chunk->reads[i]);
+        read_sorts[i].qname = bam_get_qname(chunk->reads[i]);
+    }
+    // sort by pos, end, NM, qname
+    qsort(read_sorts, chunk->n_reads, sizeof(bam_read_sort_t), comp_bam_read_sort);
+    for (int i = 0; i < chunk->n_reads; ++i) {
+        chunk->ordered_read_ids[i] = read_sorts[i].read_i;
+    }
+    free(read_sorts);
+}
+
 // load ref_seq/read in reg_chunks[reg_chunk_i]->tid/beg/end[reg_i] to chunks
 int collect_ref_seq_bam_main(const struct call_var_pl_t *pl, struct call_var_io_aux_t *io_aux, int reg_chunk_i, int reg_i, bam_chunk_t *chunk) {
     assert(reg_chunk_i < pl->n_reg_chunks); assert(reg_i < pl->reg_chunks[reg_chunk_i].n_regions);
@@ -1608,6 +1653,7 @@ int collect_ref_seq_bam_main(const struct call_var_pl_t *pl, struct call_var_io_
     if (LONGCALLD_VERBOSE >= 2) {
         fprintf(stderr, "CHUNK: tname: %s, tid: %d, beg: %" PRId64 ", end: %" PRId64 ", n_reads: %d\n", chunk->tname, chunk->tid, chunk->reg_beg, chunk->reg_end, chunk->n_reads);
     }
+    sort_chunk_reads(chunk);
     return chunk->n_reads;
 }
 
@@ -1928,7 +1974,10 @@ int write_read_to_bam(bam_chunk_t *chunk, const struct call_var_opt_t *opt, cons
             int read_i = 0, start_to_output = 0;
             while (sam_itr_next(in_bam, iter, read) >= 0) {
                 if (read->core.flag & (BAM_FUNMAP | BAM_FSECONDARY | BAM_FSUPPLEMENTARY) || read->core.qual < min_mapq) {
-                    if (start_to_output == 1) write_unprocessed_read_to_bam(chunk, header, opt->out_aln_fp, read);
+                    if (start_to_output == 1) {
+                        // write_unprocessed_read_to_bam(chunk, header, opt->out_aln_fp, read);
+                        n_out_reads++;
+                    }
                     continue;
                 }
                 // check if read is overlapping with previous region

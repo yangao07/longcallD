@@ -320,7 +320,8 @@ int check_agree_haps(int read_i, int hap, cand_var_t *vars, int var1, int var2, 
 }
 
 void update_read_phase_set(bam_chunk_t *chunk, int *var_is_valid, read_var_profile_t *p, cand_var_t *cand_vars) {
-    for (int read_i = 0; read_i < chunk->n_reads; ++read_i) {
+    for (int i = 0; i < chunk->n_reads; ++i) {
+        int read_i = chunk->ordered_read_ids[i];
         if (chunk->is_skipped[read_i]) continue;
         if (p[read_i].start_var_idx == -1) continue;
         hts_pos_t phase_set = -1;
@@ -433,7 +434,8 @@ int iter_update_var_hap_to_cons_alle(const call_var_opt_t *opt, bam_chunk_t *chu
     // var-wise loop, update phase set XXX
     // update hap_to_alle_profile + hap_to_cons_alle
     var_init_hap_to_alle_profile(cand_vars, var_idx, n_cand_vars);
-    for (int read_i = 0; read_i < chunk->n_reads; ++read_i) {
+    for (int i = 0; i < chunk->n_reads; ++i) {
+        int read_i = chunk->ordered_read_ids[i];
         if (chunk->is_skipped[read_i]) continue;
         int hap;
         hap = init_assign_read_hap_based_on_cons_alle(chunk, read_i, cand_vars, p, var_i_to_cate, target_var_cate);
