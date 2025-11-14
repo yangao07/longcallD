@@ -142,7 +142,7 @@ longcallD call -t16 ref.fa hifi.bam --autosome > hifi_autosome.vcf
 ```
 
 ### Output phased (& refined) long-read BAM/CRAM
-LongcallD performs read phasing during variant calling and can outputs phased long reads in BAM/CRAM.
+LongcallD performs read phasing during variant calling and can output phased long reads in BAM/CRAM.
 
 With `--refine-aln`, it can further output refined read alignment based on multiple sequence alignment within each haplotype, which is especially useful for low-complexity regions like homopolymers and tandem repeats.
 ```
