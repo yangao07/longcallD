@@ -1410,6 +1410,11 @@ int phased_snv_is_somatic(const call_var_opt_t *opt, bam_chunk_t *chunk, int var
     }
 
     if (aux_info->hap_alt_dp < opt->min_somatic_alt_dp) return 0;
+    // for ONT, require at least 1 alt read from both strands
+    if (opt->is_ont) {
+        if (aux_info->hap_alt_for_cov == 0) return 0;
+        if (aux_info->hap_alt_rev_cov == 0) return 0;
+    }
     if (aux_info->min_dis_to_var < opt->min_somatic_dis_to_var) return 0;
     // if (median_int(aux_info->alt_quals, aux_info->hap_alt_dp) < 27) return 0;
     if (median_int(aux_info->alt_quals, aux_info->hap_alt_dp) < chunk->median_qual) return 0;
@@ -1437,6 +1442,11 @@ int no_phase_snv_is_somatic(const call_var_opt_t *opt, bam_chunk_t *chunk, int v
     }
 
     if (aux_info->hap_alt_dp < opt->min_somatic_alt_dp) return 0;
+    // for ONT, require at least 1 alt read from both strands
+    if (opt->is_ont) {
+        if (aux_info->hap_alt_for_cov == 0) return 0;
+        if (aux_info->hap_alt_rev_cov == 0) return 0;
+    }
     if (aux_info->min_dis_to_var < opt->min_somatic_dis_to_var) return 0;
     if (median_int(aux_info->alt_quals, aux_info->hap_alt_dp) < chunk->third_quar_qual) return 0;
     if (median_int(aux_info->win_low_qual, aux_info->hap_alt_dp) < chunk->median_qual) return 0;

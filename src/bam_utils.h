@@ -98,7 +98,7 @@ struct call_var_io_aux_t;
 // static inline int double_check_digar(digar_t *digar) {
 static inline int double_check_digar(digar1_t *digars, int n_digar) {
     if (n_digar == 0) return 0;
-    for (int i = n_digar-2; i > 0; --i) {
+    for (int i = n_digar-1; i > 0; --i) {
         int qi, last_i = i-1; int last_qi = digars[last_i].qi;
         if (digars[last_i].type == BAM_CEQUAL ||
             digars[last_i].type == BAM_CMATCH ||
