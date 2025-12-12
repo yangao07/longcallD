@@ -27,7 +27,7 @@ cand_var_t *init_cand_vars_based_on_sites(int n_var_sites, var_site_t *var_sites
         cand_vars[i].pos = var_sites[i].pos; 
         cand_vars[i].phase_set = 0; // unset
         cand_vars[i].var_type = var_sites[i].var_type;
-        cand_vars[i].ref_len = var_sites[i].ref_len; cand_vars[i].ref_base = 5; // unknown
+        cand_vars[i].ref_len = var_sites[i].ref_len; cand_vars[i].ref_base = 4; // unknown
 
         cand_vars[i].total_cov = 0; cand_vars[i].low_qual_cov = 0; 
         cand_vars[i].n_uniq_alles = 2; // ref/alt
@@ -41,6 +41,7 @@ cand_var_t *init_cand_vars_based_on_sites(int n_var_sites, var_site_t *var_sites
             cand_vars[i].alt_seq = (uint8_t*)malloc(cand_vars[i].alt_len * sizeof(uint8_t));
             for (int j = 0; j < cand_vars[i].alt_len; ++j) cand_vars[i].alt_seq[j] = var_sites[i].alt_seq[j];
         } else cand_vars[i].alt_seq = NULL;
+        cand_vars[i].alt_ref_base = 4; // unknown
         // dynamic information, allocate and update during haplotype assignment
         cand_vars[i].hap_to_alle_profile = NULL; cand_vars[i].hap_to_cons_alle = NULL;
         // somatic/TSD/TE information
@@ -515,7 +516,7 @@ static void collect_noisy_reg_start_end(bam_chunk_t *chunk, const call_var_opt_t
             if (var_i_to_cate[var_i] & LONGCALLD_NOT_CAND_VAR_CATE) continue;
             cand_var_t *var = chunk->cand_vars+var_i;
             int32_t var_start = var->pos, var_end = var->pos + var->ref_len - 1;
-            if (var_end < cur_start) break;
+            if (var_end < cur_start-1) break;
             else if (var_start-flank_len < cur_start) cur_start = var_start - flank_len;
         }
         start[reg_i] = cur_start;
@@ -525,7 +526,7 @@ static void collect_noisy_reg_start_end(bam_chunk_t *chunk, const call_var_opt_t
             if (var_i_to_cate[var_i] & LONGCALLD_NOT_CAND_VAR_CATE) continue;
             cand_var_t *var = chunk->cand_vars+var_i;
             int32_t var_start = var->pos, var_end = var->pos + var->ref_len - 1;
-            if (var_start > cur_end) break;
+            if (var_start > cur_end+1) break;
             else if (var_end + flank_len > cur_end) cur_end = var_end + flank_len;
         }
         end[reg_i] = cur_end;
@@ -563,7 +564,7 @@ void pre_process_noisy_regs(bam_chunk_t *chunk, call_var_opt_t *opt) {
         }
     }
     // extend noisy regions based on low-complexity regions
-    // cr_extend_noisy_regs_with_low_comp(chunk, opt);
+    cr_extend_noisy_regs_with_low_comp(chunk, opt);
     chunk->chunk_noisy_regs = cr_merge(chunk->chunk_noisy_regs, -1, opt->noisy_reg_merge_dis, opt->min_sv_len);
     if (LONGCALLD_VERBOSE >= 3) {
         fprintf(stderr, "After merge: %s:%" PRIi64 "-%" PRIi64 " %" PRIi64 " noisy regions\n", chunk->tname, chunk->reg_beg, chunk->reg_end, chunk->chunk_noisy_regs->n_r);
@@ -654,6 +655,13 @@ void post_process_noisy_regs(bam_chunk_t *chunk, const call_var_opt_t *opt, int 
     }
     cr_index(noisy_regs); cr_destroy(chunk->chunk_noisy_regs);
     chunk->chunk_noisy_regs = cr_merge(noisy_regs, 0, -1, -1);
+    // print noisy regions
+    if (LONGCALLD_VERBOSE >= 2) {
+        fprintf(stderr, "Post-process noisy regions: %s:%" PRIi64 "-%" PRIi64 " %ld regions\n", chunk->tname, chunk->reg_beg, chunk->reg_end, chunk->chunk_noisy_regs->n_r);
+        for (int i = 0; i < chunk->chunk_noisy_regs->n_r; ++i) {
+            fprintf(stderr, "NoisyReg: %s:%d-%d %d\n", chunk->tname, cr_start(chunk->chunk_noisy_regs, i), cr_end(chunk->chunk_noisy_regs, i), cr_label(chunk->chunk_noisy_regs, i));
+        }
+    }
     free(noisy_reg_start); free(noisy_reg_end);
 }
 
@@ -1023,7 +1031,8 @@ void collect_digars_from_bam(bam_chunk_t *chunk, const struct call_var_pl_t *pl)
     for (int i = 0; i < n_all_quals; ++i) n_total_counts += chunk->qual_counts[i];
     for (int i = 0; i < n_all_quals; ++i) {
         if (chunk->qual_counts[i] <= 0) continue; // skip 0 counts
-        if (chunk->qual_counts[i] >= 0.001 * n_total_counts) valid_quals[n_valid_quals++] = i;
+        if (chunk->qual_counts[i] >= 0.0001 * n_total_counts) valid_quals[n_valid_quals++] = i;
+        // fprintf(stderr, "QualCount: qual: %d, count: %d, Frac: %.6f\n", i, chunk->qual_counts[i], (double)chunk->qual_counts[i]/n_total_counts);
     }
     // collect 1st quartile/median/3rd quartile
     if (n_valid_quals == 0) { // set all qual as 255
@@ -1413,7 +1422,8 @@ int make_variants(const call_var_opt_t *opt, bam_chunk_t *chunk, var_t **_var) {
                 var->vars[i].alt_bases[var->vars[i].n_alt_allele] = (uint8_t*)malloc((alt_len+1) * sizeof(uint8_t));
                 if (var->vars[i].type == BAM_CDEL || var->vars[i].type == BAM_CINS) {
                     alt_len += 1;
-                    var->vars[i].alt_bases[var->vars[i].n_alt_allele][0] = nst_nt4_table[(int)ref_seq[var->vars[i].pos-ref_beg]];
+                    if (cand_vars[cand_i].alt_ref_base != 4) var->vars[i].alt_bases[var->vars[i].n_alt_allele][0] = cand_vars[cand_i].alt_ref_base;
+                    else var->vars[i].alt_bases[var->vars[i].n_alt_allele][0] = nst_nt4_table[(int)ref_seq[var->vars[i].pos - ref_beg]];
                     for (int j = 1; j < alt_len; ++j) {
                         var->vars[i].alt_bases[var->vars[i].n_alt_allele][j] = cand_vars[cand_i].alt_seq[j-1];
                     }
@@ -1590,7 +1600,7 @@ int var_is_homopolymer_indel(bam_chunk_t *chunk, hts_pos_t ref_pos, int var_type
     }
 }
 
-void make_cand_vars0(cand_var_t *var, int tid, hts_pos_t ref_pos, int var_type, int n_alle, int ref_len, uint8_t ref_base, int alt_len, uint8_t *alt_seq,
+void make_cand_vars0(cand_var_t *var, int tid, hts_pos_t ref_pos, int var_type, int n_alle, int ref_len, uint8_t ref_base, int alt_len, uint8_t *alt_seq, uint8_t alt_ref_base,
                      int is_homopolymer_indel, int tsd_len, uint8_t *tsd_seq, hts_pos_t tsd_pos1, hts_pos_t tsd_pos2, int tsd_polya_len, int te_seq_i, int te_is_rev) {
     memset(var, 0, sizeof(cand_var_t));
     var->tid = tid; var->pos = ref_pos;
@@ -1600,6 +1610,7 @@ void make_cand_vars0(cand_var_t *var, int tid, hts_pos_t ref_pos, int var_type, 
     var->ref_len = ref_len;
     var->is_homopolymer_indel = is_homopolymer_indel;
     if (var_type == BAM_CDIFF) var->ref_base = ref_base;
+    else var->alt_ref_base = alt_ref_base;
     if (alt_len > 0 && alt_seq != NULL) {
         var->alt_len = alt_len; 
         var->alt_seq = (uint8_t*)malloc(alt_len*sizeof(uint8_t));
@@ -1643,9 +1654,11 @@ int make_cand_vars_from_baln0(const call_var_opt_t *opt, bam_chunk_t *chunk, hts
             i++; ref_pos++;
             continue;
         }
-        if (ref_msa_seq[i] != 5 && cons_msa_seq[i] != 5) { // DIFF
-            make_cand_vars0((*cand_vars)+n_vars, tid, ref_pos, BAM_CDIFF, 2, 1, ref_msa_seq[i], 1, cons_msa_seq+i, 0, 0, NULL, 0, 0, 0, -1, 0);
-            n_vars++;
+        if (ref_msa_seq[i] != 5 && cons_msa_seq[i] != 5) {
+            if (((i+1<msa_len && ref_msa_seq[i+1] != 5) || i+1==msa_len) && ((i+1<msa_len && cons_msa_seq[i+1] != 5) || i+1==msa_len)) { // DIFF && not followed by gaps
+                make_cand_vars0((*cand_vars)+n_vars, tid, ref_pos, BAM_CDIFF, 2, 1, ref_msa_seq[i], 1, cons_msa_seq+i, 4, 0, 0, NULL, 0, 0, 0, -1, 0);
+                n_vars++;
+            }
             i += 1; ref_pos += 1;
         } else if (ref_msa_seq[i] == 5) { // INS: 0->I
             int gap_len = 1;
@@ -1660,7 +1673,8 @@ int make_cand_vars_from_baln0(const call_var_opt_t *opt, bam_chunk_t *chunk, hts
             int is_homopolymer_indel = 0, tsd_len = 0, polya_len = 0; uint8_t *tsd_seq=NULL; hts_pos_t tsd_pos1=-1, tsd_pos2=-1; int te_seq_i=-1, te_is_rev=-1;
             if (gap_len >= min_sv_len) tsd_len = collect_te_info_from_cons(opt, chunk, ref_pos, i, BAM_CINS, gap_len, cons_msa_seq, &tsd_seq, &tsd_pos1, &tsd_pos2, &polya_len, &te_seq_i, &te_is_rev);
             else is_homopolymer_indel = var_is_homopolymer_indel(chunk, ref_pos, BAM_CINS, 0, gap_len, cons_msa_seq+i);
-            make_cand_vars0((*cand_vars) + n_vars, tid, ref_pos, BAM_CINS, 2, 0, 0, gap_len, cons_msa_seq+i, is_homopolymer_indel, tsd_len, tsd_seq, tsd_pos1, tsd_pos2, polya_len, te_seq_i, te_is_rev);
+            uint8_t alt_ref_base = i-1 >= 0 ? cons_msa_seq[i-1] : 4;
+            make_cand_vars0((*cand_vars) + n_vars, tid, ref_pos, BAM_CINS, 2, 0, 0, gap_len, cons_msa_seq+i, alt_ref_base, is_homopolymer_indel, tsd_len, tsd_seq, tsd_pos1, tsd_pos2, polya_len, te_seq_i, te_is_rev);
             n_vars++;
             i += gap_len;
         } else if (cons_msa_seq[i] == 5) { // DEL: D->0
@@ -1676,11 +1690,20 @@ int make_cand_vars_from_baln0(const call_var_opt_t *opt, bam_chunk_t *chunk, hts
             int is_homopolymer_indel = 0, tsd_len = 0, polya_len = 0; uint8_t *tsd_seq=NULL; hts_pos_t tsd_pos1=-1, tsd_pos2=-1; int te_seq_i=-1, te_is_rev=-1;
             if (gap_len >= min_sv_len) tsd_len = collect_te_info_from_cons(opt, chunk, ref_pos, i, BAM_CDEL, gap_len, cons_msa_seq, &tsd_seq, &tsd_pos1, &tsd_pos2, &polya_len, &te_seq_i, &te_is_rev);
             else is_homopolymer_indel = var_is_homopolymer_indel(chunk, ref_pos, BAM_CDEL, gap_len, 0, NULL);
-            make_cand_vars0((*cand_vars)+n_vars, tid, ref_pos, BAM_CDEL, 2, gap_len, 0, 0, NULL, is_homopolymer_indel, tsd_len, tsd_seq, tsd_pos1, tsd_pos2, polya_len, te_seq_i, te_is_rev);
+            uint8_t alt_ref_base = i-1 >= 0 ? cons_msa_seq[i-1] : 4;
+            make_cand_vars0((*cand_vars)+n_vars, tid, ref_pos, BAM_CDEL, 2, gap_len, 0, 0, NULL, alt_ref_base, is_homopolymer_indel, tsd_len, tsd_seq, tsd_pos1, tsd_pos2, polya_len, te_seq_i, te_is_rev);
             n_vars++;
             i += gap_len; ref_pos += gap_len;
         } else {
-            _err_error_exit("Error: %d, %d\n", ref_msa_seq[i], cons_msa_seq[i]);
+            for (int j = 0; j < msa_len; ++j) {
+                fprintf(stderr, "%c", "ACGTN-"[ref_msa_seq[j]]);
+            }
+            fprintf(stderr, "\n");
+            for (int j = 0; j < msa_len; ++j) {
+                fprintf(stderr, "%c", "ACGTN-"[cons_msa_seq[j]]);
+            }
+            fprintf(stderr, "\n");
+            _err_error_exit("Error: %d -> %d, %d\n", i, ref_msa_seq[i], cons_msa_seq[i]);
         }
     }
     for (int i = 0; i < n_vars; ++i) {
@@ -2498,7 +2521,7 @@ int collect_noisy_vars1(bam_chunk_t *chunk, const call_var_opt_t *opt, int noisy
 
     double realtime0 = realtime();
 
-    if (LONGCALLD_VERBOSE >= 1) fprintf(stderr, "NoisyReg: chunk_reg: %s:%" PRIi64 "-%" PRIi64 ", reg: %s:%" PRIi64 "-%" PRIi64 " %" PRIi64 " (%d)\n", chunk->tname, chunk->reg_beg, chunk->reg_end, 
+    if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "NoisyReg: chunk_reg: %s:%" PRIi64 "-%" PRIi64 ", reg: %s:%" PRIi64 "-%" PRIi64 " %" PRIi64 " (%d)\n", chunk->tname, chunk->reg_beg, chunk->reg_end, 
                                         chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end-noisy_reg_beg+1, n_noisy_reads);
     // MSA and consensus calling
     int n_cons = 0; int *clu_n_seqs = (int*)calloc(2, sizeof(int)); int **clu_read_ids = (int**)malloc(2 * sizeof(int*));

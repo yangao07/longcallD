@@ -225,6 +225,16 @@ void call_var_free_para(call_var_opt_t *opt) {
         if (opt->in_bam_fns[i] != NULL) free(opt->in_bam_fns[i]);
     }
     free(opt->in_bam_fns);
+    if (opt->bams != NULL) {
+        for (int i = 0; i < opt->n_in_bam_fn; ++i) {
+            if (opt->bams[i]) {
+                if (opt->idxs[i]) hts_idx_destroy(opt->idxs[i]);
+                bam_hdr_destroy(opt->headers[i]);
+                sam_close(opt->bams[i]);
+            }
+        }
+        free(opt->bams); free(opt->idxs); free(opt->headers);
+    }
     if (opt->sample_name) free(opt->sample_name);
     // if (opt->region_list) free(opt->region_list);
     if (opt->n_exc_tnames > 0) {
@@ -311,7 +321,7 @@ static void collect_bam_call_var_worker_for(void *_data, long ii, int tid) {
     collect_ref_seq_bam_main(step->pl, step->pl->io_aux+tid, step->pl->reg_chunk_i, ii, c);
     collect_var_main(step->pl, c);
     // }
-    bam_chunk_mid_free(c);
+    bam_chunk_mid_free(c, step->pl->opt);
     if (LONGCALLD_VERBOSE >= 2) fprintf(stderr, "[%s] thread-id: %d, chunk: %ld (%d) ... done\n", __func__, tid, ii, step->n_chunks);
 }
 
@@ -673,6 +683,47 @@ static void call_var_pl_open_fa_bam(call_var_opt_t *opt, call_var_pl_t *pl, char
             }
         }
     }
+    if (opt->out_aln_fp != NULL) {
+        opt->bams = (samFile **)calloc(opt->n_in_bam_fn, sizeof(samFile *));
+        opt->headers = (bam_hdr_t **)calloc(opt->n_in_bam_fn, sizeof(bam_hdr_t *));
+        opt->idxs = (hts_idx_t **)calloc(opt->n_in_bam_fn, sizeof(hts_idx_t *));
+        if (!opt->bams || !opt->headers || !opt->idxs) _err_error_exit("Memory allocation failure\n");
+        for (int j = 0; j < opt->n_in_bam_fn; ++j) {
+            opt->bams[j] = sam_open(opt->in_bam_fns[j], "r"); if (opt->bams[j] == NULL) _err_error_exit("Failed to open alignment file \'%s\'\n", opt->in_bam_fns[j]);
+            const htsFormat *fmt = hts_get_format(opt->bams[j]); if (!fmt) _err_error_exit("Failed to get format of alignment file \'%s\'\n", opt->in_bam_fns[j]);
+            if (fmt->format != bam && fmt->format != cram) {
+                sam_close(opt->bams[j]); _err_error_exit("Input alignment file must be BAM or CRAM format.\n");
+            }
+            opt->headers[j] = sam_hdr_read(opt->bams[j]);
+            if (opt->headers[j] == NULL) {
+                sam_close(opt->bams[j]);
+                _err_error_exit("Failed to read alignment file header \'%s\'\n", opt->in_bam_fns[j]);
+            }
+            if (fmt->format == cram) {
+                if (hts_set_fai_filename(opt->bams[j], opt->ref_fa_fn) != 0) {
+                    sam_hdr_destroy(opt->headers[j]); sam_close(opt->bams[j]);
+                    _err_error_exit("Failed to set reference file for CRAM decoding: %s %s\n", opt->in_bam_fns[j], opt->ref_fa_fn);
+                }
+            }
+            // hts_set_threads(opt->bams[j], opt->n_threads);
+            opt->idxs[j] = sam_index_load(opt->bams[j], opt->in_bam_fns[j]);
+            if (opt->idxs[j] == NULL) { // attempt to create index if not exist
+                _err_warning("Index not found for \'%s\', creating now ...\n", opt->in_bam_fns[j]);
+                if (sam_index_build(opt->in_bam_fns[j], 0) < 0) {
+                    sam_hdr_destroy(opt->headers[j]); sam_close(opt->bams[j]);
+                    _err_error_exit("Failed to build index for \'%s\'\n", opt->in_bam_fns[j]);
+                } else {
+                    opt->idxs[j] = sam_index_load(opt->bams[j], opt->in_bam_fns[j]);
+                    if (opt->idxs[j] == NULL) {
+                        sam_hdr_destroy(opt->headers[j]); sam_close(opt->bams[j]);
+                        _err_error_exit("Failed to load index for \'%s\'\n", opt->in_bam_fns[j]);
+                    }
+                }
+            }
+        }
+    } else {
+        opt->bams = NULL; opt->headers = NULL; opt->idxs = NULL;
+    }
     // collect sample name (SM) from BAM header
     if (opt->sample_name == NULL) opt->sample_name = extract_sample_name_from_bam_header(pl->io_aux[0].headers[0]); // extract sample names from first BAM header
     if (opt->sample_name == NULL) {
@@ -697,6 +748,7 @@ static void call_var_pl_write_bam_header(call_var_opt_t *opt, bam_hdr_t *header)
     if (opt->out_aln_is_cram) {
         if (hts_set_fai_filename(opt->out_aln_fp, opt->ref_fa_fn) != 0) _err_error_exit("Failed to set reference file for output CRAM encoding: %s\n", opt->ref_fa_fn);
     }
+    hts_set_threads(opt->out_aln_fp, opt->n_threads);
     if (sam_hdr_add_pg(header, PROG, "VN", LONGCALLD_VERSION, "CL", CMD, NULL) < 0) _err_error_exit("Fail to add PG line to bam header.\n");
     if (sam_hdr_write(opt->out_aln_fp, header) < 0) _err_error_exit("Failed to write BAM header.\n");
 }
@@ -749,7 +801,7 @@ static void *call_var_worker_pipeline(void *shared, int step, void *in) { // kt_
             if (pl->opt->out_aln_is_cram) _err_info("Output %d reads to CRAM\n", n_out_reads);
             else _err_info("Output %d reads to BAM\n", n_out_reads);
         }
-        bam_chunks_post_free(s->chunks, s->n_chunks); // free input
+        bam_chunks_post_free(s->chunks, s->n_chunks, pl->opt); // free input
         free(s->vars); free(s);
     }
     return 0;
@@ -815,8 +867,8 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "    -c --min-cov     INT  min. total read coverage for candidate variant [%d]\n", LONGCALLD_MIN_CAND_DP);
     fprintf(stderr, "    -d --alt-cov     INT  min. alt. read coverage for candidate variant [%d]\n", LONGCALLD_MIN_ALT_DP);
     fprintf(stderr, "    -a --alt-ratio FLOAT  min. alt. read ratio for candidate variant [%.2f]\n", LONGCALLD_MIN_CAND_AF);
-    fprintf(stderr, "    -M --min-mapq    INT  min. mapping quality for long-read alignment to be used [%d]\n", LONGCALLD_MIN_CAND_MQ);
-    // fprintf(stderr, "    -B --min-bq      INT  filter out base with base quality < -B/--min-bq [%d]\n", LONGCALLD_MIN_CAND_BQ);
+    fprintf(stderr, "    -M --min-mapq    INT  min. mapping quality score to be used [%d]\n", LONGCALLD_MIN_CAND_MQ);
+    fprintf(stderr, "    -B --min-bq      INT  min. base quality score to be used [%d]\n", LONGCALLD_MIN_CAND_BQ);
     // fprintf(stderr, "    -p --max-ploidy  INT  max. ploidy [%d]\n", LONGCALLD_DEF_PLOID);
     fprintf(stderr, "  Low allele-frequency mosaic/somatic variant calling: (effective when -s/--mosaic/--somatic is used)\n");
     // fprintf(stderr, "    --alpha          INT  alpha value of beta-binomial distribution [%d]\n", LONGCALLD_SOMATIC_BETA_ALPHA);

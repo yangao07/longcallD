@@ -31,11 +31,11 @@
 #define LONGCALLD_NOISY_REG_HIFI_SLIDE_WIN 100 //200
 #define LONGCALLD_NOISY_REG_ONT_SLIDE_WIN 25
 #define LONGCALLD_MAX_NOISY_FRAC_PER_READ 0.5 // skip reads with more than 50% bases in noisy region
-#define LONGCALLD_MAX_VAR_RATIO_PER_READ 1.00 // skip reads with n_var / ref_span > 5% 
+#define LONGCALLD_MAX_VAR_RATIO_PER_READ 0.05 // skip reads with n_var / ref_span > 5% 
 #define LONGCALLD_MAX_READ_DEPTH 500 // vars with >500 reads will be skipped
 #define LONGCALLD_MAX_NOISY_REG_READS 1000 // regions with >1000 reads will be skipped
 #define LONGCALLD_NOISY_END_CLIP 30 // 100 // >= 100 bp clipping on both ends will be considered as long clipping
-#define LONGCALLD_NOISY_END_CLIP_WIN 500 // 100 bp next to the long end-clipping will be considered as low-quality region
+#define LONGCALLD_NOISY_END_CLIP_WIN 100 // 100 bp next to the long end-clipping will be considered as low-quality region
 #define LONGCALLD_NOISY_REG_MERGE_DIS 500 // 500 bp, merge noisy regions within 500 bp
 #define LONGCALLD_NOISY_REG_FLANK_LEN 10 // during re-alignment, include 10-bp flanking region for both ends of noisy region
 
@@ -43,7 +43,7 @@
 #define LONGCALLD_NOISY_REG_READS 2 // >= 5 reads supporting noisy region
 // #define LONGCALLD_NOISY_REG_RATIO 0.20 // >= 25% reads supporting noisy region
 
-#define LONGCALLD_MIN_NOISY_REG_SIZE_TO_SAMPLE_READS 1000 // >=10kb noisy region, sample reads for re-alignment
+#define LONGCALLD_MIN_NOISY_REG_SIZE_TO_SAMPLE_READS 10000 // >=10kb noisy region, sample reads for re-alignment
 #define LONGCALLD_PARTIAL_ALN_RATIO 1.1 // max length ratio for partial alignment, i.e. longer_aln_len / shorter_aln_len <= 1.1
 
 #define LONGCALLD_MIN_HAP_FULL_READS 1 // >= 1full read supporting each haplotype
@@ -130,6 +130,7 @@ typedef struct call_var_opt_t {
     char *reg_bed_fn;
     char *sample_name;
     int n_in_bam_fn, m_in_bam_fn, input_is_list; char **in_bam_fns;
+    samFile **bams; bam_hdr_t **headers; hts_idx_t **idxs; // for write to output bam/cram
     uint8_t is_pb_hifi, is_ont; float strand_bias_pval; // for ONT reads
     // variant calling regions
     uint8_t only_autosome, only_autosome_XY;

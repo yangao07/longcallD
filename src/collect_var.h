@@ -70,7 +70,7 @@ typedef struct cand_somatic_var_aux_info_t {
 // will be used for variant calling, haplotype assignment, phasing of variants and reads
 typedef struct cand_var_t {
     // static information
-    int tid; hts_pos_t pos, phase_set;
+    int tid; hts_pos_t pos, phase_set; // pos: 1-based, for indel, pos is the first ref base within the indel
     int var_type, is_homopolymer_indel; // BAM_CINS/BAM_CDEL/BAM_CDIFF
     int total_cov; // ref+alt, used in variant calling & haplotype assignment, excluding low-qual bases
     int low_qual_cov; // including bases/regions with low quality, only count depth, not seq
@@ -80,7 +80,9 @@ typedef struct cand_var_t {
     int *alle_covs; // size: n_uniq_alles
     int **strand_to_alle_covs; // strand-wise: 1:forward/2:reverse -> alle_i -> read count, used for strand bias
     int ref_len; uint8_t ref_base; // 1-base ref_base, only used for X
-    int alt_len; uint8_t *alt_seq; // only used for mismatch/insertion, deletion:NULL
+    int alt_len; uint8_t *alt_seq, alt_ref_base; // only used for mismatch/insertion, deletion:NULL
+                                                 // ref_alt_base: only for indels, the first base of alt_seq, which maps to the ref_base
+                                                 //               mostly will be the same as ref_base, except for complex indels
     cand_somatic_var_aux_info_t *somatic_aux_info; // only for somatic variants, NULL for germline variants
     // retrotransposon: L1/Alu/SVA
     uint8_t *tsd_seq, checked_tsd; int tsd_len, polya_len; hts_pos_t tsd_pos1, tsd_pos2; // target site duplication, 2 TSDs for DEL

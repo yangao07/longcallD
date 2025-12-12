@@ -63,7 +63,7 @@ typedef struct bam_chunk_t {
     cgranges_t *low_comp_cr; // tandem_rep_cr;
     int n_reads, m_reads; int *ordered_read_ids; // size: m_reads, for multiple input bams, merge sort reads by pos, end, NM, name
     int n_bam; // for each input bam, record the number of region-overlapping reads
-    int *n_up_ovlp_reads, *n_down_ovlp_reads; // number of reads overlapping with up/downstream bam chunk
+    int *n_up_ovlp_reads, *n_down_ovlp_reads, *n_up_ovlp_skip_reads, *n_down_ovlp_skip_reads; // number of reads overlapping with up/downstream bam chunk
     int **up_ovlp_read_i, **down_ovlp_read_i;
     bam1_t **reads;
     // intermidiate
@@ -172,10 +172,10 @@ int update_read_vs_somatic_var_profile_from_digar(const struct call_var_opt_t *o
 
 int collect_ref_seq_bam_main(const struct call_var_pl_t *pl, struct call_var_io_aux_t *io_aux, int reg_chunk_i, int reg_i, bam_chunk_t *chunks);
 int write_read_to_bam(bam_chunk_t *chunk, const struct call_var_opt_t *opt, const struct call_var_io_aux_t *io_aux);
-void bam_chunk_mid_free(bam_chunk_t *chunk);
-void bam_chunks_mid_free(bam_chunk_t *chunks, int n_chunks);
-void bam_chunk_post_free(bam_chunk_t *chunk);
-void bam_chunks_post_free(bam_chunk_t *chunks, int n_chunks);
+void bam_chunk_mid_free(bam_chunk_t *chunk, const struct call_var_opt_t *opt);
+void bam_chunks_mid_free(bam_chunk_t *chunks, int n_chunks, const struct call_var_opt_t *opt);
+void bam_chunk_post_free(bam_chunk_t *chunk, const struct call_var_opt_t *opt);
+void bam_chunks_post_free(bam_chunk_t *chunks, int n_chunks, const struct call_var_opt_t *opt);
 struct read_var_profile_t *init_read_var_profile(int n_reads, int n_total_vars);
 struct read_var_profile_t *init_read_var_profile_with_ids(int n_reads, int *read_ids, int n_total_vars);
 void free_read_var_profile(struct read_var_profile_t *p, int n_reads);

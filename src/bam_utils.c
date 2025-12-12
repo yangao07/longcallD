@@ -283,8 +283,8 @@ int update_cand_vars_from_digar(const call_var_opt_t *opt, bam_chunk_t *chunk, d
             update_var_site_with_allele(cand_vars+site_i, 0, strand, 0);
             site_i++;
         } else if (ret == 0) { // merge together, update/add alt allele
-            // update_var_site_with_allele(cand_vars+site_i, (digar->digars[digar_i].is_low_qual) || (ave_qual < opt->min_bq), strand, 1);
-            update_var_site_with_allele(cand_vars+site_i, (digar->digars[digar_i].is_low_qual) || (ave_qual < chunk->first_quar_qual), strand, 1);
+            update_var_site_with_allele(cand_vars+site_i, (digar->digars[digar_i].is_low_qual) || (ave_qual < opt->min_bq), strand, 1);
+            // update_var_site_with_allele(cand_vars+site_i, (digar->digars[digar_i].is_low_qual) || (ave_qual < chunk->first_quar_qual), strand, 1);
             site_i++;
         } else { // ret > 0, var_site > digar_var_site
             digar_i++;
@@ -389,8 +389,8 @@ int update_read_vs_somatic_var_profile_from_digar(const call_var_opt_t *opt, bam
         } else { // overlap
             if (ret == 0) { // exact the same with var_site
                 allele_i = 1; // get_alt_allele_idx(cand_vars+var_i, digar->digars+digar_i, digar->bseq);
-                // if (ave_qual < opt->min_bq) allele_i = -2;
-                if (ave_qual < chunk->first_quar_qual) allele_i = -2;
+                if (ave_qual < opt->min_bq) allele_i = -2;
+                // if (ave_qual < chunk->first_quar_qual) allele_i = -2;
                 update_read_var_profile_with_allele(var_i, allele_i, var_read_pos, read_var_profile);
                 cand_vars[var_i].total_cov++;
                 if (allele_i >= 0) cand_vars[var_i].alle_covs[allele_i] += 1; 
@@ -490,8 +490,8 @@ int update_read_vs_all_var_profile_from_digar(const call_var_opt_t *opt, bam_chu
         } else { // overlap
             if (ret == 0) { // exact the same with var_site
                 allele_i = 1; // get_alt_allele_idx(cand_vars+var_i, digar->digars+digar_i, digar->bseq);
-                // if (ave_qual < opt->min_bq) allele_i = -2;
-                if (ave_qual < chunk->first_quar_qual) allele_i = -2;
+                if (ave_qual < opt->min_bq) allele_i = -2;
+                // if (ave_qual < chunk->first_quar_qual) allele_i = -2;
                 update_read_var_profile_with_allele(var_i, allele_i, var_read_pos, read_var_profile);
                 if (var_i_to_cate[var_i] == LONGCALLD_CAND_SOMATIC_VAR) {
                     cand_vars[var_i].total_cov++;
@@ -1324,9 +1324,9 @@ int bam_chunk_init0(bam_chunk_t *chunk, int n_reads, int n_bam) {
     // input
     chunk->n_reads = 0; chunk->m_reads = n_reads; chunk->ordered_read_ids = (int*)malloc(n_reads * sizeof(int));
     chunk->n_bam = n_bam;
-    chunk->n_up_ovlp_reads = (int*)calloc(n_bam, sizeof(int));
+    chunk->n_up_ovlp_reads = (int*)calloc(n_bam, sizeof(int)); chunk->n_up_ovlp_skip_reads = (int*)calloc(n_bam, sizeof(int));
     chunk->up_ovlp_read_i = (int**)malloc(n_bam * sizeof(int*));
-    chunk->n_down_ovlp_reads = (int*)calloc(n_bam, sizeof(int));
+    chunk->n_down_ovlp_reads = (int*)calloc(n_bam, sizeof(int)); chunk->n_down_ovlp_skip_reads = (int*)calloc(n_bam, sizeof(int));
     chunk->down_ovlp_read_i = (int**)malloc(n_bam * sizeof(int*));
     for (int i = 0; i < n_bam; ++i) {
         chunk->up_ovlp_read_i[i] = (int*)malloc(n_reads * sizeof(int));
@@ -1436,7 +1436,7 @@ void bam_chunk_free(bam_chunk_t *chunk) {
         if (chunk->up_ovlp_read_i[i] != NULL) free(chunk->up_ovlp_read_i[i]);
         if (chunk->down_ovlp_read_i[i] != NULL) free(chunk->down_ovlp_read_i[i]);
     }
-    free(chunk->n_up_ovlp_reads); free(chunk->n_down_ovlp_reads);
+    free(chunk->n_up_ovlp_reads); free(chunk->n_down_ovlp_reads); free(chunk->n_up_ovlp_skip_reads); free(chunk->n_down_ovlp_skip_reads);
 }
 
 void bam_chunk_free_digar(bam_chunk_t *chunk) {
@@ -1450,7 +1450,7 @@ void bam_chunk_free_digar(bam_chunk_t *chunk) {
     free(chunk->digars);
 }
 
-void bam_chunk_post_free(bam_chunk_t *chunk) {
+void bam_chunk_post_free(bam_chunk_t *chunk, const struct call_var_opt_t *opt) {
     free(chunk->qual_counts);
     if (chunk->ref_seq != NULL) free(chunk->ref_seq);
     if (chunk->cand_vars != NULL) free_cand_vars(chunk->cand_vars, chunk->n_cand_vars);
@@ -1463,9 +1463,9 @@ void bam_chunk_post_free(bam_chunk_t *chunk) {
         if (chunk->up_ovlp_read_i[i] != NULL) free(chunk->up_ovlp_read_i[i]);
         if (chunk->down_ovlp_read_i[i] != NULL) free(chunk->down_ovlp_read_i[i]);
     }
-    free(chunk->n_up_ovlp_reads); free(chunk->n_down_ovlp_reads);
+    free(chunk->n_up_ovlp_reads); free(chunk->n_down_ovlp_reads); free(chunk->n_up_ovlp_skip_reads); free(chunk->n_down_ovlp_skip_reads);
     free(chunk->up_ovlp_read_i); free(chunk->down_ovlp_read_i);
-    bam_chunk_free_digar(chunk);
+    if (opt->out_aln_fp != NULL && opt->refine_bam) bam_chunk_free_digar(chunk);
     if (LONGCALLD_VERBOSE >= 2) {
         for (int i = 0; i < chunk->m_reads; i++) {
             bam_destroy1(chunk->reads[i]);
@@ -1476,8 +1476,9 @@ void bam_chunk_post_free(bam_chunk_t *chunk) {
 }
 
 // free variables that will not be used in stitch & make variants
-void bam_chunk_mid_free(bam_chunk_t *chunk) {
+void bam_chunk_mid_free(bam_chunk_t *chunk, const struct call_var_opt_t *opt) {
     if (chunk->low_comp_cr != NULL) cr_destroy(chunk->low_comp_cr);
+    if (opt->out_aln_fp == NULL || opt->refine_bam == 0) bam_chunk_free_digar(chunk);
     if (chunk->chunk_noisy_regs != NULL) cr_destroy(chunk->chunk_noisy_regs);
     if (chunk->noisy_reg_to_reads != NULL) {
         for (int i = 0; i < chunk->chunk_noisy_regs->n_r; i++) {
@@ -1489,15 +1490,15 @@ void bam_chunk_mid_free(bam_chunk_t *chunk) {
     if (chunk->read_var_cr != NULL) cr_destroy(chunk->read_var_cr);
 }
 
-void bam_chunks_mid_free(bam_chunk_t *chunks, int n_chunks) {
+void bam_chunks_mid_free(bam_chunk_t *chunks, int n_chunks, const struct call_var_opt_t *opt) {
     for (int i = 0; i < n_chunks; i++) {
-        bam_chunk_mid_free(chunks+i);
+        bam_chunk_mid_free(chunks+i, opt);
     }
 }
 
-void bam_chunks_post_free(bam_chunk_t *chunks, int n_chunks) {
+void bam_chunks_post_free(bam_chunk_t *chunks, int n_chunks, const struct call_var_opt_t *opt) {
     for (int i = 0; i < n_chunks; i++) {
-        bam_chunk_post_free(chunks+i);
+        bam_chunk_post_free(chunks+i, opt);
     }
     free(chunks);
 }
@@ -1627,9 +1628,14 @@ int collect_ref_seq_bam_main(const struct call_var_pl_t *pl, struct call_var_io_
         }
         // load bam records
         samFile *in_bam = io_aux->bams[i];
+        // fprintf(stderr, "Loading reads from region %s:%" PRId64 "-%" PRId64 "\n", io_aux->headers[i]->target_name[tid], reg_beg, reg_end);
         while (sam_itr_next(in_bam, iter, chunk->reads[chunk->n_reads]) >= 0) {
-            if (chunk->reads[chunk->n_reads]->core.flag & (BAM_FUNMAP | BAM_FSECONDARY | BAM_FSUPPLEMENTARY)) continue; // BAM_FSUPPLEMENTARY
-            if (chunk->reads[chunk->n_reads]->core.qual < min_mapq) continue;
+            // fprintf(stderr, "load read %s\n", bam_get_qname(chunk->reads[chunk->n_reads]));
+            if (chunk->reads[chunk->n_reads]->core.flag & (BAM_FUNMAP | BAM_FSECONDARY | BAM_FSUPPLEMENTARY) || chunk->reads[chunk->n_reads]->core.qual < min_mapq) {
+                if (is_ovlp_with_prev_region(pl, chunk, chunk->reads[chunk->n_reads])) chunk->n_up_ovlp_skip_reads[i]++;
+                if (is_ovlp_with_next_region(pl, chunk, chunk->reads[chunk->n_reads])) chunk->n_down_ovlp_skip_reads[i]++;
+                continue; // BAM_FSUPPLEMENTARY
+            }
             // fprintf(stderr, "CHUNK-READ: %s %d-%d\n", bam_get_qname(chunk->reads[chunk->n_reads]), chunk->reg_beg, chunk->reg_end);
             // check if read is overlapping with previous region
             if (is_ovlp_with_prev_region(pl, chunk, chunk->reads[chunk->n_reads])) {
@@ -1897,6 +1903,12 @@ int write_unprocessed_read_to_bam(bam_chunk_t *chunk, bam_hdr_t *header, htsFile
 int write_processed_read_to_bam(const call_var_opt_t *opt, bam_chunk_t *chunk, bam_hdr_t *header, bam1_t *read, int read_i) {
     // refine bam cigars
     if (opt->refine_bam) {
+        // check if bam and chunk->digars[read_i] match
+        if (digar2qlen(chunk->digars+read_i) != read->core.l_qseq) {
+            _err_error_exit("Read length mismatch when writing BAM record: %s:%" PRId64 " %s, digar_qlen: %d, bam_qlen: %d\n",
+                            chunk->tname, read->core.pos+1, bam_get_qname(read),
+                            digar2qlen(chunk->digars+read_i), read->core.l_qseq);
+        }
         if (refine_bam1(chunk, read_i, read) != 0)
             _err_error_exit("Failed to refine BAM record: %s:%" PRId64 " %s\n", chunk->tname, read->core.pos+1, bam_get_qname(read));
     }
@@ -1946,43 +1958,32 @@ int write_read_to_bam(bam_chunk_t *chunk, const struct call_var_opt_t *opt, cons
     int n_out_reads = 0;
     int min_mapq = opt->min_mq;
     hts_pos_t reg_beg = chunk->reg_beg, reg_end = chunk->reg_end; int tid = chunk->tid;
-    faidx_t *fai = io_aux->fai;
     int global_read_i = 0;
     for (int i = 0; i < chunk->n_bam; ++i) {
-        samFile *in_bam = sam_open(opt->in_bam_fns[i], "r"); if (in_bam == NULL) _err_error_exit("Failed to open alignment file \'%s\'\n", opt->in_bam_fns[i]);
-        const htsFormat *fmt = hts_get_format(in_bam); if (fmt == NULL) _err_error_exit("Failed to get format of alignment file \'%s\'\n", opt->in_bam_fns[i]);
-        if (fmt->format != bam && fmt->format != cram) {
-            sam_close(in_bam); _err_error_exit("Input file must be BAM or CRAM format.\n");
-        }
-        hts_tpool *p = hts_tpool_init(MAX_OF_TWO(1, opt->pl_threads));
-        htsThreadPool thread_pool = {p, 0};
-        if (hts_set_thread_pool(in_bam, &thread_pool) != 0) _err_error_exit("Failed to set thread pool.\n");
-        bam_hdr_t *header = sam_hdr_read(in_bam); if (header == NULL) _err_error_exit("Failed to read header \'%s\'\n", opt->in_bam_fns[i]);
-        if (fmt->format == cram) {
-            if (hts_set_fai_filename(in_bam, opt->ref_fa_fn) != 0) {
-                fai_destroy(fai); hts_tpool_destroy(p); sam_hdr_destroy(header); sam_close(in_bam);
-                _err_error_exit("Failed to set reference file for CRAM decoding: %s %s\n", opt->in_bam_fns[i], opt->ref_fa_fn);
-            }
-        }
-        hts_idx_t *idx = sam_index_load(in_bam, opt->in_bam_fns[i]); if (idx == NULL) _err_error_exit("Failed to load index \'%s\'\n", opt->in_bam_fns[i]);
+        samFile *in_bam = opt->bams[i]; bam_hdr_t *header = opt->headers[i]; hts_idx_t *idx = opt->idxs[i];
+        // fprintf(stderr, "Write bam for region: %s:%" PRId64 "-%" PRId64 "\n", header->target_name[tid], reg_beg, reg_end);
         hts_itr_t *iter = sam_itr_queryi(idx, tid, reg_beg-1, reg_end); // (reg_beg-1, reg_end] ==> [reg_beg, reg_end]
         if (iter == NULL) {
             _err_warning("Failed to create iterator for region: %s:%" PRId64 "-%" PRId64 ". Skipping.\n", header->target_name[tid], reg_beg, reg_end);
         } else {
             // load bam records
             bam1_t *read = bam_init1();
-            int read_i = 0, start_to_output = 0;
+            int read_i = 0, skip_read_i = 0;
             while (sam_itr_next(in_bam, iter, read) >= 0) {
+                // fprintf(stderr, "read_i: %d, %s, %d, %ld\n", read_i, bam_get_qname(read), read->core.flag, read->core.pos+1);
                 if (read->core.flag & (BAM_FUNMAP | BAM_FSECONDARY | BAM_FSUPPLEMENTARY) || read->core.qual < min_mapq) {
-                    if (start_to_output == 1) {
-                        // write_unprocessed_read_to_bam(chunk, header, opt->out_aln_fp, read);
+                    if (skip_read_i >= chunk->n_up_ovlp_skip_reads[i]) {
+                        write_unprocessed_read_to_bam(chunk, header, opt->out_aln_fp, read);
                         n_out_reads++;
                     }
+                    skip_read_i++;
+                    // fprintf(stderr, "skip %s\n", bam_get_qname(read));
                     continue;
                 }
                 // check if read is overlapping with previous region
                 if (read_i >= chunk->n_up_ovlp_reads[i]) {
-                    start_to_output = 1; // start to output reads
+                    // start_to_output = 1; // start to output reads
+                    // fprintf(stderr, "output %d %s\n", global_read_i, bam_get_qname(read));
                     write_processed_read_to_bam(opt, chunk, header, read, global_read_i);
                     n_out_reads++;
                 }
@@ -1990,7 +1991,6 @@ int write_read_to_bam(bam_chunk_t *chunk, const struct call_var_opt_t *opt, cons
             }
             bam_itr_destroy(iter); bam_destroy1(read);
         }
-        hts_idx_destroy(idx); sam_hdr_destroy(header); sam_close(in_bam); hts_tpool_destroy(p); 
     }
     return n_out_reads;
 }
