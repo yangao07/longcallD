@@ -33,7 +33,7 @@
 #define LONGCALLD_MAX_NOISY_FRAC_PER_READ 0.5 // skip reads with more than 50% bases in noisy region
 #define LONGCALLD_MAX_VAR_RATIO_PER_READ 0.05 // skip reads with n_var / ref_span > 5% 
 #define LONGCALLD_MAX_READ_DEPTH 500 // vars with >500 reads will be skipped
-#define LONGCALLD_MAX_NOISY_REG_READS 1000 // regions with >1000 reads will be skipped
+#define LONGCALLD_MAX_NOISY_REG_COV 1000 // regions with >1000 reads will be skipped
 #define LONGCALLD_NOISY_END_CLIP 30 // 100 // >= 100 bp clipping on both ends will be considered as long clipping
 #define LONGCALLD_NOISY_END_CLIP_WIN 100 // 100 bp next to the long end-clipping will be considered as low-quality region
 #define LONGCALLD_NOISY_REG_MERGE_DIS 500 // 500 bp, merge noisy regions within 500 bp
@@ -149,7 +149,7 @@ typedef struct call_var_opt_t {
     int end_clip_reg, end_clip_reg_flank_win;
     int noisy_reg_merge_dis, noisy_reg_flank_len; // noisy_reg_merge_win; // for re-alignment
     // filters for noisy region, i.e., coverage/ratio
-    int max_noisy_reg_reads, max_noisy_reg_len; //, min_noisy_reg_reads; 
+    int max_noisy_reg_len, max_noisy_reg_cov; //, min_noisy_reg_reads; 
     double max_var_ratio_per_read, max_noisy_frac_per_read; //, min_noisy_reg_ratio;
     int min_hap_full_reads, min_hap_reads; //, min_no_hap_full_reads;
     // alignment

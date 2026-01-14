@@ -2506,14 +2506,14 @@ int collect_noisy_vars1(bam_chunk_t *chunk, const call_var_opt_t *opt, int noisy
     cgranges_t *noisy_regs = chunk->chunk_noisy_regs;
     hts_pos_t noisy_reg_beg = cr_start(noisy_regs, noisy_reg_i), noisy_reg_end = cr_end(noisy_regs, noisy_reg_i);
     uint8_t *ref_seq = NULL; int ref_seq_len = collect_reg_ref_bseq(chunk, &noisy_reg_beg, &noisy_reg_end, &ref_seq);
-    int max_noisy_reg_len = opt->max_noisy_reg_len, max_noisy_reg_reads = opt->max_noisy_reg_reads;
+    int max_noisy_reg_len = opt->max_noisy_reg_len, max_noisy_reg_cov = opt->max_noisy_reg_cov;
     if (noisy_reg_end - noisy_reg_beg + 1 > max_noisy_reg_len) {
         if (LONGCALLD_VERBOSE >= 1) fprintf(stderr, "Skipped long region: %s:%" PRIi64 "-%" PRIi64 " %" PRIi64 " (>%d)\n", chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end-noisy_reg_beg+1, max_noisy_reg_len);
         free(ref_seq);
         return 0;
     }
     int *noisy_reads; int n_noisy_reads = collect_noisy_reg_reads1(chunk, noisy_reg_beg, noisy_reg_end, noisy_reg_i, &noisy_reads);
-    if (n_noisy_reads > max_noisy_reg_reads) {
+    if (n_noisy_reads > max_noisy_reg_cov) {
         if (LONGCALLD_VERBOSE >= 1) fprintf(stderr, "Skipped deep region: %s:%" PRIi64 "-%" PRIi64 " %" PRIi64 " %d reads\n", chunk->tname, noisy_reg_beg, noisy_reg_end, noisy_reg_end-noisy_reg_beg+1, n_noisy_reads);
         free(noisy_reads); free(ref_seq);
         return 0;

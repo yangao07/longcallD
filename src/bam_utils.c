@@ -754,13 +754,16 @@ int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, int read_i, const struct ca
                 set_digar(_digars+_n_digar, pos, BAM_CHARD_CLIP, len, qi, 0, NULL); // palindrome
             else set_digar(_digars+_n_digar, pos, op, len, qi, 0, NULL); // clipping
             _n_digar++; // push_xid_queue(q, pos, 0, 0);
-            if (len > end_clip_reg) {
-                if (i == 0 && !left_clip_is_palindrome) {
-                    if (pos > 1) cr_add(digar->noisy_regs, "cr", pos-1, pos+end_clip_reg_flank_win, 0); // left end
-                    n_total_cand_vars++;
-                } else if (i != 0 && !right_clip_is_palindrome) {
-                    if (pos < tlen) cr_add(digar->noisy_regs, "cr", pos-1-end_clip_reg_flank_win, pos, 0); // right end
-                    n_total_cand_vars++;
+            // skip checking noisy region for clipping close to start/end of chromosome/contig: within 10bp
+            if ((i == 0 && pos > 10) || (i != 0 && pos < tlen - 10)) {
+                if (len > end_clip_reg) {
+                    if (i == 0 && !left_clip_is_palindrome) {
+                        if (pos > 1) cr_add(digar->noisy_regs, "cr", pos-1, pos+end_clip_reg_flank_win, 0); // left end
+                        n_total_cand_vars++;
+                    } else if (i != 0 && !right_clip_is_palindrome) {
+                        if (pos < tlen) cr_add(digar->noisy_regs, "cr", pos-1-end_clip_reg_flank_win, pos, 0); // right end
+                        n_total_cand_vars++;
+                    }
                 }
             }
             if (op == BAM_CSOFT_CLIP) qi += len;
@@ -864,7 +867,7 @@ int collect_digar_from_cs_tag(bam_chunk_t *chunk, int read_i, const struct call_
         else set_digar(_digars+_n_digar, pos, bam_cigar_op(cigar[0]), len, qi, 0, NULL); // clipping
         _n_digar++; // push_xid_queue(q, pos, 0, 0);
         if (len > end_clip_reg && !left_clip_is_palindrome) {
-            if (pos > 1) cr_add(digar->noisy_regs, "cr", pos-1, pos+end_clip_reg_flank_win, 0); // left end
+            if (pos > 10) cr_add(digar->noisy_regs, "cr", pos-1, pos+end_clip_reg_flank_win, 0); // left end
             // if (pos < tlen) cr_add(digar->noisy_regs, "cr", pos-1-end_clip_reg_flank_win, pos, 0); // right end
             n_total_cand_vars++;
         }
@@ -942,7 +945,7 @@ int collect_digar_from_cs_tag(bam_chunk_t *chunk, int read_i, const struct call_
         else set_digar(_digars+_n_digar, pos, bam_cigar_op(cigar[n_cigar-1]), len, qi, 0, NULL); // clipping
         _n_digar++; // push_xid_queue(q, pos, 0, 0);
         if (len > end_clip_reg && !right_clip_is_palindrome) {
-            if (pos < tlen) cr_add(digar->noisy_regs, "cr", pos-1-end_clip_reg_flank_win, pos, 0); // right end
+            if (pos < tlen-10) cr_add(digar->noisy_regs, "cr", pos-1-end_clip_reg_flank_win, pos, 0); // right end
             n_total_cand_vars++;
         }
         if (bam_cigar_op(cigar[n_cigar-1]) == BAM_CSOFT_CLIP) qi += len;
@@ -1110,13 +1113,15 @@ int collect_digar_from_MD_tag(bam_chunk_t *chunk, int read_i, const struct call_
                 set_digar(_digars+_n_digar, pos, BAM_CHARD_CLIP, len, qi, 0, NULL); // palindromic: using HARD_CLIP
             else set_digar(_digars+_n_digar, pos, op, len, qi, 0, NULL); // normal clipping
             _n_digar++; // push_xid_queue(q, pos, 0, 0);
-            if (len > end_clip_reg) {
-                if (i == 0 && !left_clip_is_palindrome) {
-                    if (pos > 1) cr_add(digar->noisy_regs, "cr", pos-1, pos+end_clip_reg_flank_win, 0); // left end
-                    n_total_cand_vars++;
-                } else if (i != 0 && !right_clip_is_palindrome) {
-                    if (pos < tlen) cr_add(digar->noisy_regs, "cr", pos-1-end_clip_reg_flank_win, pos, 0); // right end
-                    n_total_cand_vars++;
+            if ((i == 0 && pos > 10) || (i != 0 && pos < tlen - 10)) {
+                if (len > end_clip_reg) {
+                    if (i == 0 && !left_clip_is_palindrome) {
+                        if (pos > 1) cr_add(digar->noisy_regs, "cr", pos-1, pos+end_clip_reg_flank_win, 0); // left end
+                        n_total_cand_vars++;
+                    } else if (i != 0 && !right_clip_is_palindrome) {
+                        if (pos < tlen) cr_add(digar->noisy_regs, "cr", pos-1-end_clip_reg_flank_win, pos, 0); // right end
+                        n_total_cand_vars++;
+                    }
                 }
             }
             if (op == BAM_CSOFT_CLIP) qi += len;
@@ -1269,13 +1274,15 @@ int collect_digar_from_ref_seq(bam_chunk_t *chunk, int read_i, const struct call
                 set_digar(_digars+_n_digar, pos, BAM_CHARD_CLIP, len, qi, 0, NULL); // palindromic: using HARD_CLIP
             else set_digar(_digars+_n_digar, pos, op, len, qi, 0, NULL); // clipping 
             _n_digar++; //push_xid_queue(q, pos, 0, 0);
-            if (len > end_clip_reg) {
-                if (i == 0 && !left_clip_is_palindrome) {
-                    if (pos > 1) cr_add(digar->noisy_regs, "cr", pos-1, pos+end_clip_reg_flank_win, 0); // left end
-                    n_total_cand_vars++;
-                } else if (i != 0 && !right_clip_is_palindrome) {
-                    if (pos < tlen) cr_add(digar->noisy_regs, "cr", pos-1-end_clip_reg_flank_win, pos, 0); // right end
-                    n_total_cand_vars++;
+            if ((i==0 && pos >10) || (i!=0 && pos < tlen -10))  {
+                if (len > end_clip_reg) {
+                    if (i == 0 && !left_clip_is_palindrome) {
+                        if (pos > 1) cr_add(digar->noisy_regs, "cr", pos-1, pos+end_clip_reg_flank_win, 0); // left end
+                        n_total_cand_vars++;
+                    } else if (i != 0 && !right_clip_is_palindrome) {
+                        if (pos < tlen) cr_add(digar->noisy_regs, "cr", pos-1-end_clip_reg_flank_win, pos, 0); // right end
+                        n_total_cand_vars++;
+                    }
                 }
             }
             if (op == BAM_CSOFT_CLIP) qi += len;

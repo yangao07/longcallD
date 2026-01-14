@@ -68,6 +68,7 @@ const struct option call_var_opt [] = {
     { "alt-ratio", 1, NULL, 'a' },
     { "min-mapq", 1, NULL, 'M'}, // map quality
     { "min-bq", 1, NULL, 'B'}, // base quality
+    { "max-cov", 1, NULL, 'C'}, // total coverage
     // { "max-ploidy", 1, NULL, 'p' },
 
     { "max-xgap", 1, NULL, 'x' },
@@ -153,6 +154,7 @@ call_var_opt_t *call_var_init_para(void) {
     opt->min_alt_dp = LONGCALLD_MIN_ALT_DP;
     opt->min_af = LONGCALLD_MIN_CAND_AF;
     opt->max_af = LONGCALLD_MAX_CAND_AF;
+    opt->max_noisy_reg_cov = LONGCALLD_MAX_NOISY_REG_COV;
     // somatic/mosaic var
     opt->min_somatic_dis_to_var = LONGCALLD_MIN_SOMATIC_DIS_TO_VAR;
     opt->min_somatic_dis_to_homopolymer_indel_error = LONGCALLD_MIN_SOMATIC_DIS_TO_HP_INDEL_ERROR;
@@ -179,7 +181,6 @@ call_var_opt_t *call_var_init_para(void) {
     opt->end_clip_reg_flank_win = LONGCALLD_NOISY_END_CLIP_WIN;
 
     opt->max_var_ratio_per_read = LONGCALLD_MAX_VAR_RATIO_PER_READ;
-    opt->max_noisy_reg_reads = LONGCALLD_MAX_NOISY_REG_READS;
     opt->max_noisy_reg_len  = LONGCALLD_MAX_NOISY_REG_LEN;
     // opt->disable_read_sampling = 0; // by default read-sampling is enabled for long noisy regions (10kb+)
     // opt->min_noisy_reg_reads = LONGCALLD_NOISY_REG_READS;
@@ -837,7 +838,10 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "    -E --exclude-ctg STR  exclude contig/chromosome []\n");
     fprintf(stderr, "                          can be used multiple times, e.g., -E hs37d5 -E chrM\n");
     fprintf(stderr, "    -r --ref-idx    FILE  .fai index file for reference FASTA file, detect automaticaly if not provided []\n");
-    fprintf(stderr, "    -T --trans-elem FILE  transposable element sequence []\n");
+    fprintf(stderr, "    -T --trans-elem FILE  transposable element sequence FASTA file []\n");
+    // fprintf(stderr, "    --STR           FILE  short tandem repeat annotation file []\n");
+    // fprintf(stderr, "                          required 4 columns: chrom, start, end, motif\n");
+    // fprintf(stderr, "                          optional 5th column: ID of STR; use chrom_start_end as ID if not provided\n"); 
     fprintf(stderr, "  Output:\n");
     fprintf(stderr, "    -n --sample-name STR  sample name in VCF output. RG/SM tag or BAM file name will be used if not provided []\n");
     fprintf(stderr, "    -o --out-vcf    FILE  output phased VCF file [stdout]\n");
@@ -849,19 +853,11 @@ static void call_var_usage(void) {//main usage
     // fprintf(stderr, "    -m --methylation    output methylation site information [False]\n");
     // fprintf(stderr, "                          if present, MM/ML tags will be used to calculate methylation level\n");
     fprintf(stderr, "       --amb-base         output variant with ambiguous base (N)\n");
-    fprintf(stderr, "    -S --out-sam    FILE  output phased SAM file []\n");
-    fprintf(stderr, "    -b --out-bam    FILE  output phased BAM file []\n");
-    fprintf(stderr, "    -C --out-cram   FILE  output phased CRAM file []\n");
+    fprintf(stderr, "    -S/b/C --out-sam/bam/cram  FILE\n");
+    fprintf(stderr, "                          output phased SAM/BAM/CRAM file []\n");
     fprintf(stderr, "                          note: multiple input BAM/CRAM files will be merged in SAM/BAM/CRAM output\n");
     fprintf(stderr, "    --refine-aln          refine alignment in SAM/BAM/CRAM output\n");
     fprintf(stderr, "                          note: output SAM/BAM/CRAM may be unsorted when --refine-aln is set\n");
-    // fprintf(stderr, "    -g --gap-aln     STR  put gap on the \'left\' or \'right\' side in alignment [left/l]\n");
-    // fprintf(stderr, "                          \'left\':  ATTTG\n");
-    // fprintf(stderr, "                                   | |||\n");
-    // fprintf(stderr, "                                   A-TTG\n");
-    // fprintf(stderr, "                          \'right\': ATTTG\n");
-    // fprintf(stderr, "                                   ||| |\n");
-    // fprintf(stderr, "                                   ATT-G\n");
     // fprintf(stderr, "\n");
     fprintf(stderr, "  Variant calling:\n");
     fprintf(stderr, "    -c --min-cov     INT  min. total read coverage for candidate variant [%d]\n", LONGCALLD_MIN_CAND_DP);
@@ -869,6 +865,7 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "    -a --alt-ratio FLOAT  min. alt. read ratio for candidate variant [%.2f]\n", LONGCALLD_MIN_CAND_AF);
     fprintf(stderr, "    -M --min-mapq    INT  min. mapping quality score to be used [%d]\n", LONGCALLD_MIN_CAND_MQ);
     fprintf(stderr, "    -B --min-bq      INT  min. base quality score to be used [%d]\n", LONGCALLD_MIN_CAND_BQ);
+    fprintf(stderr, "    -C --max-cov     INT  max. total read coverage for candidate variant [%d]\n", LONGCALLD_MAX_NOISY_REG_COV);
     // fprintf(stderr, "    -p --max-ploidy  INT  max. ploidy [%d]\n", LONGCALLD_DEF_PLOID);
     fprintf(stderr, "  Low allele-frequency mosaic/somatic variant calling: (effective when -s/--mosaic/--somatic is used)\n");
     // fprintf(stderr, "    --alpha          INT  alpha value of beta-binomial distribution [%d]\n", LONGCALLD_SOMATIC_BETA_ALPHA);

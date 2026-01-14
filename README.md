@@ -17,8 +17,7 @@
 * Fix output BAM errors
 * Output BAM includes all reads (even those not used for variant calling)
 * Fix a bug with --refine-aln
-<!-- * Improved run time and memory usage (especially when mosaic variant calling enabled) -->
-<!-- * Add `--input-is-list` and `-X` to support multiple input BAM/CRAM files of the same sample for variant calling -->
+<!-- * Add --STR  -->
 
 
 ## Getting Started
@@ -75,12 +74,12 @@ Providing the annotation sequence of common mobile elements, i.e., Alu/L1/SVA, u
 
 ## Why use longcallD?
 
-* **Joint calling small and structural variants**: longcallD is the **only** long-read-alignment-based variant caller that can jointly call small variants (SNPs and small indels) and large structural variants (SVs) in a single run.
+* **Joint calling small and structural variants**: longcallD is the **only** long-read alignment-based variant caller that can jointly call small variants (SNPs and small indels) and large structural variants (SVs) in a single run.
 * **Variant calling and phasing**: longcallD performs read phasing during variant calling, and outputs phased variants as well as phased long reads, without requiring a separate phasing step.
 * **Precise variant representation for SVs**: longcallD accurately calls SV sequence by performing haplotype-aware multiple sequence alignment and re-alignment, leading to precise variant representation in output VCF.
-* **Refined read alignment**: longcallD can output refined read alignment based on multiple sequence alignment within each haplotype, which is especially useful for low-complexity regions like homopolymers and tandem repeats.
-* **Optimized for both PacBio HiFi and Oxford Nanopore reads**: longcallD has separate optimized models for PacBio HiFi and Oxford Nanopore reads to achieve high accuracy on both platforms.
-* **Easy to use, lightweight, and fast**: longcallD is a single executable, easy to install and use. It is optimized for speed and memory usage, making it suitable for large-scale genomic studies.
+* **Refined read alignment**: longcallD can generate refined read alignment based on haplotype-specific multiple sequence alignment, which is particularly beneficial for low-complexity regions like homopolymers and tandem repeats.
+* **Optimized for both PacBio HiFi and Oxford Nanopore reads**: longcallD uses platform-optimized parameters for PacBio HiFi and Oxford Nanopore reads, achieving high accuracy across both platforms.
+* **Easy to use, lightweight, and fast**: longcallD is distributed as a single executable, easy to install and use. It is optimized for speed and memory usage, making it suitable for large-scale genomic studies.
 * **Mosaic variant calling**: longcallD (≥v0.0.5) can sensitively detect low-allele-fraction mosaic variants, including mosaic mobile element insertions (MEIs), from long-read data.
 
 ## Installation
