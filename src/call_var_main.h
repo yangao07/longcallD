@@ -164,7 +164,7 @@ typedef struct call_var_opt_t {
     // Alu/L1/SVA sequences
     char *te_seq_fn; char **te_seq_names; int n_te_seqs;
     int te_kmer_len; kmer32_hash_t **te_for_h, **te_rev_h;
-    int output_sv_rnames, output_somatic_sv_rnames; // output supporting read IDs for each SV
+    int output_var_rnames, output_sv_rnames, output_somatic_var_rnames; // output supporting read IDs
     // general
     // int max_ploidy;
     int pl_threads, n_threads;

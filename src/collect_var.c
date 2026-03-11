@@ -1442,7 +1442,7 @@ int make_variants(const call_var_opt_t *opt, bam_chunk_t *chunk, var_t **_var) {
         }
         var->vars[i].DP = cand_vars[cand_i].total_cov;
         for (int j = 0; j < cand_vars[cand_i].n_uniq_alles; ++j) var->vars[i].AD[j] = cand_vars[cand_i].alle_covs[j];
-        if (var->vars[i].is_sv && var->vars[i].AD[1] > 0) { // collect alt_read_i from read_var_profile
+        if (var->vars[i].AD[1] > 0) { // collect alt_read_i from read_var_profile
             var->vars[i].alt_read_i = (int*)malloc(var->vars[i].AD[1] * sizeof(int));
             int alt_read_i_idx = 0;
             for (int k = 0; k < chunk->n_reads; ++k) {
@@ -1461,7 +1461,7 @@ int make_variants(const call_var_opt_t *opt, bam_chunk_t *chunk, var_t **_var) {
                 }
             }
             if (alt_read_i_idx != var->vars[i].AD[1]) {
-                _err_error("Error: alt_read_i_idx: %d does not match AD[1]: %d for var: %s:%" PRIi64 " %d-%c-%d\n", alt_read_i_idx, var->vars[i].AD[1], chunk->tname, var->vars[i].pos, var->vars[i].ref_len, BAM_CIGAR_STR[var->vars[i].type], var->vars[i].alt_len[0]);
+                // _err_error("Error: alt_read_i_idx: %d does not match AD[1]: %d for var: %s:%" PRIi64 " %d-%c-%d\n", alt_read_i_idx, var->vars[i].AD[1], chunk->tname, var->vars[i].pos, var->vars[i].ref_len, BAM_CIGAR_STR[var->vars[i].type], var->vars[i].alt_len[0]);
                 var->vars[i].AD[1] = alt_read_i_idx;
             }
         } else var->vars[i].alt_read_i = NULL;

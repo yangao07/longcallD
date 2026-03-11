@@ -1137,7 +1137,7 @@ int var_is_low_comp_reg(bam_chunk_t *chunk, cand_var_t *var, hts_pos_t *low_comp
 // diff: high-quality mismatch/indels
 // check if the variant is <=500-bp-distance to a dense-diff region, i.e., > max_diff differences in a window of win bases
 int has_dense_diff(bam_chunk_t *chunk, cand_var_t *var, int var_i, digar_t *digar, int alt_qi) {
-    int win=50, max_diff=5, dis=500;
+    int win=100, max_diff=5, dis=500;
     int n_digar = digar->n_digar;
     if (n_digar <= 0) return 0; // no digars,
     hts_pos_t *diff_pos = (hts_pos_t*)malloc(n_digar * sizeof(hts_pos_t));

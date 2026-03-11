@@ -79,8 +79,8 @@ void write_vcf_header(bam_hdr_t *hdr, struct call_var_opt_t *opt) {
     bcf_hdr_append(vcf_hdr, "##FORMAT=<ID=AD,Number=R,Type=Integer,Description=\"Read depth for each allele\">");
     bcf_hdr_append(vcf_hdr, "##FORMAT=<ID=PL,Number=G,Type=Integer,Description=\"Phred-scaled genotype likelihoods rounded to the closest integer\">");
     bcf_hdr_append(vcf_hdr, "##FORMAT=<ID=PS,Number=1,Type=Integer,Description=\"Phase set\">");
-    // per-sample SV supporting read IDs
-    bcf_hdr_append(vcf_hdr, "##FORMAT=<ID=SVREADS,Number=.,Type=String,Description=\"IDs of reads supporting the SV\">");
+    // per-sample variant supporting read IDs
+    bcf_hdr_append(vcf_hdr, "##FORMAT=<ID=ALTREADS,Number=.,Type=String,Description=\"IDs of reads supporting the variant\">");
 
     // Add sample
     bcf_hdr_add_sample(vcf_hdr, sample_name);
@@ -204,8 +204,8 @@ int write_var_to_vcf(var_t *vars, const struct call_var_opt_t *opt, bam_chunk_t 
         // add SVREADS to FORMAT if outputting supporting read names for SVs
         len += snprintf(buffer + len, buf_m - len, "GT:DP:AD:GQ");
         if (is_hom == 0 && var.PS != 0) len += snprintf(buffer + len, buf_m - len, ":PS");
-        if (var.is_sv && (opt->output_sv_rnames || (opt->output_somatic_sv_rnames && var.is_somatic))) {
-            len += snprintf(buffer + len, buf_m - len, ":SVREADS");
+        if (opt->output_var_rnames || (var.is_sv && (opt->output_sv_rnames)) || (var.is_somatic && opt->output_somatic_var_rnames)) {
+            len += snprintf(buffer + len, buf_m - len, ":ALTREADS");
         }
         len += snprintf(buffer + len, buf_m - len, "\t");
 
@@ -221,14 +221,15 @@ int write_var_to_vcf(var_t *vars, const struct call_var_opt_t *opt, bam_chunk_t 
         // PS
         if (is_hom == 0 && var.PS != 0) 
             len += snprintf(buffer + len, buf_m - len, ":%" PRId64 "", var.PS);
-        // SVREADS
-        if (var.is_sv && (opt->output_sv_rnames || (opt->output_somatic_sv_rnames && var.is_somatic))) {
+        // ALTREADS: output_var_rnames for all variants, output_sv_rnames for SVs, output_somatic_var_rnames for somatic SVs
+        // if (var.is_sv && (opt->output_sv_rnames || (opt->output_somatic_var_rnames && var.is_somatic))) {
+        if (opt->output_var_rnames || (var.is_sv && (opt->output_sv_rnames)) || (var.is_somatic && opt->output_somatic_var_rnames)) {
             // check if the buffer is large enough for read names
-            int svreads_needed = 0; // 
+            int n_reads_needed = 0; // 
             for (int i = 0; i < var.AD[1]; ++i)
-                svreads_needed += strlen(chunk->read_names[var.alt_read_i[i]]) + 1;
-            if (len + svreads_needed >= buf_m) {
-                buf_m = len + svreads_needed + 1024;
+                n_reads_needed += strlen(chunk->read_names[var.alt_read_i[i]]) + 1;
+            if (len + n_reads_needed >= buf_m) {
+                buf_m = len + n_reads_needed + 1024;
                 buffer = (char*)realloc(buffer, buf_m);
             }
             len += snprintf(buffer + len, buf_m - len, ":");

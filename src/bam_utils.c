@@ -1331,7 +1331,7 @@ int collect_digar_from_ref_seq(bam_chunk_t *chunk, int read_i, const struct call
 int bam_chunk_init0(bam_chunk_t *chunk, const struct call_var_opt_t *opt, int n_reads, int n_bam) {
     // input
     chunk->n_reads = 0; chunk->m_reads = n_reads; chunk->ordered_read_ids = (int*)malloc(n_reads * sizeof(int));
-    if (opt->output_sv_rnames || opt->output_somatic_sv_rnames) {
+    if (opt->output_var_rnames || opt->output_sv_rnames || opt->output_somatic_var_rnames) {
         chunk->read_names = (char**)malloc(n_reads * sizeof(char*));
         for (int i = 0; i < n_reads; i++) chunk->read_names[i] = NULL;
     }
@@ -1376,7 +1376,8 @@ int bam_chunk_init0(bam_chunk_t *chunk, const struct call_var_opt_t *opt, int n_
 int bam_chunk_realloc(bam_chunk_t *chunk, const struct call_var_opt_t *opt) {
     int m_reads = chunk->m_reads * 2;
     chunk->reads = (bam1_t**)realloc(chunk->reads, m_reads * sizeof(bam1_t*));
-    if (opt->output_sv_rnames || opt->output_somatic_sv_rnames) chunk->read_names = (char**)realloc(chunk->read_names, m_reads * sizeof(char*));
+    if (opt->output_var_rnames || opt->output_sv_rnames || opt->output_somatic_var_rnames) 
+        chunk->read_names = (char**)realloc(chunk->read_names, m_reads * sizeof(char*));
     chunk->ordered_read_ids = (int*)realloc(chunk->ordered_read_ids, m_reads * sizeof(int));
     for (int i = 0; i < chunk->n_bam; ++i) {
         chunk->up_ovlp_read_i[i] = (int*)realloc(chunk->up_ovlp_read_i[i], m_reads * sizeof(int));
@@ -1488,7 +1489,7 @@ void bam_chunk_post_free(bam_chunk_t *chunk, const struct call_var_opt_t *opt) {
     free(chunk->ordered_read_ids);
     // save read_var_profile for output_sv_rnames or output_somatic_sv_rnames, which will be used in make_variants
     if (chunk->read_var_profile != NULL) free_read_var_profile(chunk->read_var_profile, chunk->n_reads);
-    if (opt->output_sv_rnames || opt->output_somatic_sv_rnames) {
+    if (opt->output_var_rnames || opt->output_sv_rnames || opt->output_somatic_var_rnames) {
         for (int i = 0; i < chunk->n_reads; i++) free(chunk->read_names[i]); 
         free(chunk->read_names);
     }
@@ -1666,7 +1667,7 @@ int collect_ref_seq_bam_main(const struct call_var_pl_t *pl, struct call_var_io_
             if (chunk->reads[chunk->n_reads]->core.pos+1 < min_read_beg) min_read_beg = chunk->reads[chunk->n_reads]->core.pos+1;
             if (bam_endpos(chunk->reads[chunk->n_reads]) > max_read_end) max_read_end = bam_endpos(chunk->reads[chunk->n_reads]);
             // check if read is overlapping with next region
-            if (opt->output_sv_rnames || opt->output_somatic_sv_rnames) {
+            if (opt->output_var_rnames || opt->output_sv_rnames || opt->output_somatic_var_rnames) {
                 chunk->read_names[chunk->n_reads] = strdup(bam_get_qname(chunk->reads[chunk->n_reads]));
             }
             chunk->n_reads++;
