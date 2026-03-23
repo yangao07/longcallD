@@ -111,6 +111,15 @@ tar -zxvf longcallD-v0.0.10.tar.gz
 cd longcallD-v0.0.10; make
 ```
 
+### Build from repository
+To compile longcallD from the repository, run:
+```
+git clone https://github.com/yangao07/longcallD.git
+cd longcallD
+git submodule update --init --recursive
+make
+```
+
 ## Usage
 LongcallD requires a **reference genome (FASTA)** and a **long-read BAM/CRAM** file as inputs. It outputs **phased variant calls in VCF format**.
 ### Variant calling with PacBio HiFi/Nanopore long reads

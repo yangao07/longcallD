@@ -545,7 +545,7 @@ static int collect_regions_from_bed_file(call_var_opt_t *opt, call_var_pl_t *pl)
         }
         if (beg > end || beg <= 0 || end <= 0) continue;
         if (n_regions == m_regions) {
-            n_regions *= 2;
+            m_regions *= 2; // should be m, not n_regions
             regions = (char**)realloc(regions, m_regions * sizeof(char*));
             for (int i = n_regions; i < m_regions; ++i) regions[i] = (char*)malloc(1024);
         }
