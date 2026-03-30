@@ -1093,6 +1093,19 @@ int comp_ovlp_var_site(const call_var_opt_t *opt, var_site_t *var1, var_site_t *
     return exact_comp_var_site(opt, var1, var2);
 }
 
+static int is_collectible_var_digar(const digar1_t *digar, hts_pos_t reg_beg, hts_pos_t reg_end) {
+    hts_pos_t digar_pos = digar->pos;
+    if (reg_beg != -1 && digar_pos < reg_beg) return 0;
+    if (reg_end != -1 && digar_pos > reg_end) return 0;
+    if (digar->is_low_qual) return 0;
+    if (digar->type != BAM_CDIFF && digar->type != BAM_CINS && digar->type != BAM_CDEL) return 0;
+    return 1;
+}
+
+static int comp_var_site_for_sort(const void *a, const void *b) {
+    return exact_comp_var_site(NULL, (var_site_t*)a, (var_site_t*)b);
+}
+
 // order of variants with same pos: order by type and ref_len
 int merge_var_sites(const call_var_opt_t *opt, int n_total_var_sites, var_site_t **var_sites, int tid, hts_pos_t reg_beg, hts_pos_t reg_end,
                     int n_digar, digar1_t *digars) {
@@ -1138,13 +1151,38 @@ int merge_var_sites(const call_var_opt_t *opt, int n_total_var_sites, var_site_t
 // collect all candidate variant sites from digars, excluding low-quality/noisy-region ones
 // including germline hom/het and somatic ones
 int collect_all_cand_var_sites(const call_var_opt_t *opt, bam_chunk_t *chunk, var_site_t **var_sites) {
-    int n_total_var_sites = 0;
+    int max_var_sites = 0, n_total_var_sites = 0;
+    *var_sites = NULL;
+
     for (int i = 0; i < chunk->n_reads; ++i) {
         int read_i = chunk->ordered_read_ids[i];
         if (chunk->is_skipped[read_i]) continue;
-       n_total_var_sites = merge_var_sites(opt, n_total_var_sites, var_sites, 
-                                           chunk->tid, chunk->reg_beg, chunk->reg_end, //->beg, chunk->end, 
-                                           chunk->digars[read_i].n_digar, chunk->digars[read_i].digars);
+        for (int j = 0; j < chunk->digars[read_i].n_digar; ++j) {
+            if (is_collectible_var_digar(chunk->digars[read_i].digars+j, chunk->reg_beg, chunk->reg_end))
+                max_var_sites++;
+        }
+    }
+    if (max_var_sites == 0) return 0;
+
+    *var_sites = (var_site_t*)malloc((size_t)max_var_sites * sizeof(var_site_t));
+    for (int i = 0; i < chunk->n_reads; ++i) {
+        int read_i = chunk->ordered_read_ids[i];
+        if (chunk->is_skipped[read_i]) continue;
+        for (int j = 0; j < chunk->digars[read_i].n_digar; ++j) {
+            digar1_t *digar = chunk->digars[read_i].digars+j;
+            if (!is_collectible_var_digar(digar, chunk->reg_beg, chunk->reg_end)) continue;
+            (*var_sites)[n_total_var_sites++] = make_var_site_from_digar(chunk->tid, digar);
+        }
+    }
+
+    qsort(*var_sites, (size_t)n_total_var_sites, sizeof(var_site_t), comp_var_site_for_sort);
+    if (n_total_var_sites > 0) {
+        int write_i = 1;
+        for (int read_i = 1; read_i < n_total_var_sites; ++read_i) {
+            if (exact_comp_var_site_ins(opt, (*var_sites)+write_i-1, (*var_sites)+read_i) == 0) continue;
+            (*var_sites)[write_i++] = (*var_sites)[read_i];
+        }
+        n_total_var_sites = write_i;
     }
     // fprintf(stderr, "total_cand_var: %d\n", n_total_var_sites);
     // print cand_vars
