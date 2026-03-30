@@ -1,3 +1,4 @@
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include "collect_var.h"
@@ -1202,39 +1203,65 @@ int exact_comp_cand_var(const call_var_opt_t *opt, cand_var_t *var1, cand_var_t 
     return exact_comp_var_site(opt, &var_site1, &var_site2);
 }
 
-static void merge_read_var_profile_entries(const read_var_profile_t *old_p1, const int *old_to_merged,
-                                           const read_var_profile_t *new_p1, const int *new_to_merged,
-                                           read_var_profile_t *merged_p1, int merged_var_limit) {
-    int old_var_i = (old_p1 != NULL ? old_p1->start_var_idx : 1);
-    int old_end_var_i = (old_p1 != NULL ? old_p1->end_var_idx : 0);
-    int new_var_i = (new_p1 != NULL ? new_p1->start_var_idx : 1);
-    int new_end_var_i = (new_p1 != NULL ? new_p1->end_var_idx : 0);
+static int get_valid_read_var_profile_span(const read_var_profile_t *p1, int n_vars, int *start_var_i, int *end_var_i) {
+    if (p1 == NULL || start_var_i == NULL || end_var_i == NULL) return 0;
+    if (n_vars <= 0) return 0;
+    if (p1->start_var_idx < 0 || p1->end_var_idx < p1->start_var_idx) return 0;
+    if (p1->start_var_idx >= n_vars) return 0;
+    *start_var_i = p1->start_var_idx;
+    *end_var_i = MIN_OF_TWO(p1->end_var_idx, n_vars-1);
+    return (*start_var_i <= *end_var_i);
+}
 
-    if (old_p1 == NULL || old_to_merged == NULL || old_var_i < 0 || old_end_var_i < old_var_i) {
-        old_var_i = 1;
-        old_end_var_i = 0;
+static void merge_read_var_profile_entries(const read_var_profile_t *old_p1, const int *old_to_merged, int n_old_vars,
+                                           const read_var_profile_t *new_p1, const int *new_to_merged, int n_new_vars,
+                                           read_var_profile_t *merged_p1) {
+    int old_start_var_i = 0, old_end_var_i = -1;
+    int new_start_var_i = 0, new_end_var_i = -1;
+    int merged_start_var_i = INT_MAX, merged_end_var_i = -1;
+
+    int has_old_span = get_valid_read_var_profile_span(old_p1, n_old_vars, &old_start_var_i, &old_end_var_i);
+    int has_new_span = get_valid_read_var_profile_span(new_p1, n_new_vars, &new_start_var_i, &new_end_var_i);
+
+    if (has_old_span && old_to_merged != NULL) {
+        for (int old_var_i = old_start_var_i; old_var_i <= old_end_var_i; ++old_var_i) {
+            int merged_var_i = old_to_merged[old_var_i];
+            if (merged_var_i < 0) continue;
+            if (merged_var_i < merged_start_var_i) merged_start_var_i = merged_var_i;
+            if (merged_var_i > merged_end_var_i) merged_end_var_i = merged_var_i;
+        }
     }
-    if (new_p1 == NULL || new_to_merged == NULL || new_var_i < 0 || new_end_var_i < new_var_i) {
-        new_var_i = 1;
-        new_end_var_i = 0;
+    if (has_new_span && new_to_merged != NULL) {
+        for (int new_var_i = new_start_var_i; new_var_i <= new_end_var_i; ++new_var_i) {
+            int merged_var_i = new_to_merged[new_var_i];
+            if (merged_var_i < 0) continue;
+            if (merged_var_i < merged_start_var_i) merged_start_var_i = merged_var_i;
+            if (merged_var_i > merged_end_var_i) merged_end_var_i = merged_var_i;
+        }
     }
 
-    while (1) {
-        while (old_var_i <= old_end_var_i && old_to_merged[old_var_i] < 0) old_var_i++;
-        while (new_var_i <= new_end_var_i && new_to_merged[new_var_i] < 0) new_var_i++;
+    if (merged_end_var_i < merged_start_var_i) return;
+    merged_p1->start_var_idx = merged_start_var_i;
+    merged_p1->end_var_idx = merged_end_var_i;
 
-        int old_merged_i = (old_var_i <= old_end_var_i ? old_to_merged[old_var_i] : merged_var_limit);
-        int new_merged_i = (new_var_i <= new_end_var_i ? new_to_merged[new_var_i] : merged_var_limit);
-        if (old_merged_i == merged_var_limit && new_merged_i == merged_var_limit) break;
-
-        if (old_merged_i <= new_merged_i) {
+    if (has_old_span && old_to_merged != NULL) {
+        for (int old_var_i = old_start_var_i; old_var_i <= old_end_var_i; ++old_var_i) {
+            int merged_var_i = old_to_merged[old_var_i];
+            if (merged_var_i < 0) continue;
             int old_profile_i = old_var_i - old_p1->start_var_idx;
-            update_read_var_profile_with_allele(old_merged_i, old_p1->alleles[old_profile_i], old_p1->alt_qi[old_profile_i], merged_p1);
-            old_var_i++;
-        } else {
+            int merged_profile_i = merged_var_i - merged_start_var_i;
+            merged_p1->alleles[merged_profile_i] = old_p1->alleles[old_profile_i];
+            merged_p1->alt_qi[merged_profile_i] = old_p1->alt_qi[old_profile_i];
+        }
+    }
+    if (has_new_span && new_to_merged != NULL) {
+        for (int new_var_i = new_start_var_i; new_var_i <= new_end_var_i; ++new_var_i) {
+            int merged_var_i = new_to_merged[new_var_i];
+            if (merged_var_i < 0) continue;
             int new_profile_i = new_var_i - new_p1->start_var_idx;
-            update_read_var_profile_with_allele(new_merged_i, new_p1->alleles[new_profile_i], new_p1->alt_qi[new_profile_i], merged_p1);
-            new_var_i++;
+            int merged_profile_i = merged_var_i - merged_start_var_i;
+            merged_p1->alleles[merged_profile_i] = new_p1->alleles[new_profile_i];
+            merged_p1->alt_qi[merged_profile_i] = new_p1->alt_qi[new_profile_i];
         }
     }
 }
@@ -1294,9 +1321,9 @@ int merge_var_profile(const call_var_opt_t *opt, bam_chunk_t *chunk, int n_new_v
     for (int i = 0; i < chunk->n_reads; ++i) {
         int read_i = chunk->ordered_read_ids[i];
         if (chunk->is_skipped[read_i]) continue;
-        merge_read_var_profile_entries(old_p != NULL ? old_p + read_i : NULL, old_to_merged,
-                                       new_p + read_i, new_to_merged,
-                                       merged_p + read_i, merged_var_i);
+        merge_read_var_profile_entries(old_p != NULL ? old_p + read_i : NULL, old_to_merged, chunk->n_cand_vars,
+                                       new_p + read_i, new_to_merged, n_new_vars,
+                                       merged_p + read_i);
     }
 
     cgranges_t *merged_read_var_cr = cr_init();
