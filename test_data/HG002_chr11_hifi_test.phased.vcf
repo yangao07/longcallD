@@ -1,0 +1,7 @@
+##fileformat=VCFv4.2
+##contig=<ID=chr11,length=135086622>
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##FORMAT=<ID=PS,Number=1,Type=Integer,Description="Phase set">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	HG002
+chr11	1300719	.	C	T	.	PASS	.	GT:PS	0|1:204100
+chr11	1300805	.	T	G	.	PASS	.	GT:PS	0|1:204100

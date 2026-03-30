@@ -114,6 +114,12 @@ ifneq ($(gdb),)
 	BIN = $(BIN_DIR)/gdb_longcallD
 endif
 
+UNIT_TEST_SRCS = test/unit/main.c test/unit/test_bam_utils.c test/unit/test_collect_var.c test/unity/unity.c
+UNIT_TEST_OBJS = $(UNIT_TEST_SRCS:.c=.o)
+UNIT_TEST_INCLUDE = $(INCLUDE) -I $(SRC_DIR) -I test/unity
+UNIT_APP_OBJS = $(filter-out $(SRC_DIR)/main.o,$(OBJS))
+UNITY_DEFS = -DUNITY_INCLUDE_DOUBLE -DUNITY_DOUBLE_PRECISION=1e-6
+
 .c.o:
 	$(CC) -c $(CFLAGS) $(INCLUDE) $< -o $@
 
@@ -163,12 +169,27 @@ $(SRC_DIR)/sdust.o: $(SRC_DIR)/sdust.c $(SRC_DIR)/sdust.h $(SRC_DIR)/kdq.h $(SRC
 $(SRC_DIR)/utils.o: $(SRC_DIR)/utils.c $(SRC_DIR)/utils.h $(SRC_DIR)/ksort.h $(SRC_DIR)/kseq.h
 $(SRC_DIR)/vcf_utils.o: $(SRC_DIR)/vcf_utils.c $(SRC_DIR)/vcf_utils.h $(SRC_DIR)/utils.h
 
+test/unit/%.o: test/unit/%.c
+	$(CC) -c $(CFLAGS) $(UNIT_TEST_INCLUDE) $(UNITY_DEFS) $< -o $@
+
+test/unity/%.o: test/unity/%.c
+	$(CC) -c $(CFLAGS) -I test/unity $(UNITY_DEFS) $< -o $@
+
+test/unit/unit_tests: $(UNIT_APP_OBJS) $(UNIT_TEST_OBJS) $(ABPOA_LIB) $(HTSLIB) $(WFA2_LIB)
+	$(CXX) $(UNIT_APP_OBJS) $(UNIT_TEST_OBJS) -o $@ $(LIB) $(PG_FLAG)
+
+.PHONY: test test_unit
+test: test_unit
+
+test_unit: test/unit/unit_tests
+	./test/unit/unit_tests
+
 .PHONY: all hts_all abpoa_all wfa2_all clean clean_all clean_hts clean_abpoa clean_wfa2
 
 clean:
 	rm -f $(SRC_DIR)/*.o $(BIN)
 clean_all:
-	rm -f $(SRC_DIR)/*.o $(BIN) $(HTSLIB) $(ABPOA_LIB) $(WFA2_LIB)
+	rm -f $(SRC_DIR)/*.o $(BIN) $(HTSLIB) $(ABPOA_LIB) $(WFA2_LIB) $(UNIT_TEST_OBJS) test/unit/unit_tests
 clean_hts:
 	rm -f $(HTSLIB)
 clean_abpoa:
