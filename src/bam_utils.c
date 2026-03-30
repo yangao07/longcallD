@@ -1,4 +1,5 @@
 #include <ctype.h>
+#include <string.h>
 #include "bam_utils.h"
 #include "sam_internal.h"
 #include "utils.h"
@@ -9,41 +10,41 @@
 extern int LONGCALLD_VERBOSE;
 
 
-read_var_profile_t *init_read_var_profile(int n_reads, int n_total_vars) {
-    read_var_profile_t *p = (read_var_profile_t*)malloc(n_reads * sizeof(read_var_profile_t));
+static read_var_profile_t *init_read_var_profile_inner(int n_reads, int *read_ids, int n_total_vars) {
+    size_t n_profile_bytes = (size_t)n_reads * sizeof(read_var_profile_t);
+    size_t n_var_values = (size_t)n_reads * (size_t)n_total_vars;
+    size_t n_value_bytes = n_var_values * sizeof(int);
+    uint8_t *raw = (uint8_t*)malloc(n_profile_bytes + n_value_bytes * 2);
+    read_var_profile_t *p = (read_var_profile_t*)raw;
+    int *alleles = NULL, *alt_qi = NULL;
+
+    if (p == NULL) return NULL;
+
+    alleles = (int*)(raw + n_profile_bytes);
+    alt_qi = alleles + n_var_values;
+    memset(alleles, 0xFF, n_value_bytes);
+    memset(alt_qi, 0xFF, n_value_bytes);
+
     for (int i = 0; i < n_reads; ++i) {
-        p[i].read_id = i;
-        p[i].start_var_idx = -1; p[i].end_var_idx = -2;
-        p[i].alleles = (int*)malloc(n_total_vars * sizeof(int));
-        p[i].alt_qi = (int*)malloc(n_total_vars * sizeof(int));
-        for (int j = 0; j < n_total_vars; ++j) {
-            p[i].alleles[j] = -1; // init as unused
-            p[i].alt_qi[j] = -1; // init as unused
-        }
+        p[i].read_id = (read_ids == NULL ? i : read_ids[i]);
+        p[i].start_var_idx = -1;
+        p[i].end_var_idx = -2;
+        p[i].alleles = alleles + (size_t)i * (size_t)n_total_vars;
+        p[i].alt_qi = alt_qi + (size_t)i * (size_t)n_total_vars;
     }
     return p;
+}
+
+read_var_profile_t *init_read_var_profile(int n_reads, int n_total_vars) {
+    return init_read_var_profile_inner(n_reads, NULL, n_total_vars);
 }
 
 read_var_profile_t *init_read_var_profile_with_ids(int n_reads, int *read_ids, int n_total_vars) {
-    read_var_profile_t *p = (read_var_profile_t*)malloc(n_reads * sizeof(read_var_profile_t));
-    for (int i = 0; i < n_reads; ++i) {
-        p[i].read_id = read_ids[i];
-        p[i].start_var_idx = -1; p[i].end_var_idx = -2;
-        p[i].alleles = (int*)malloc(n_total_vars * sizeof(int));
-        p[i].alt_qi = (int*)malloc(n_total_vars * sizeof(int));
-        for (int j = 0; j < n_total_vars; ++j) {
-            p[i].alleles[j] = -1; // init as unused
-            p[i].alt_qi[j] = -1; // init as unused
-        }
-    }
-    return p;
+    return init_read_var_profile_inner(n_reads, read_ids, n_total_vars);
 }
 
 void free_read_var_profile(read_var_profile_t *p, int n_reads) {
-    for (int i = 0; i < n_reads; ++i) {
-        if (p[i].alleles) free(p[i].alleles);
-        if (p[i].alt_qi) free(p[i].alt_qi);
-    }
+    (void)n_reads;
     free(p);
 }
 
