@@ -164,7 +164,7 @@ static void test_update_read_var_profile_with_allele_tracks_relative_offsets(voi
     free_read_var_profile(p, 1);
 }
 
-static void test_get_var_start_uses_lower_bound_binary_search(void) {
+static void test_get_var_start_finds_first_raw_position_at_or_after_start(void) {
     cand_var_t vars[5] = {0};
 
     vars[0].pos = 10;
@@ -179,7 +179,7 @@ static void test_get_var_start_uses_lower_bound_binary_search(void) {
     TEST_ASSERT_EQUAL_INT(5, get_var_start(vars, 0, 5, 41));
 }
 
-static void test_get_var_site_start_uses_lower_bound_binary_search(void) {
+static void test_get_var_site_start_finds_first_raw_position_at_or_after_start(void) {
     var_site_t vars[5] = {0};
 
     vars[0].pos = 12;
@@ -194,6 +194,34 @@ static void test_get_var_site_start_uses_lower_bound_binary_search(void) {
     TEST_ASSERT_EQUAL_INT(5, get_var_site_start(vars, 0, 5, 51));
 }
 
+static void test_get_var_start_handles_exact_comp_sorted_indels_before_snps(void) {
+    cand_var_t vars[5] = {0};
+
+    vars[0].pos = 11; vars[0].var_type = BAM_CINS;
+    vars[1].pos = 11; vars[1].var_type = BAM_CDEL;
+    vars[2].pos = 10; vars[2].var_type = BAM_CDIFF;
+    vars[3].pos = 12; vars[3].var_type = BAM_CINS;
+    vars[4].pos = 11; vars[4].var_type = BAM_CDIFF;
+
+    TEST_ASSERT_EQUAL_INT(0, get_var_start(vars, 0, 5, 11));
+    TEST_ASSERT_EQUAL_INT(3, get_var_start(vars, 0, 5, 12));
+    TEST_ASSERT_EQUAL_INT(3, get_var_start(vars, 2, 5, 11));
+}
+
+static void test_get_var_site_start_handles_exact_comp_sorted_indels_before_snps(void) {
+    var_site_t vars[5] = {0};
+
+    vars[0].pos = 11; vars[0].var_type = BAM_CINS;
+    vars[1].pos = 11; vars[1].var_type = BAM_CDEL;
+    vars[2].pos = 10; vars[2].var_type = BAM_CDIFF;
+    vars[3].pos = 12; vars[3].var_type = BAM_CINS;
+    vars[4].pos = 11; vars[4].var_type = BAM_CDIFF;
+
+    TEST_ASSERT_EQUAL_INT(0, get_var_site_start(vars, 0, 5, 11));
+    TEST_ASSERT_EQUAL_INT(3, get_var_site_start(vars, 0, 5, 12));
+    TEST_ASSERT_EQUAL_INT(3, get_var_site_start(vars, 2, 5, 11));
+}
+
 static void test_collect_digar_from_md_tag_insertion_uses_all_inserted_base_qualities(void) {
     assert_insertion_quality_uses_all_inserted_bases(collect_digar_from_MD_tag, 1);
 }
@@ -206,8 +234,10 @@ void bam_utils_suite(void) {
     RUN_TEST(test_init_read_var_profile_initializes_each_read);
     RUN_TEST(test_init_read_var_profile_with_ids_preserves_input_ids);
     RUN_TEST(test_update_read_var_profile_with_allele_tracks_relative_offsets);
-    RUN_TEST(test_get_var_start_uses_lower_bound_binary_search);
-    RUN_TEST(test_get_var_site_start_uses_lower_bound_binary_search);
+    RUN_TEST(test_get_var_start_finds_first_raw_position_at_or_after_start);
+    RUN_TEST(test_get_var_site_start_finds_first_raw_position_at_or_after_start);
+    RUN_TEST(test_get_var_start_handles_exact_comp_sorted_indels_before_snps);
+    RUN_TEST(test_get_var_site_start_handles_exact_comp_sorted_indels_before_snps);
     RUN_TEST(test_collect_digar_from_md_tag_insertion_uses_all_inserted_base_qualities);
     RUN_TEST(test_collect_digar_from_ref_seq_insertion_uses_all_inserted_base_qualities);
 }

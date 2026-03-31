@@ -199,27 +199,41 @@ void push_xid_size_queue_win(xid_queue_t *q, hts_pos_t pos, int len, int count,
     }
 }
 
+static inline hts_pos_t longcalld_cand_var_sort_pos(const cand_var_t *var) {
+    return var->var_type == BAM_CDIFF ? var->pos : var->pos - 1;
+}
+
+static inline hts_pos_t longcalld_var_site_sort_pos(const var_site_t *var) {
+    return var->var_type == BAM_CDIFF ? var->pos : var->pos - 1;
+}
+
 int get_var_start(cand_var_t *var_sites, int cur_site_i, int n_total_pos, hts_pos_t start) {
-    // A lower-bound binary search is a bit brute-force here, but it is less
-    // invasive than threading a rolling cursor through all callers.
+    // The arrays are sorted by exact_comp_var_site()'s effective position
+    // (SNP: pos, indel: pos-1), not by raw .pos. Binary-search that key first,
+    // then scan forward to preserve the old "first raw pos >= start" behavior.
+    hts_pos_t target = start > 0 ? start - 1 : start;
     int left = cur_site_i, right = n_total_pos;
     while (left < right) {
         int mid = left + (right - left) / 2;
-        if (var_sites[mid].pos < start) left = mid + 1;
+        if (longcalld_cand_var_sort_pos(var_sites + mid) < target) left = mid + 1;
         else right = mid;
     }
+    while (left < n_total_pos && var_sites[left].pos < start) left++;
     return left;
 }
 
 int get_var_site_start(var_site_t *var_sites, int cur_site_i, int n_total_pos, hts_pos_t start) {
-    // A lower-bound binary search is a bit brute-force here, but it is less
-    // invasive than threading a rolling cursor through all callers.
+    // The arrays are sorted by exact_comp_var_site()'s effective position
+    // (SNP: pos, indel: pos-1), not by raw .pos. Binary-search that key first,
+    // then scan forward to preserve the old "first raw pos >= start" behavior.
+    hts_pos_t target = start > 0 ? start - 1 : start;
     int left = cur_site_i, right = n_total_pos;
     while (left < right) {
         int mid = left + (right - left) / 2;
-        if (var_sites[mid].pos < start) left = mid + 1;
+        if (longcalld_var_site_sort_pos(var_sites + mid) < target) left = mid + 1;
         else right = mid;
     }
+    while (left < n_total_pos && var_sites[left].pos < start) left++;
     return left;
 }
 
