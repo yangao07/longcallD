@@ -216,7 +216,7 @@ $(BUILD_CONFIG_FILE): FORCE
 	} > $$tmp; \
 	if [ ! -f $@ ] || ! cmp -s $$tmp $@; then mv $$tmp $@; else rm -f $$tmp; fi
 
-%.o: %.c $(BUILD_CONFIG_FILE)
+$(SRC_DIR)/%.o: $(SRC_DIR)/%.c $(BUILD_CONFIG_FILE)
 	$(CC) -c $(CFLAGS) $(INCLUDE) $< -o $@
 
 all: $(HTS_ALL) $(EDLIB) $(ABPOA_LIB) $(WFA2_LIB) $(BIN)
