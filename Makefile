@@ -1,3 +1,5 @@
+.DEFAULT_GOAL := all
+
 GCC_CHECK := $(shell gcc --version | head -n 1 | grep -i "clang")
 
 # Check if the OS is macOS or linux
@@ -214,7 +216,7 @@ $(BUILD_CONFIG_FILE): FORCE
 	} > $$tmp; \
 	if [ ! -f $@ ] || ! cmp -s $$tmp $@; then mv $$tmp $@; else rm -f $$tmp; fi
 
-.c.o: $(BUILD_CONFIG_FILE)
+%.o: %.c $(BUILD_CONFIG_FILE)
 	$(CC) -c $(CFLAGS) $(INCLUDE) $< -o $@
 
 all: $(HTS_ALL) $(EDLIB) $(ABPOA_LIB) $(WFA2_LIB) $(BIN)
