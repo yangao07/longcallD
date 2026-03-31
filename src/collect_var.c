@@ -666,27 +666,83 @@ void post_process_noisy_regs(bam_chunk_t *chunk, const call_var_opt_t *opt, int 
     free(noisy_reg_start); free(noisy_reg_end);
 }
 
-float var_noisy_reads_ratio(bam_chunk_t *chunk, hts_pos_t var_start, hts_pos_t var_end) {
-    int total_n_reads = 0;
-    int noisy_reads = 0;
+static void build_var_noisy_reads_ratio_cache(bam_chunk_t *chunk) {
+    if (chunk->var_noisy_read_cov_cr != NULL && chunk->var_noisy_read_err_cr != NULL) return;
+
+    chunk->var_noisy_read_cov_cr = cr_init();
+    chunk->var_noisy_read_err_cr = cr_init();
+    chunk->var_noisy_read_marks = (int*)calloc((size_t)chunk->m_reads, sizeof(int));
+    chunk->var_noisy_read_mark_id = 0;
+
     for (int i = 0; i < chunk->n_reads; ++i) {
         int read_i = chunk->ordered_read_ids[i];
+        digar_t *read_digar = chunk->digars + read_i;
+        int has_noisy_interval = 0;
+        hts_pos_t noisy_start = -1, noisy_end = -1;
+
         if (chunk->is_skipped[read_i]) continue;
-        hts_pos_t beg = chunk->digars[read_i].beg, end = chunk->digars[read_i].end;
-        if (beg > var_end || end < var_start) continue; // no overlap
-        total_n_reads++;
-        // check if there is mismatch/ins/del digars in the region
-        for (int j = 0; j < chunk->digars[read_i].n_digar; ++j) {
-            digar1_t *d1 = chunk->digars[read_i].digars+j;
-            if (d1->type != BAM_CDIFF && d1->type != BAM_CINS && d1->type != BAM_CDEL) continue; // only check X/I/D
-            hts_pos_t digar_pos = d1->pos;
-            hts_pos_t digar_end = d1->pos;
-            if (d1->type == BAM_CDIFF || d1->type == BAM_CDEL) digar_end += (d1->len-1);
-            if (digar_end < var_start) continue;
-            else if (digar_pos > var_end) break; // no overlap
-            noisy_reads++; break;
+        if (read_digar->n_digar <= 0) continue;
+        if (read_digar->beg > read_digar->end) continue;
+
+        cr_add(chunk->var_noisy_read_cov_cr, "cr", (int32_t)(read_digar->beg - 1), (int32_t)read_digar->end, read_i);
+        for (int j = 0; j < read_digar->n_digar; ++j) {
+            digar1_t *d1 = read_digar->digars + j;
+            hts_pos_t cur_start, cur_end;
+
+            if (d1->type != BAM_CDIFF && d1->type != BAM_CINS && d1->type != BAM_CDEL) continue;
+            cur_start = d1->pos - 1;
+            cur_end = d1->pos;
+            if (d1->type == BAM_CDIFF || d1->type == BAM_CDEL) cur_end += (d1->len - 1);
+
+            if (!has_noisy_interval) {
+                noisy_start = cur_start;
+                noisy_end = cur_end;
+                has_noisy_interval = 1;
+                continue;
+            }
+            if (cur_start < noisy_end) {
+                if (cur_end > noisy_end) noisy_end = cur_end;
+                continue;
+            }
+            cr_add(chunk->var_noisy_read_err_cr, "cr", (int32_t)noisy_start, (int32_t)noisy_end, read_i);
+            noisy_start = cur_start;
+            noisy_end = cur_end;
+        }
+        if (has_noisy_interval) {
+            cr_add(chunk->var_noisy_read_err_cr, "cr", (int32_t)noisy_start, (int32_t)noisy_end, read_i);
         }
     }
+    cr_index(chunk->var_noisy_read_cov_cr);
+    cr_index(chunk->var_noisy_read_err_cr);
+}
+
+float var_noisy_reads_ratio(bam_chunk_t *chunk, hts_pos_t var_start, hts_pos_t var_end) {
+    int total_n_reads = 0, noisy_reads = 0;
+    int64_t *ovlp_b = NULL, *noisy_ovlp_b = NULL;
+    int64_t ovlp_n = 0, noisy_ovlp_n = 0, max_b = 0, noisy_max_b = 0;
+
+    build_var_noisy_reads_ratio_cache(chunk);
+    ovlp_n = cr_overlap(chunk->var_noisy_read_cov_cr, "cr", (int32_t)(var_start - 1), (int32_t)var_end, &ovlp_b, &max_b);
+    total_n_reads = (int)ovlp_n;
+    if (total_n_reads > 0) {
+        if (chunk->var_noisy_read_marks == NULL) {
+            chunk->var_noisy_read_marks = (int*)calloc((size_t)chunk->m_reads, sizeof(int));
+        }
+        chunk->var_noisy_read_mark_id++;
+        if (chunk->var_noisy_read_mark_id == INT_MAX) {
+            memset(chunk->var_noisy_read_marks, 0, (size_t)chunk->m_reads * sizeof(int));
+            chunk->var_noisy_read_mark_id = 1;
+        }
+        noisy_ovlp_n = cr_overlap(chunk->var_noisy_read_err_cr, "cr", (int32_t)(var_start - 1), (int32_t)var_end, &noisy_ovlp_b, &noisy_max_b);
+        for (int64_t i = 0; i < noisy_ovlp_n; ++i) {
+            int read_i = cr_label(chunk->var_noisy_read_err_cr, noisy_ovlp_b[i]);
+            if (chunk->var_noisy_read_marks[read_i] == chunk->var_noisy_read_mark_id) continue;
+            chunk->var_noisy_read_marks[read_i] = chunk->var_noisy_read_mark_id;
+            noisy_reads++;
+        }
+    }
+    free(ovlp_b);
+    free(noisy_ovlp_b);
     if (LONGCALLD_VERBOSE >= 2) {
         fprintf(stderr, "var_noisy_ratio: %s:%" PRId64 "-%" PRId64 " total_n_reads: %d, noisy_reads: %d, ratio: %.3f\n", 
                 chunk->tname, var_start, var_end, total_n_reads, noisy_reads, (float) noisy_reads / (total_n_reads+0.0));

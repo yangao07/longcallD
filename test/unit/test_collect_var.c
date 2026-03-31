@@ -13,6 +13,7 @@ int merge_var_sites(const call_var_opt_t *opt, int n_total_var_sites, var_site_t
 int collect_all_cand_var_sites(const call_var_opt_t *opt, bam_chunk_t *chunk, var_site_t **var_sites);
 int merge_var_profile(const call_var_opt_t *opt, bam_chunk_t *chunk, int n_new_vars, cand_var_t *new_vars, int *new_var_cate, read_var_profile_t *new_p);
 int exact_comp_cand_var(const call_var_opt_t *opt, cand_var_t *var1, cand_var_t *var2);
+float var_noisy_reads_ratio(bam_chunk_t *chunk, hts_pos_t var_start, hts_pos_t var_end);
 void free_cand_vars1(cand_var_t *cand_vars);
 
 static cgranges_t *make_read_var_cr(read_var_profile_t *p, int n_reads, int *ordered_read_ids, uint8_t *is_skipped) {
@@ -610,6 +611,60 @@ static void test_merge_var_profile_matches_reference_on_sparse_profiles(void) {
     }
 }
 
+static void test_var_noisy_reads_ratio_uses_interval_cache_and_dedupes_reads(void) {
+    bam_chunk_t chunk;
+    int ordered_read_ids[] = {0, 1, 2};
+    uint8_t is_skipped[] = {0, 0, 1};
+    digar1_t *read0_digars = (digar1_t *)calloc(2, sizeof(digar1_t));
+    digar1_t *read1_digars = (digar1_t *)calloc(1, sizeof(digar1_t));
+    digar1_t *read2_digars = (digar1_t *)calloc(1, sizeof(digar1_t));
+
+    memset(&chunk, 0, sizeof(chunk));
+    TEST_ASSERT_NOT_NULL(read0_digars);
+    TEST_ASSERT_NOT_NULL(read1_digars);
+    TEST_ASSERT_NOT_NULL(read2_digars);
+
+    chunk.n_reads = 3;
+    chunk.m_reads = 3;
+    chunk.ordered_read_ids = ordered_read_ids;
+    chunk.is_skipped = is_skipped;
+    chunk.digars = (digar_t *)calloc(3, sizeof(digar_t));
+    chunk.tname = (char *)"chr20";
+    TEST_ASSERT_NOT_NULL(chunk.digars);
+
+    chunk.digars[0].beg = 100;
+    chunk.digars[0].end = 120;
+    chunk.digars[0].n_digar = chunk.digars[0].m_digar = 2;
+    chunk.digars[0].digars = read0_digars;
+    read0_digars[0] = (digar1_t){105, BAM_CDIFF, 1, 0, NULL, 0};
+    read0_digars[1] = (digar1_t){110, BAM_CDIFF, 1, 5, NULL, 0};
+
+    chunk.digars[1].beg = 100;
+    chunk.digars[1].end = 120;
+    chunk.digars[1].n_digar = chunk.digars[1].m_digar = 1;
+    chunk.digars[1].digars = read1_digars;
+    read1_digars[0] = (digar1_t){115, BAM_CDIFF, 1, 0, NULL, 0};
+
+    chunk.digars[2].beg = 130;
+    chunk.digars[2].end = 150;
+    chunk.digars[2].n_digar = chunk.digars[2].m_digar = 1;
+    chunk.digars[2].digars = read2_digars;
+    read2_digars[0] = (digar1_t){135, BAM_CDIFF, 1, 0, NULL, 0};
+
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.5f, var_noisy_reads_ratio(&chunk, 105, 105));
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.5f, var_noisy_reads_ratio(&chunk, 105, 110));
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 1.0f, var_noisy_reads_ratio(&chunk, 105, 116));
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, var_noisy_reads_ratio(&chunk, 135, 135));
+
+    cr_destroy(chunk.var_noisy_read_cov_cr);
+    cr_destroy(chunk.var_noisy_read_err_cr);
+    free(chunk.var_noisy_read_marks);
+    free_digar1(read0_digars, 2);
+    free_digar1(read1_digars, 1);
+    free_digar1(read2_digars, 1);
+    free(chunk.digars);
+}
+
 void collect_var_suite(void) {
     RUN_TEST(test_merge_var_sites_filters_and_keeps_sorted_unique_sites);
     RUN_TEST(test_merge_var_sites_fuzzy_merges_large_insertions);
@@ -617,4 +672,5 @@ void collect_var_suite(void) {
     RUN_TEST(test_merge_var_profile_interleaves_variants_and_remaps_read_profiles);
     RUN_TEST(test_merge_var_profile_keeps_old_duplicate_and_skips_skipped_reads);
     RUN_TEST(test_merge_var_profile_matches_reference_on_sparse_profiles);
+    RUN_TEST(test_var_noisy_reads_ratio_uses_interval_cache_and_dedupes_reads);
 }

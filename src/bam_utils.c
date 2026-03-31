@@ -1365,6 +1365,8 @@ int bam_chunk_init0(bam_chunk_t *chunk, const struct call_var_opt_t *opt, int n_
     // variant
     chunk->n_cand_vars = 0; chunk->cand_vars = NULL; chunk->var_i_to_cate = NULL;
     chunk->read_var_profile = NULL; chunk->read_var_cr = NULL;
+    chunk->var_noisy_read_cov_cr = NULL; chunk->var_noisy_read_err_cr = NULL;
+    chunk->var_noisy_read_marks = NULL; chunk->var_noisy_read_mark_id = 0;
     // output:
     chunk->flip_hap = 0;
     chunk->haps = (int*)calloc(n_reads, sizeof(int)); // read-wise
@@ -1376,6 +1378,19 @@ int bam_chunk_init0(bam_chunk_t *chunk, const struct call_var_opt_t *opt, int n_
 
 int bam_chunk_realloc(bam_chunk_t *chunk, const struct call_var_opt_t *opt) {
     int m_reads = chunk->m_reads * 2;
+    if (chunk->var_noisy_read_cov_cr != NULL) {
+        cr_destroy(chunk->var_noisy_read_cov_cr);
+        chunk->var_noisy_read_cov_cr = NULL;
+    }
+    if (chunk->var_noisy_read_err_cr != NULL) {
+        cr_destroy(chunk->var_noisy_read_err_cr);
+        chunk->var_noisy_read_err_cr = NULL;
+    }
+    if (chunk->var_noisy_read_marks != NULL) {
+        free(chunk->var_noisy_read_marks);
+        chunk->var_noisy_read_marks = NULL;
+    }
+    chunk->var_noisy_read_mark_id = 0;
     chunk->reads = (bam1_t**)realloc(chunk->reads, m_reads * sizeof(bam1_t*));
     if (opt->output_var_rnames || opt->output_sv_rnames || opt->output_somatic_var_rnames) 
         chunk->read_names = (char**)realloc(chunk->read_names, m_reads * sizeof(char*));
@@ -1413,10 +1428,25 @@ void free_digar1(digar1_t *digar1, int n_digar) {
     free(digar1);
 }
 
+static void bam_chunk_clear_var_noisy_read_cache(bam_chunk_t *chunk) {
+    if (chunk->var_noisy_read_cov_cr != NULL) {
+        cr_destroy(chunk->var_noisy_read_cov_cr);
+        chunk->var_noisy_read_cov_cr = NULL;
+    }
+    if (chunk->var_noisy_read_err_cr != NULL) {
+        cr_destroy(chunk->var_noisy_read_err_cr);
+        chunk->var_noisy_read_err_cr = NULL;
+    }
+    free(chunk->var_noisy_read_marks);
+    chunk->var_noisy_read_marks = NULL;
+    chunk->var_noisy_read_mark_id = 0;
+}
+
 void bam_chunk_free(bam_chunk_t *chunk) {
     free(chunk->qual_counts);
     if (chunk->ref_seq != NULL) free(chunk->ref_seq);
     if (chunk->low_comp_cr != NULL) cr_destroy(chunk->low_comp_cr);
+    bam_chunk_clear_var_noisy_read_cache(chunk);
     for (int i = 0; i < chunk->m_reads; i++) {
         if (chunk->digars[i].m_digar > 0) {
             free_digar1(chunk->digars[i].digars, chunk->digars[i].n_digar);
@@ -1470,6 +1500,7 @@ void bam_chunk_post_free(bam_chunk_t *chunk, const struct call_var_opt_t *opt) {
     if (chunk->ref_seq != NULL) free(chunk->ref_seq);
     if (chunk->cand_vars != NULL) free_cand_vars(chunk->cand_vars, chunk->n_cand_vars);
     if (chunk->var_i_to_cate != NULL) free(chunk->var_i_to_cate);
+    bam_chunk_clear_var_noisy_read_cache(chunk);
     free(chunk->is_skipped);
     free(chunk->n_clean_agree_snps); free(chunk->n_clean_conflict_snps);
     free(chunk->is_ont_palindrome); free(chunk->is_skipped_for_somatic);
@@ -1500,6 +1531,7 @@ void bam_chunk_post_free(bam_chunk_t *chunk, const struct call_var_opt_t *opt) {
 void bam_chunk_mid_free(bam_chunk_t *chunk, const struct call_var_opt_t *opt) {
     if (chunk->low_comp_cr != NULL) cr_destroy(chunk->low_comp_cr);
     if (opt->out_aln_fp == NULL || opt->refine_bam == 0) bam_chunk_free_digar(chunk);
+    bam_chunk_clear_var_noisy_read_cache(chunk);
     if (chunk->chunk_noisy_regs != NULL) cr_destroy(chunk->chunk_noisy_regs);
     if (chunk->noisy_reg_to_reads != NULL) {
         for (int i = 0; i < chunk->chunk_noisy_regs->n_r; i++) {

@@ -346,6 +346,8 @@ int wfa_heuristic_aln(uint8_t *pattern, int plen, uint8_t *text, int tlen,
     attributes.heuristic.strategy = wf_heuristic_xdrop;
     attributes.heuristic.xdrop = MAX_OF_TWO(100, (int)((plen + tlen) * 0.1)); 
     attributes.heuristic.steps_between_cutoffs = 100;
+    // mm_allocator_t *mm_allocator = mm_allocator_new((attributes.memory_mode == wavefront_memory_ultralow) ? (1ul << 12) : (1ul << 22));
+    // attributes.mm_allocator = mm_allocator;
     // Initialize Wavefront Aligner
     wavefront_aligner_t* const wf_aligner = wavefront_aligner_new(&attributes);
     // Align
@@ -365,6 +367,7 @@ int wfa_heuristic_aln(uint8_t *pattern, int plen, uint8_t *text, int tlen,
     }
     // Free
     wavefront_aligner_delete(wf_aligner); 
+    // mm_allocator_delete(mm_allocator);
     return score;
 }
 
@@ -404,6 +407,8 @@ int wfa_end2end_aln(uint8_t *pattern, int plen, uint8_t *text, int tlen,
         attributes.heuristic.zdrop = MIN_OF_TWO(500, (int)(MIN_OF_TWO(plen, tlen) * 0.1));
         attributes.heuristic.steps_between_cutoffs = 100;
     }
+    // mm_allocator_t *mm_allocator = mm_allocator_new((attributes.memory_mode == wavefront_memory_ultralow) ? (1ul << 12) : (1ul << 22));
+    // attributes.mm_allocator = mm_allocator;
     // Initialize Wavefront Aligner
     wavefront_aligner_t* const wf_aligner = wavefront_aligner_new(&attributes);
     uint8_t *p = pattern, *t = text;
@@ -455,6 +460,7 @@ int wfa_end2end_aln(uint8_t *pattern, int plen, uint8_t *text, int tlen,
     // Free
     // fprintf(stderr, "%d vs %d Real time: %.3f sec. Score: %d\n", plen, tlen, realtime() - realtime0, cigar_score_gap_affine2p(cigar, &attributes.affine2p_penalties));
     wavefront_aligner_delete(wf_aligner); 
+    // mm_allocator_delete(mm_allocator);
     if (gap_aln == LONGCALLD_GAP_LEFT_ALN) { free(p); free(t); }
     return 0;
 }
