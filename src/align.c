@@ -1436,7 +1436,6 @@ int collect_noisy_read_info(const call_var_opt_t *opt, bam_chunk_t *chunk, hts_p
                     reg_read_end = qi + (reg_end - digar_beg);
                 }
             }
-            if (reg_digar_beg == reg_beg && reg_digar_end == reg_end) break;
         }
         if (reg_digar_beg == reg_beg && reg_digar_end == reg_end) {
             if (beg_is_del == 0 && end_is_del == 0) cover = LONGCALLD_NOISY_LEFT_COVER | LONGCALLD_NOISY_RIGHT_COVER; // (*fully_covers)[i] = 3;
