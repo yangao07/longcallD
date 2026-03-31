@@ -185,19 +185,27 @@ void push_xid_size_queue_win(xid_queue_t *q, hts_pos_t pos, int len, int count,
 }
 
 int get_var_start(cand_var_t *var_sites, int cur_site_i, int n_total_pos, hts_pos_t start) {
-    int i;
-    for (i = cur_site_i; i < n_total_pos; ++i) {
-        if (var_sites[i].pos >= start) return i;
+    // A lower-bound binary search is a bit brute-force here, but it is less
+    // invasive than threading a rolling cursor through all callers.
+    int left = cur_site_i, right = n_total_pos;
+    while (left < right) {
+        int mid = left + (right - left) / 2;
+        if (var_sites[mid].pos < start) left = mid + 1;
+        else right = mid;
     }
-    return i;
+    return left;
 }
 
 int get_var_site_start(var_site_t *var_sites, int cur_site_i, int n_total_pos, hts_pos_t start) {
-    int i;
-    for (i = cur_site_i; i < n_total_pos; ++i) {
-        if (var_sites[i].pos >= start) return i;
+    // A lower-bound binary search is a bit brute-force here, but it is less
+    // invasive than threading a rolling cursor through all callers.
+    int left = cur_site_i, right = n_total_pos;
+    while (left < right) {
+        int mid = left + (right - left) / 2;
+        if (var_sites[mid].pos < start) left = mid + 1;
+        else right = mid;
     }
-    return i;
+    return left;
 }
 
 // only for mismatch and insertion
