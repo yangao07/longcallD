@@ -1113,7 +1113,7 @@ int collect_digar_from_MD_tag(bam_chunk_t *chunk, int read_i, const struct call_
             for (int j = 0; j < len; ++j) ins_seq[j] = seq_nt16_int[bam_seqi(digar->bseq, qi+j)];
             int is_low_qual = 1;
             for (int _i = 0; _i < len; ++_i) {
-                if (digar->qual[qi+_i] >= opt->min_bq) {
+                if (digar->qual[qi] >= opt->min_bq) {
                     is_low_qual = 0; break;
                 }
             }
@@ -1266,7 +1266,7 @@ int collect_digar_from_ref_seq(bam_chunk_t *chunk, int read_i, const struct call
             // set_digar(_digars+_n_digar, pos, BAM_CINS, len, qi); // insertion
             int is_low_qual = 1;
             for (int _i = 0; _i < len; ++_i) {
-                if (digar->qual[qi+_i] >= opt->min_bq) {
+                if (digar->qual[qi] >= opt->min_bq) {
                     is_low_qual = 0; break;
                 }
             }
