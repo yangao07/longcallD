@@ -87,6 +87,21 @@ char *get_aux_str_from_bam(bam1_t *b, const char *tag) {
     return (char*)s;
 }
 
+static void longcalld_copy_digar_read_buffers(bam_chunk_t *chunk, bam1_t *read, digar_t *digar) {
+    uint32_t qlen = read->core.l_qseq;
+    size_t packed_bseq_bytes = ((size_t)qlen + 1) / 2;
+
+    digar->qlen = qlen;
+    digar->bseq = packed_bseq_bytes > 0 ? (uint8_t *)malloc(packed_bseq_bytes) : NULL;
+    if (packed_bseq_bytes > 0) memcpy(digar->bseq, bam_get_seq(read), packed_bseq_bytes);
+
+    digar->qual = qlen > 0 ? (uint8_t *)malloc((size_t)qlen) : NULL;
+    if (qlen > 0) memcpy(digar->qual, bam_get_qual(read), (size_t)qlen);
+    for (uint32_t i = 0; i < qlen; ++i) {
+        chunk->qual_counts[digar->qual[i]]++;
+    }
+}
+
 void print_digar(digar_t *digar, FILE *fp) {
     fprintf(fp, "pos\ttype\tlen\tqi\tis_low_qual\n");
     for (int i = 0; i < digar->n_digar; ++i) {
@@ -693,14 +708,7 @@ int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, int read_i, const struct ca
     digar->noisy_regs = cr_init();
     digar->beg = pos; digar->end = bam_endpos(read); digar->is_rev = bam_is_rev(read);
     uint32_t qlen = read->core.l_qseq;
-    digar->qlen = qlen;
-    digar->bseq = (uint8_t*)malloc((qlen+1)/2 * sizeof(uint8_t));
-    for (int i = 0; i < (qlen+1)/2; ++i) digar->bseq[i] = bam_get_seq(read)[i];
-    digar->qual = (uint8_t*)malloc(qlen * sizeof(uint8_t));
-    for (int i = 0; i < qlen; ++i) {
-        digar->qual[i] = bam_get_qual(read)[i];
-        chunk->qual_counts[digar->qual[i]]++;
-    }
+    longcalld_copy_digar_read_buffers(chunk, read, digar);
     int _n_digar = 0, _m_digar = 2 * n_cigar; digar1_t *_digars = (digar1_t*)malloc(_m_digar * sizeof(digar1_t));
     int rlen = bam_cigar2rlen(n_cigar, cigar); int tlen = chunk->whole_ref_len;
     xid_queue_t *q = init_xid_queue(rlen, max_s, win); // for noisy region
@@ -847,14 +855,7 @@ int collect_digar_from_cs_tag(bam_chunk_t *chunk, int read_i, const struct call_
     digar->n_digar = 0; digar->m_digar = 2 * n_cigar; digar->digars = (digar1_t*)malloc(n_cigar * 2 * sizeof(digar1_t));
     digar->noisy_regs = cr_init();
     uint32_t qlen = read->core.l_qseq;
-    digar->qlen = qlen;
-    digar->bseq = (uint8_t*)malloc((qlen+1)/2 * sizeof(uint8_t));
-    for (int i = 0; i < (qlen+1)/2; ++i) digar->bseq[i] = bam_get_seq(read)[i];
-    digar->qual = (uint8_t*)malloc(qlen * sizeof(uint8_t));
-    for (int i = 0; i < qlen; ++i) {
-        digar->qual[i] = bam_get_qual(read)[i];
-        chunk->qual_counts[digar->qual[i]]++;
-    }
+    longcalld_copy_digar_read_buffers(chunk, read, digar);
     int _n_digar = 0, _m_digar = 2 * n_cigar; digar1_t *_digars = (digar1_t*)malloc(_m_digar * sizeof(digar1_t));
     char *cs = bam_aux2Z(cs_tag);
     int rlen = bam_cigar2rlen(n_cigar, cigar); int tlen = chunk->whole_ref_len;
@@ -1012,14 +1013,7 @@ int collect_digar_from_MD_tag(bam_chunk_t *chunk, int read_i, const struct call_
     digar->n_digar = 0; digar->m_digar = 2 * n_cigar; digar->digars = (digar1_t*)malloc(n_cigar * 2 * sizeof(digar1_t));
     digar->noisy_regs = cr_init();
     uint32_t qlen = read->core.l_qseq;
-    digar->qlen = qlen;
-    digar->bseq = (uint8_t*)malloc((qlen+1)/2 * sizeof(uint8_t));
-    for (int i = 0; i < (qlen+1)/2; ++i) digar->bseq[i] = bam_get_seq(read)[i];
-    digar->qual = (uint8_t*)malloc(qlen * sizeof(uint8_t));
-    for (int i = 0; i < qlen; ++i) {
-        digar->qual[i] = bam_get_qual(read)[i];
-        chunk->qual_counts[digar->qual[i]]++;
-    }
+    longcalld_copy_digar_read_buffers(chunk, read, digar);
     int _n_digar = 0, _m_digar = 2 * n_cigar; digar1_t *_digars = (digar1_t*)malloc(_m_digar * sizeof(digar1_t));
     char *md = bam_aux2Z(s); int md_i = 0;
     // printf("MD: %s\n", md);
@@ -1191,14 +1185,7 @@ int collect_digar_from_ref_seq(bam_chunk_t *chunk, int read_i, const struct call
     digar->n_digar = 0; digar->m_digar = 2 * n_cigar; digar->digars = (digar1_t*)malloc(n_cigar * 2 * sizeof(digar1_t));
     digar->noisy_regs = cr_init();
     uint32_t qlen = read->core.l_qseq;
-    digar->qlen = qlen;
-    digar->bseq = (uint8_t*)malloc((qlen+1)/2 * sizeof(uint8_t));
-    for (int i = 0; i < (qlen+1)/2; ++i) digar->bseq[i] = bam_get_seq(read)[i];
-    digar->qual = (uint8_t*)malloc(qlen);
-    for (int i = 0; i < qlen; ++i) {
-        digar->qual[i] = bam_get_qual(read)[i];
-        chunk->qual_counts[digar->qual[i]]++;
-    }
+    longcalld_copy_digar_read_buffers(chunk, read, digar);
     int _n_digar = 0, _m_digar = 2 * n_cigar; digar1_t *_digars = (digar1_t*)malloc(_m_digar * sizeof(digar1_t));
     int rlen = bam_cigar2rlen(n_cigar, cigar); int tlen = chunk->whole_ref_len;
     xid_queue_t *q = init_xid_queue(rlen, max_s, win);
