@@ -218,10 +218,10 @@ int write_var_to_vcf(var_t *vars, const struct call_var_opt_t *opt, bam_chunk_t 
             len += snprintf(buffer + len, buf_m - len, "%d", var.AD[j]);
         }
         // VAF
-        for (int j = 0; j < 1 + var.n_alt_allele; j++) {
+        for (int j = 0; j < var.n_alt_allele; j++) {
             if (j == 0) len += snprintf(buffer + len, buf_m - len, ":");
             if (j > 0) len += snprintf(buffer + len, buf_m - len, ",");
-            float vaf = (float)var.AD[j] / var.DP;
+            float vaf = (float)var.AD[j+1] / var.DP;
             len += snprintf(buffer + len, buf_m - len, "%.3f", vaf);
         }
         // GQ
