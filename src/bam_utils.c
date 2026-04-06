@@ -1,4 +1,5 @@
 #include <ctype.h>
+#include <string.h>
 #include "bam_utils.h"
 #include "sam_internal.h"
 #include "utils.h"
@@ -9,41 +10,41 @@
 extern int LONGCALLD_VERBOSE;
 
 
-read_var_profile_t *init_read_var_profile(int n_reads, int n_total_vars) {
-    read_var_profile_t *p = (read_var_profile_t*)malloc(n_reads * sizeof(read_var_profile_t));
+static read_var_profile_t *init_read_var_profile_inner(int n_reads, int *read_ids, int n_total_vars) {
+    size_t n_profile_bytes = (size_t)n_reads * sizeof(read_var_profile_t);
+    size_t n_var_values = (size_t)n_reads * (size_t)n_total_vars;
+    size_t n_value_bytes = n_var_values * sizeof(int);
+    uint8_t *raw = (uint8_t*)malloc(n_profile_bytes + n_value_bytes * 2);
+    read_var_profile_t *p = (read_var_profile_t*)raw;
+    int *alleles = NULL, *alt_qi = NULL;
+
+    if (p == NULL) return NULL;
+
+    alleles = (int*)(raw + n_profile_bytes);
+    alt_qi = alleles + n_var_values;
+    memset(alleles, 0xFF, n_value_bytes);
+    memset(alt_qi, 0xFF, n_value_bytes);
+
     for (int i = 0; i < n_reads; ++i) {
-        p[i].read_id = i;
-        p[i].start_var_idx = -1; p[i].end_var_idx = -2;
-        p[i].alleles = (int*)malloc(n_total_vars * sizeof(int));
-        p[i].alt_qi = (int*)malloc(n_total_vars * sizeof(int));
-        for (int j = 0; j < n_total_vars; ++j) {
-            p[i].alleles[j] = -1; // init as unused
-            p[i].alt_qi[j] = -1; // init as unused
-        }
+        p[i].read_id = (read_ids == NULL ? i : read_ids[i]);
+        p[i].start_var_idx = -1;
+        p[i].end_var_idx = -2;
+        p[i].alleles = alleles + (size_t)i * (size_t)n_total_vars;
+        p[i].alt_qi = alt_qi + (size_t)i * (size_t)n_total_vars;
     }
     return p;
+}
+
+read_var_profile_t *init_read_var_profile(int n_reads, int n_total_vars) {
+    return init_read_var_profile_inner(n_reads, NULL, n_total_vars);
 }
 
 read_var_profile_t *init_read_var_profile_with_ids(int n_reads, int *read_ids, int n_total_vars) {
-    read_var_profile_t *p = (read_var_profile_t*)malloc(n_reads * sizeof(read_var_profile_t));
-    for (int i = 0; i < n_reads; ++i) {
-        p[i].read_id = read_ids[i];
-        p[i].start_var_idx = -1; p[i].end_var_idx = -2;
-        p[i].alleles = (int*)malloc(n_total_vars * sizeof(int));
-        p[i].alt_qi = (int*)malloc(n_total_vars * sizeof(int));
-        for (int j = 0; j < n_total_vars; ++j) {
-            p[i].alleles[j] = -1; // init as unused
-            p[i].alt_qi[j] = -1; // init as unused
-        }
-    }
-    return p;
+    return init_read_var_profile_inner(n_reads, read_ids, n_total_vars);
 }
 
 void free_read_var_profile(read_var_profile_t *p, int n_reads) {
-    for (int i = 0; i < n_reads; ++i) {
-        if (p[i].alleles) free(p[i].alleles);
-        if (p[i].alt_qi) free(p[i].alt_qi);
-    }
+    (void)n_reads;
     free(p);
 }
 
@@ -84,6 +85,21 @@ char *get_aux_str_from_bam(bam1_t *b, const char *tag) {
     uint8_t *s = bam_aux_get(b, tag);
     if (s == NULL) return NULL;
     return (char*)s;
+}
+
+static void longcalld_copy_digar_read_buffers(bam_chunk_t *chunk, bam1_t *read, digar_t *digar) {
+    uint32_t qlen = read->core.l_qseq;
+    size_t packed_bseq_bytes = ((size_t)qlen + 1) / 2;
+
+    digar->qlen = qlen;
+    digar->bseq = packed_bseq_bytes > 0 ? (uint8_t *)malloc(packed_bseq_bytes) : NULL;
+    if (packed_bseq_bytes > 0) memcpy(digar->bseq, bam_get_seq(read), packed_bseq_bytes);
+
+    digar->qual = qlen > 0 ? (uint8_t *)malloc((size_t)qlen) : NULL;
+    if (qlen > 0) memcpy(digar->qual, bam_get_qual(read), (size_t)qlen);
+    for (uint32_t i = 0; i < qlen; ++i) {
+        chunk->qual_counts[digar->qual[i]]++;
+    }
 }
 
 void print_digar(digar_t *digar, FILE *fp) {
@@ -184,19 +200,29 @@ void push_xid_size_queue_win(xid_queue_t *q, hts_pos_t pos, int len, int count,
 }
 
 int get_var_start(cand_var_t *var_sites, int cur_site_i, int n_total_pos, hts_pos_t start) {
-    int i;
-    for (i = cur_site_i; i < n_total_pos; ++i) {
-        if (var_sites[i].pos >= start) return i;
+    hts_pos_t target = start > 0 ? start - 1 : start;
+    int left = cur_site_i, right = n_total_pos;
+    while (left < right) {
+        int mid = left + (right - left) / 2;
+        hts_pos_t mid_pos = var_sites[mid].var_type == BAM_CDIFF ? var_sites[mid].pos : var_sites[mid].pos - 1;
+        if (mid_pos < target) left = mid + 1;
+        else right = mid;
     }
-    return i;
+    while (left < n_total_pos && var_sites[left].pos < start) left++;
+    return left;
 }
 
 int get_var_site_start(var_site_t *var_sites, int cur_site_i, int n_total_pos, hts_pos_t start) {
-    int i;
-    for (i = cur_site_i; i < n_total_pos; ++i) {
-        if (var_sites[i].pos >= start) return i;
+    hts_pos_t target = start > 0 ? start - 1 : start;
+    int left = cur_site_i, right = n_total_pos;
+    while (left < right) {
+        int mid = left + (right - left) / 2;
+        hts_pos_t mid_pos = var_sites[mid].var_type == BAM_CDIFF ? var_sites[mid].pos : var_sites[mid].pos - 1;
+        if (mid_pos < target) left = mid + 1;
+        else right = mid;
     }
-    return i;
+    while (left < n_total_pos && var_sites[left].pos < start) left++;
+    return left;
 }
 
 // only for mismatch and insertion
@@ -684,14 +710,7 @@ int collect_digar_from_eqx_cigar(bam_chunk_t *chunk, int read_i, const struct ca
     digar->noisy_regs = cr_init();
     digar->beg = pos; digar->end = bam_endpos(read); digar->is_rev = bam_is_rev(read);
     uint32_t qlen = read->core.l_qseq;
-    digar->qlen = qlen;
-    digar->bseq = (uint8_t*)malloc((qlen+1)/2 * sizeof(uint8_t));
-    for (int i = 0; i < (qlen+1)/2; ++i) digar->bseq[i] = bam_get_seq(read)[i];
-    digar->qual = (uint8_t*)malloc(qlen * sizeof(uint8_t));
-    for (int i = 0; i < qlen; ++i) {
-        digar->qual[i] = bam_get_qual(read)[i];
-        chunk->qual_counts[digar->qual[i]]++;
-    }
+    longcalld_copy_digar_read_buffers(chunk, read, digar);
     int _n_digar = 0, _m_digar = 2 * n_cigar; digar1_t *_digars = (digar1_t*)malloc(_m_digar * sizeof(digar1_t));
     int rlen = bam_cigar2rlen(n_cigar, cigar); int tlen = chunk->whole_ref_len;
     xid_queue_t *q = init_xid_queue(rlen, max_s, win); // for noisy region
@@ -838,14 +857,7 @@ int collect_digar_from_cs_tag(bam_chunk_t *chunk, int read_i, const struct call_
     digar->n_digar = 0; digar->m_digar = 2 * n_cigar; digar->digars = (digar1_t*)malloc(n_cigar * 2 * sizeof(digar1_t));
     digar->noisy_regs = cr_init();
     uint32_t qlen = read->core.l_qseq;
-    digar->qlen = qlen;
-    digar->bseq = (uint8_t*)malloc((qlen+1)/2 * sizeof(uint8_t));
-    for (int i = 0; i < (qlen+1)/2; ++i) digar->bseq[i] = bam_get_seq(read)[i];
-    digar->qual = (uint8_t*)malloc(qlen * sizeof(uint8_t));
-    for (int i = 0; i < qlen; ++i) {
-        digar->qual[i] = bam_get_qual(read)[i];
-        chunk->qual_counts[digar->qual[i]]++;
-    }
+    longcalld_copy_digar_read_buffers(chunk, read, digar);
     int _n_digar = 0, _m_digar = 2 * n_cigar; digar1_t *_digars = (digar1_t*)malloc(_m_digar * sizeof(digar1_t));
     char *cs = bam_aux2Z(cs_tag);
     int rlen = bam_cigar2rlen(n_cigar, cigar); int tlen = chunk->whole_ref_len;
@@ -1003,14 +1015,7 @@ int collect_digar_from_MD_tag(bam_chunk_t *chunk, int read_i, const struct call_
     digar->n_digar = 0; digar->m_digar = 2 * n_cigar; digar->digars = (digar1_t*)malloc(n_cigar * 2 * sizeof(digar1_t));
     digar->noisy_regs = cr_init();
     uint32_t qlen = read->core.l_qseq;
-    digar->qlen = qlen;
-    digar->bseq = (uint8_t*)malloc((qlen+1)/2 * sizeof(uint8_t));
-    for (int i = 0; i < (qlen+1)/2; ++i) digar->bseq[i] = bam_get_seq(read)[i];
-    digar->qual = (uint8_t*)malloc(qlen * sizeof(uint8_t));
-    for (int i = 0; i < qlen; ++i) {
-        digar->qual[i] = bam_get_qual(read)[i];
-        chunk->qual_counts[digar->qual[i]]++;
-    }
+    longcalld_copy_digar_read_buffers(chunk, read, digar);
     int _n_digar = 0, _m_digar = 2 * n_cigar; digar1_t *_digars = (digar1_t*)malloc(_m_digar * sizeof(digar1_t));
     char *md = bam_aux2Z(s); int md_i = 0;
     // printf("MD: %s\n", md);
@@ -1182,14 +1187,7 @@ int collect_digar_from_ref_seq(bam_chunk_t *chunk, int read_i, const struct call
     digar->n_digar = 0; digar->m_digar = 2 * n_cigar; digar->digars = (digar1_t*)malloc(n_cigar * 2 * sizeof(digar1_t));
     digar->noisy_regs = cr_init();
     uint32_t qlen = read->core.l_qseq;
-    digar->qlen = qlen;
-    digar->bseq = (uint8_t*)malloc((qlen+1)/2 * sizeof(uint8_t));
-    for (int i = 0; i < (qlen+1)/2; ++i) digar->bseq[i] = bam_get_seq(read)[i];
-    digar->qual = (uint8_t*)malloc(qlen);
-    for (int i = 0; i < qlen; ++i) {
-        digar->qual[i] = bam_get_qual(read)[i];
-        chunk->qual_counts[digar->qual[i]]++;
-    }
+    longcalld_copy_digar_read_buffers(chunk, read, digar);
     int _n_digar = 0, _m_digar = 2 * n_cigar; digar1_t *_digars = (digar1_t*)malloc(_m_digar * sizeof(digar1_t));
     int rlen = bam_cigar2rlen(n_cigar, cigar); int tlen = chunk->whole_ref_len;
     xid_queue_t *q = init_xid_queue(rlen, max_s, win);
@@ -1364,6 +1362,8 @@ int bam_chunk_init0(bam_chunk_t *chunk, const struct call_var_opt_t *opt, int n_
     // variant
     chunk->n_cand_vars = 0; chunk->cand_vars = NULL; chunk->var_i_to_cate = NULL;
     chunk->read_var_profile = NULL; chunk->read_var_cr = NULL;
+    chunk->var_noisy_read_cov_cr = NULL; chunk->var_noisy_read_err_cr = NULL;
+    chunk->var_noisy_read_marks = NULL; chunk->var_noisy_read_mark_id = 0;
     // output:
     chunk->flip_hap = 0;
     chunk->haps = (int*)calloc(n_reads, sizeof(int)); // read-wise
@@ -1375,6 +1375,19 @@ int bam_chunk_init0(bam_chunk_t *chunk, const struct call_var_opt_t *opt, int n_
 
 int bam_chunk_realloc(bam_chunk_t *chunk, const struct call_var_opt_t *opt) {
     int m_reads = chunk->m_reads * 2;
+    if (chunk->var_noisy_read_cov_cr != NULL) {
+        cr_destroy(chunk->var_noisy_read_cov_cr);
+        chunk->var_noisy_read_cov_cr = NULL;
+    }
+    if (chunk->var_noisy_read_err_cr != NULL) {
+        cr_destroy(chunk->var_noisy_read_err_cr);
+        chunk->var_noisy_read_err_cr = NULL;
+    }
+    if (chunk->var_noisy_read_marks != NULL) {
+        free(chunk->var_noisy_read_marks);
+        chunk->var_noisy_read_marks = NULL;
+    }
+    chunk->var_noisy_read_mark_id = 0;
     chunk->reads = (bam1_t**)realloc(chunk->reads, m_reads * sizeof(bam1_t*));
     if (opt->output_var_rnames || opt->output_sv_rnames || opt->output_somatic_var_rnames) 
         chunk->read_names = (char**)realloc(chunk->read_names, m_reads * sizeof(char*));
@@ -1412,10 +1425,25 @@ void free_digar1(digar1_t *digar1, int n_digar) {
     free(digar1);
 }
 
+static void bam_chunk_clear_var_noisy_read_cache(bam_chunk_t *chunk) {
+    if (chunk->var_noisy_read_cov_cr != NULL) {
+        cr_destroy(chunk->var_noisy_read_cov_cr);
+        chunk->var_noisy_read_cov_cr = NULL;
+    }
+    if (chunk->var_noisy_read_err_cr != NULL) {
+        cr_destroy(chunk->var_noisy_read_err_cr);
+        chunk->var_noisy_read_err_cr = NULL;
+    }
+    free(chunk->var_noisy_read_marks);
+    chunk->var_noisy_read_marks = NULL;
+    chunk->var_noisy_read_mark_id = 0;
+}
+
 void bam_chunk_free(bam_chunk_t *chunk) {
     free(chunk->qual_counts);
     if (chunk->ref_seq != NULL) free(chunk->ref_seq);
     if (chunk->low_comp_cr != NULL) cr_destroy(chunk->low_comp_cr);
+    bam_chunk_clear_var_noisy_read_cache(chunk);
     for (int i = 0; i < chunk->m_reads; i++) {
         if (chunk->digars[i].m_digar > 0) {
             free_digar1(chunk->digars[i].digars, chunk->digars[i].n_digar);
@@ -1469,6 +1497,7 @@ void bam_chunk_post_free(bam_chunk_t *chunk, const struct call_var_opt_t *opt) {
     if (chunk->ref_seq != NULL) free(chunk->ref_seq);
     if (chunk->cand_vars != NULL) free_cand_vars(chunk->cand_vars, chunk->n_cand_vars);
     if (chunk->var_i_to_cate != NULL) free(chunk->var_i_to_cate);
+    bam_chunk_clear_var_noisy_read_cache(chunk);
     free(chunk->is_skipped);
     free(chunk->n_clean_agree_snps); free(chunk->n_clean_conflict_snps);
     free(chunk->is_ont_palindrome); free(chunk->is_skipped_for_somatic);
@@ -1499,6 +1528,7 @@ void bam_chunk_post_free(bam_chunk_t *chunk, const struct call_var_opt_t *opt) {
 void bam_chunk_mid_free(bam_chunk_t *chunk, const struct call_var_opt_t *opt) {
     if (chunk->low_comp_cr != NULL) cr_destroy(chunk->low_comp_cr);
     if (opt->out_aln_fp == NULL || opt->refine_bam == 0) bam_chunk_free_digar(chunk);
+    bam_chunk_clear_var_noisy_read_cache(chunk);
     if (chunk->chunk_noisy_regs != NULL) cr_destroy(chunk->chunk_noisy_regs);
     if (chunk->noisy_reg_to_reads != NULL) {
         for (int i = 0; i < chunk->chunk_noisy_regs->n_r; i++) {

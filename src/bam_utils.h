@@ -77,6 +77,8 @@ typedef struct bam_chunk_t {
     // for somatic, only non-noisy regions, we don't call somatic variants in noisy regions (for now)
     int n_cand_vars; cand_var_t *cand_vars; int *var_i_to_cate;
     read_var_profile_t *read_var_profile; cgranges_t *read_var_cr;
+    cgranges_t *var_noisy_read_cov_cr, *var_noisy_read_err_cr;
+    int *var_noisy_read_marks, var_noisy_read_mark_id;
     // noisy regions
     // right now: not work with cooridinate > 2G (pow(2,31)), use noisy_reg_beg-reg_beg+1 instead for coordinates > 2G
     cgranges_t *chunk_noisy_regs; // merged noisy regions for all reads

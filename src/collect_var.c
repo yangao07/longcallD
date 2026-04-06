@@ -665,27 +665,83 @@ void post_process_noisy_regs(bam_chunk_t *chunk, const call_var_opt_t *opt, int 
     free(noisy_reg_start); free(noisy_reg_end);
 }
 
-float var_noisy_reads_ratio(bam_chunk_t *chunk, hts_pos_t var_start, hts_pos_t var_end) {
-    int total_n_reads = 0;
-    int noisy_reads = 0;
+static void build_var_noisy_reads_ratio_cache(bam_chunk_t *chunk) {
+    if (chunk->var_noisy_read_cov_cr != NULL && chunk->var_noisy_read_err_cr != NULL) return;
+
+    chunk->var_noisy_read_cov_cr = cr_init();
+    chunk->var_noisy_read_err_cr = cr_init();
+    chunk->var_noisy_read_marks = (int*)calloc((size_t)chunk->m_reads, sizeof(int));
+    chunk->var_noisy_read_mark_id = 0;
+
     for (int i = 0; i < chunk->n_reads; ++i) {
         int read_i = chunk->ordered_read_ids[i];
+        digar_t *read_digar = chunk->digars + read_i;
+        int has_noisy_interval = 0;
+        hts_pos_t noisy_start = -1, noisy_end = -1;
+
         if (chunk->is_skipped[read_i]) continue;
-        hts_pos_t beg = chunk->digars[read_i].beg, end = chunk->digars[read_i].end;
-        if (beg > var_end || end < var_start) continue; // no overlap
-        total_n_reads++;
-        // check if there is mismatch/ins/del digars in the region
-        for (int j = 0; j < chunk->digars[read_i].n_digar; ++j) {
-            digar1_t *d1 = chunk->digars[read_i].digars+j;
-            if (d1->type != BAM_CDIFF && d1->type != BAM_CINS && d1->type != BAM_CDEL) continue; // only check X/I/D
-            hts_pos_t digar_pos = d1->pos;
-            hts_pos_t digar_end = d1->pos;
-            if (d1->type == BAM_CDIFF || d1->type == BAM_CDEL) digar_end += (d1->len-1);
-            if (digar_end < var_start) continue;
-            else if (digar_pos > var_end) break; // no overlap
-            noisy_reads++; break;
+        if (read_digar->n_digar <= 0) continue;
+        if (read_digar->beg > read_digar->end) continue;
+
+        cr_add(chunk->var_noisy_read_cov_cr, "cr", (int32_t)(read_digar->beg - 1), (int32_t)read_digar->end, read_i);
+        for (int j = 0; j < read_digar->n_digar; ++j) {
+            digar1_t *d1 = read_digar->digars + j;
+            hts_pos_t cur_start, cur_end;
+
+            if (d1->type != BAM_CDIFF && d1->type != BAM_CINS && d1->type != BAM_CDEL) continue;
+            cur_start = d1->pos - 1;
+            cur_end = d1->pos;
+            if (d1->type == BAM_CDIFF || d1->type == BAM_CDEL) cur_end += (d1->len - 1);
+
+            if (!has_noisy_interval) {
+                noisy_start = cur_start;
+                noisy_end = cur_end;
+                has_noisy_interval = 1;
+                continue;
+            }
+            if (cur_start < noisy_end) {
+                if (cur_end > noisy_end) noisy_end = cur_end;
+                continue;
+            }
+            cr_add(chunk->var_noisy_read_err_cr, "cr", (int32_t)noisy_start, (int32_t)noisy_end, read_i);
+            noisy_start = cur_start;
+            noisy_end = cur_end;
+        }
+        if (has_noisy_interval) {
+            cr_add(chunk->var_noisy_read_err_cr, "cr", (int32_t)noisy_start, (int32_t)noisy_end, read_i);
         }
     }
+    cr_index(chunk->var_noisy_read_cov_cr);
+    cr_index(chunk->var_noisy_read_err_cr);
+}
+
+float var_noisy_reads_ratio(bam_chunk_t *chunk, hts_pos_t var_start, hts_pos_t var_end) {
+    int total_n_reads = 0, noisy_reads = 0;
+    int64_t *ovlp_b = NULL, *noisy_ovlp_b = NULL;
+    int64_t ovlp_n = 0, noisy_ovlp_n = 0, max_b = 0, noisy_max_b = 0;
+
+    build_var_noisy_reads_ratio_cache(chunk);
+    ovlp_n = cr_overlap(chunk->var_noisy_read_cov_cr, "cr", (int32_t)(var_start - 1), (int32_t)var_end, &ovlp_b, &max_b);
+    total_n_reads = (int)ovlp_n;
+    if (total_n_reads > 0) {
+        if (chunk->var_noisy_read_marks == NULL) {
+            chunk->var_noisy_read_marks = (int*)calloc((size_t)chunk->m_reads, sizeof(int));
+        }
+        chunk->var_noisy_read_mark_id++;
+        if (chunk->var_noisy_read_mark_id == INT_MAX) {
+            memset(chunk->var_noisy_read_marks, 0, (size_t)chunk->m_reads * sizeof(int));
+            chunk->var_noisy_read_mark_id = 1;
+        }
+        noisy_ovlp_n = cr_overlap(chunk->var_noisy_read_err_cr, "cr", (int32_t)(var_start - 1), (int32_t)var_end, &noisy_ovlp_b, &noisy_max_b);
+        for (int64_t i = 0; i < noisy_ovlp_n; ++i) {
+            int read_i = cr_label(chunk->var_noisy_read_err_cr, noisy_ovlp_b[i]);
+            if (chunk->var_noisy_read_marks[read_i] == chunk->var_noisy_read_mark_id) continue;
+            chunk->var_noisy_read_marks[read_i] = chunk->var_noisy_read_mark_id;
+            noisy_reads++;
+        }
+    }
+    free(ovlp_b);
+    free(noisy_ovlp_b);
     if (LONGCALLD_VERBOSE >= 2) {
         fprintf(stderr, "var_noisy_ratio: %s:%" PRId64 "-%" PRId64 " total_n_reads: %d, noisy_reads: %d, ratio: %.3f\n", 
                 chunk->tname, var_start, var_end, total_n_reads, noisy_reads, (float) noisy_reads / (total_n_reads+0.0));
@@ -1093,6 +1149,19 @@ int comp_ovlp_var_site(const call_var_opt_t *opt, var_site_t *var1, var_site_t *
     return exact_comp_var_site(opt, var1, var2);
 }
 
+static int is_collectible_var_digar(const digar1_t *digar, hts_pos_t reg_beg, hts_pos_t reg_end) {
+    hts_pos_t digar_pos = digar->pos;
+    if (reg_beg != -1 && digar_pos < reg_beg) return 0;
+    if (reg_end != -1 && digar_pos > reg_end) return 0;
+    if (digar->is_low_qual) return 0;
+    if (digar->type != BAM_CDIFF && digar->type != BAM_CINS && digar->type != BAM_CDEL) return 0;
+    return 1;
+}
+
+static int comp_var_site_for_sort(const void *a, const void *b) {
+    return exact_comp_var_site(NULL, (var_site_t*)a, (var_site_t*)b);
+}
+
 // order of variants with same pos: order by type and ref_len
 int merge_var_sites(const call_var_opt_t *opt, int n_total_var_sites, var_site_t **var_sites, int tid, hts_pos_t reg_beg, hts_pos_t reg_end,
                     int n_digar, digar1_t *digars) {
@@ -1138,13 +1207,38 @@ int merge_var_sites(const call_var_opt_t *opt, int n_total_var_sites, var_site_t
 // collect all candidate variant sites from digars, excluding low-quality/noisy-region ones
 // including germline hom/het and somatic ones
 int collect_all_cand_var_sites(const call_var_opt_t *opt, bam_chunk_t *chunk, var_site_t **var_sites) {
-    int n_total_var_sites = 0;
+    int max_var_sites = 0, n_total_var_sites = 0;
+    *var_sites = NULL;
+
     for (int i = 0; i < chunk->n_reads; ++i) {
         int read_i = chunk->ordered_read_ids[i];
         if (chunk->is_skipped[read_i]) continue;
-       n_total_var_sites = merge_var_sites(opt, n_total_var_sites, var_sites, 
-                                           chunk->tid, chunk->reg_beg, chunk->reg_end, //->beg, chunk->end, 
-                                           chunk->digars[read_i].n_digar, chunk->digars[read_i].digars);
+        for (int j = 0; j < chunk->digars[read_i].n_digar; ++j) {
+            if (is_collectible_var_digar(chunk->digars[read_i].digars+j, chunk->reg_beg, chunk->reg_end))
+                max_var_sites++;
+        }
+    }
+    if (max_var_sites == 0) return 0;
+
+    *var_sites = (var_site_t*)malloc((size_t)max_var_sites * sizeof(var_site_t));
+    for (int i = 0; i < chunk->n_reads; ++i) {
+        int read_i = chunk->ordered_read_ids[i];
+        if (chunk->is_skipped[read_i]) continue;
+        for (int j = 0; j < chunk->digars[read_i].n_digar; ++j) {
+            digar1_t *digar = chunk->digars[read_i].digars+j;
+            if (!is_collectible_var_digar(digar, chunk->reg_beg, chunk->reg_end)) continue;
+            (*var_sites)[n_total_var_sites++] = make_var_site_from_digar(chunk->tid, digar);
+        }
+    }
+
+    qsort(*var_sites, (size_t)n_total_var_sites, sizeof(var_site_t), comp_var_site_for_sort);
+    if (n_total_var_sites > 0) {
+        int write_i = 1;
+        for (int read_i = 1; read_i < n_total_var_sites; ++read_i) {
+            if (exact_comp_var_site_ins(opt, (*var_sites)+write_i-1, (*var_sites)+read_i) == 0) continue;
+            (*var_sites)[write_i++] = (*var_sites)[read_i];
+        }
+        n_total_var_sites = write_i;
     }
     // fprintf(stderr, "total_cand_var: %d\n", n_total_var_sites);
     // print cand_vars
@@ -1164,15 +1258,60 @@ int exact_comp_cand_var(const call_var_opt_t *opt, cand_var_t *var1, cand_var_t 
     return exact_comp_var_site(opt, &var_site1, &var_site2);
 }
 
+static void merge_read_var_profile_entries(const read_var_profile_t *old_p1, const int *old_to_merged,
+                                           const read_var_profile_t *new_p1, const int *new_to_merged,
+                                           read_var_profile_t *merged_p1, int merged_var_limit) {
+    int old_var_i = (old_p1 != NULL ? old_p1->start_var_idx : 1);
+    int old_end_var_i = (old_p1 != NULL ? old_p1->end_var_idx : 0);
+    int new_var_i = (new_p1 != NULL ? new_p1->start_var_idx : 1);
+    int new_end_var_i = (new_p1 != NULL ? new_p1->end_var_idx : 0);
+
+    if (old_p1 == NULL || old_to_merged == NULL || old_var_i < 0 || old_end_var_i < old_var_i) {
+        old_var_i = 1;
+        old_end_var_i = 0;
+    }
+    if (new_p1 == NULL || new_to_merged == NULL || new_var_i < 0 || new_end_var_i < new_var_i) {
+        new_var_i = 1;
+        new_end_var_i = 0;
+    }
+
+    while (1) {
+        while (old_var_i <= old_end_var_i && old_to_merged[old_var_i] < 0) old_var_i++;
+        while (new_var_i <= new_end_var_i && new_to_merged[new_var_i] < 0) new_var_i++;
+
+        int old_merged_i = (old_var_i <= old_end_var_i ? old_to_merged[old_var_i] : merged_var_limit);
+        int new_merged_i = (new_var_i <= new_end_var_i ? new_to_merged[new_var_i] : merged_var_limit);
+        if (old_merged_i == merged_var_limit && new_merged_i == merged_var_limit) break;
+
+        if (old_merged_i <= new_merged_i) {
+            int old_profile_i = old_var_i - old_p1->start_var_idx;
+            update_read_var_profile_with_allele(old_merged_i, old_p1->alleles[old_profile_i], old_p1->alt_qi[old_profile_i], merged_p1);
+            old_var_i++;
+        } else {
+            int new_profile_i = new_var_i - new_p1->start_var_idx;
+            update_read_var_profile_with_allele(new_merged_i, new_p1->alleles[new_profile_i], new_p1->alt_qi[new_profile_i], merged_p1);
+            new_var_i++;
+        }
+    }
+}
+
 int merge_var_profile(const call_var_opt_t *opt, bam_chunk_t *chunk, int n_new_vars, cand_var_t *new_vars, int *new_var_cate, read_var_profile_t *new_p) {
     if (n_new_vars <= 0) return 0;
     cand_var_t *old_vars = chunk->cand_vars;
     read_var_profile_t *old_p = chunk->read_var_profile;
     cand_var_t *merged_vars = (cand_var_t *)malloc((chunk->n_cand_vars + n_new_vars) * sizeof(cand_var_t)); 
     read_var_profile_t *merged_p = init_read_var_profile(chunk->n_reads, chunk->n_cand_vars + n_new_vars);
-    
     int *merged_var_i_to_cate = (int*)malloc((chunk->n_cand_vars + n_new_vars) * sizeof(int));
+    int *old_to_merged = NULL, *new_to_merged = NULL;
     int old_var_i = 0, new_var_i = 0, merged_var_i = 0;
+
+    if (chunk->n_cand_vars > 0) {
+        old_to_merged = (int*)malloc((size_t)chunk->n_cand_vars * sizeof(int));
+        for (int i = 0; i < chunk->n_cand_vars; ++i) old_to_merged[i] = -1;
+    }
+    new_to_merged = (int*)malloc((size_t)n_new_vars * sizeof(int));
+    for (int i = 0; i < n_new_vars; ++i) new_to_merged[i] = -1;
+
     for (; old_var_i < chunk->n_cand_vars && new_var_i < n_new_vars; ) {
         int ret = exact_comp_cand_var(opt, old_vars+old_var_i, new_vars+new_var_i);
         // fprintf(stderr, "old: %s:%" PRId64 " %d-%c-%d vs new: %s:%" PRId64 " %d-%c-%d => ret=%d\n",
@@ -1180,37 +1319,16 @@ int merge_var_profile(const call_var_opt_t *opt, bam_chunk_t *chunk, int n_new_v
                 // chunk->tname, new_vars[new_var_i].pos, new_vars[new_var_i].ref_len, BAM_CIGAR_STR[new_vars[new_var_i].var_type], new_vars[new_var_i].alt_len,
                 // ret);
         if (ret < 0) { // add old_var to merged_vars, updated read_profile
-            for (int i = 0; i < chunk->n_reads; ++i) {
-                int read_i = chunk->ordered_read_ids[i];
-                if (chunk->is_skipped[read_i]) continue;
-                read_var_profile_t *old_p1 = old_p + read_i;
-                read_var_profile_t *merged_p1 = merged_p + read_i;
-                if (old_p1->start_var_idx > old_var_i || old_p1->end_var_idx < old_var_i) continue;
-                update_read_var_profile_with_allele(merged_var_i, old_p1->alleles[old_var_i-old_p1->start_var_idx], old_p1->alt_qi[old_var_i-old_p1->start_var_idx], merged_p1);
-            }
+            old_to_merged[old_var_i] = merged_var_i;
             merged_var_i_to_cate[merged_var_i] = chunk->var_i_to_cate[old_var_i];
             merged_vars[merged_var_i++] = old_vars[old_var_i++];
         } else if (ret > 0) { // add new_var to merged vars, update read_profile
-            for (int i = 0; i < chunk->n_reads; ++i) {
-                int read_i = chunk->ordered_read_ids[i];
-                if (chunk->is_skipped[read_i]) continue;
-                read_var_profile_t *new_p1 = new_p + read_i;
-                read_var_profile_t *merged_p1 = merged_p + read_i;
-                if (new_p1->start_var_idx > new_var_i || new_p1->end_var_idx < new_var_i) continue;
-                update_read_var_profile_with_allele(merged_var_i, new_p1->alleles[new_var_i-new_p1->start_var_idx], new_p1->alt_qi[new_var_i-new_p1->start_var_idx], merged_p1);
-            }
+            new_to_merged[new_var_i] = merged_var_i;
             merged_var_i_to_cate[merged_var_i] = new_var_cate[new_var_i]; //
             merged_vars[merged_var_i++] = new_vars[new_var_i++];
         } else { // ret == 0
             // always use old_var
-            for (int i = 0; i < chunk->n_reads; ++i) {
-                int read_i = chunk->ordered_read_ids[i];
-                if (chunk->is_skipped[read_i]) continue;
-                read_var_profile_t *old_p1 = old_p + read_i;
-                read_var_profile_t *merged_p1 = merged_p + read_i;
-                if (old_p1->start_var_idx > old_var_i || old_p1->end_var_idx < old_var_i) continue;
-                update_read_var_profile_with_allele(merged_var_i, old_p1->alleles[old_var_i-old_p1->start_var_idx], old_p1->alt_qi[old_var_i-old_p1->start_var_idx], merged_p1);
-            }
+            old_to_merged[old_var_i] = merged_var_i;
             merged_var_i_to_cate[merged_var_i] = chunk->var_i_to_cate[old_var_i];
             merged_vars[merged_var_i++] = old_vars[old_var_i++];
             // free new_vars
@@ -1218,37 +1336,36 @@ int merge_var_profile(const call_var_opt_t *opt, bam_chunk_t *chunk, int n_new_v
         }
     }
     for (; old_var_i < chunk->n_cand_vars; ++old_var_i) {
-        for (int i = 0; i < chunk->n_reads; ++i) {
-            int read_i = chunk->ordered_read_ids[i];
-            if (chunk->is_skipped[read_i]) continue;
-            read_var_profile_t *old_p1 = old_p + read_i;
-            read_var_profile_t *merged_p1 = merged_p + read_i;
-            if (old_p1->start_var_idx > old_var_i || old_p1->end_var_idx < old_var_i) continue;
-            update_read_var_profile_with_allele(merged_var_i, old_p1->alleles[old_var_i-old_p1->start_var_idx], old_p1->alt_qi[old_var_i-old_p1->start_var_idx], merged_p1);
-        }
+        old_to_merged[old_var_i] = merged_var_i;
         merged_var_i_to_cate[merged_var_i] = chunk->var_i_to_cate[old_var_i];
         merged_vars[merged_var_i++] = old_vars[old_var_i];
     }
     for (; new_var_i < n_new_vars; ++new_var_i) {
-        for (int i = 0; i < chunk->n_reads; ++i) {
-            int read_i = chunk->ordered_read_ids[i];
-            if (chunk->is_skipped[read_i]) continue;
-            read_var_profile_t *new_p1 = new_p + read_i;
-            read_var_profile_t *merged_p1 = merged_p + read_i;
-            if (new_p1->start_var_idx > new_var_i || new_p1->end_var_idx < new_var_i) continue;
-            update_read_var_profile_with_allele(merged_var_i, new_p1->alleles[new_var_i-new_p1->start_var_idx], new_p1->alt_qi[new_var_i-new_p1->start_var_idx], merged_p1);
-        }
+        new_to_merged[new_var_i] = merged_var_i;
         merged_var_i_to_cate[merged_var_i] = new_var_cate[new_var_i];
         merged_vars[merged_var_i++] = new_vars[new_var_i];
     }
+
+    // Copy each read profile once, merging old/new alleles in final variant order.
+    for (int i = 0; i < chunk->n_reads; ++i) {
+        int read_i = chunk->ordered_read_ids[i];
+        if (chunk->is_skipped[read_i]) continue;
+        merge_read_var_profile_entries(old_p != NULL ? old_p + read_i : NULL, old_to_merged,
+                                       new_p + read_i, new_to_merged,
+                                       merged_p + read_i, merged_var_i);
+    }
+
     cgranges_t *merged_read_var_cr = cr_init();
     for (int i = 0; i < chunk->n_reads; ++i) {
         int read_i = chunk->ordered_read_ids[i];
         if (chunk->is_skipped[read_i]) continue;
+        if (merged_p[read_i].start_var_idx < 0 || merged_p[read_i].end_var_idx < 0) continue;
         cr_add(merged_read_var_cr, "cr", merged_p[read_i].start_var_idx, merged_p[read_i].end_var_idx+1, read_i);
     }
     cr_index(merged_read_var_cr);
 
+    free(old_to_merged);
+    free(new_to_merged);
     if (chunk->n_cand_vars > 0) free_read_var_profile(chunk->read_var_profile, chunk->n_reads); 
     free_read_var_profile(new_p, chunk->n_reads); free(chunk->var_i_to_cate);
     free(chunk->cand_vars); free(new_vars); free(new_var_cate); cr_destroy(chunk->read_var_cr);
