@@ -77,6 +77,7 @@ void write_vcf_header(bam_hdr_t *hdr, struct call_var_opt_t *opt) {
     bcf_hdr_append(vcf_hdr, "##FORMAT=<ID=GQ,Number=1,Type=Integer,Description=\"Genotype quality\">");
     bcf_hdr_append(vcf_hdr, "##FORMAT=<ID=DP,Number=1,Type=Integer,Description=\"Total read depth\">");
     bcf_hdr_append(vcf_hdr, "##FORMAT=<ID=AD,Number=R,Type=Integer,Description=\"Read depth for each allele\">");
+    bcf_hdr_append(vcf_hdr, "##FORMAT=<ID=VAF,Number=A,Type=Float,Description=\"Variant allele frequency\">");
     bcf_hdr_append(vcf_hdr, "##FORMAT=<ID=PL,Number=G,Type=Integer,Description=\"Phred-scaled genotype likelihoods rounded to the closest integer\">");
     bcf_hdr_append(vcf_hdr, "##FORMAT=<ID=PS,Number=1,Type=Integer,Description=\"Phase set\">");
     // per-sample variant supporting read IDs
@@ -202,7 +203,7 @@ int write_var_to_vcf(var_t *vars, const struct call_var_opt_t *opt, bam_chunk_t 
             if (gt1 > gt2) { int tmp = gt1; gt1 = gt2; gt2 = tmp;  }
         }
         // add SVREADS to FORMAT if outputting supporting read names for SVs
-        len += snprintf(buffer + len, buf_m - len, "GT:DP:AD:GQ");
+        len += snprintf(buffer + len, buf_m - len, "GT:DP:AD:VAF:GQ");
         if (is_hom == 0 && var.PS != 0) len += snprintf(buffer + len, buf_m - len, ":PS");
         if (opt->output_var_rnames || (var.is_sv && (opt->output_sv_rnames)) || (var.is_somatic && opt->output_somatic_var_rnames)) {
             len += snprintf(buffer + len, buf_m - len, ":ALTREADS");
@@ -215,6 +216,13 @@ int write_var_to_vcf(var_t *vars, const struct call_var_opt_t *opt, bam_chunk_t 
         for (int j = 0; j < 1 + var.n_alt_allele; j++) {
             if (j > 0) len += snprintf(buffer + len, buf_m - len, ",");
             len += snprintf(buffer + len, buf_m - len, "%d", var.AD[j]);
+        }
+        // VAF
+        for (int j = 0; j < 1 + var.n_alt_allele; j++) {
+            if (j == 0) len += snprintf(buffer + len, buf_m - len, ":");
+            if (j > 0) len += snprintf(buffer + len, buf_m - len, ",");
+            float vaf = (float)var.AD[j] / var.DP;
+            len += snprintf(buffer + len, buf_m - len, "%.3f", vaf);
         }
         // GQ
         len += snprintf(buffer + len, buf_m - len, ":%d", var.GQ);

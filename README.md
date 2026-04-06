@@ -1,5 +1,4 @@
 <!-- # LongcallD: local-haplotagging-based small and structural variant calling -->
-<!-- [![Latest Release](https://img.shields.io/github/v/tag/yangao07/longcalld?label=Release)](https://github.com/yangao07/longcallD/releases/latest) -->
 [![Latest Release](https://img.shields.io/github/release/yangao07/longcallD.svg?label=Release)](https://github.com/yangao07/longcallD/releases/latest)
 [![Github All Releases](https://img.shields.io/github/downloads/yangao07/longcallD/total.svg?label=Download)](https://github.com/yangao07/longcallD/releases)
 [![Bioconda Version](https://img.shields.io/conda/vn/bioconda/longcallD.svg?style=flag&label=Bioconda)](https://anaconda.org/bioconda/longcalld)
@@ -7,25 +6,27 @@
 [![C/C++ CI](https://github.com/yangao07/longcallD/actions/workflows/linux-CI.yml/badge.svg)](https://github.com/yangao07/longcallD/actions/workflows/linux-CI.yml)
 [![C/C++ CI](https://github.com/yangao07/longcallD/actions/workflows/macos-CI.yml/badge.svg)](https://github.com/yangao07/longcallD/actions/workflows/macos-CI.yml)
 [![License](https://img.shields.io/badge/License-MIT-black.svg)](https://github.com/yangao07/longcallD/blob/main/LICENSE)
-<!-- [![Published in Bioinformatics](https://img.shields.io/badge/Published%20in-Bioinformatics-blue.svg)](https://dx.doi.org/10.1093/bioinformatics/btaa963) -->
+[![Published in bioRxiv](https://img.shields.io/badge/Published%20in-bioRxiv-red.svg)](https://www.biorxiv.org/content/10.64898/2026.03.20.713111v1)
 <!-- [![GitHub Issues](https://img.shields.io/github/issues/yangao07/longcallD.svg?label=Issues)](https://github.com/yangao07/longcallD/issues) -->
 
-## Updates (release v0.0.10)
+## Updates (release v0.0.11)
 
-<!-- * Fix variant calling close to start/end boundaries of chromosomes -->
-* Add `--out-sv-rnames` and `--out-som-sv-rnames` to output SV-supporing read names (tag: `SVREADS`) in FORMAT field of VCF
-* Add `CLEAN` INFO tag for variants in clean regions, i.e., SNPs or simple small indels (≤5bp) in non-repetitive regions which are generally more reliable, to help with downstream filtering and benchmarking
+* Bugs fixes:
+  * memory allocation(#21)
+  * loop index not used in scanning qualities (#23)
+* Speed improvement (#26)
+* Add VAF (variant allele frequency) to output VCF (FORMAT field) (#22) 
 
 
 ## Getting Started
 ```sh
 # Download pre-built executables and test data (recommended)
 # Linux-x64
-wget https://github.com/yangao07/longcallD/releases/download/v0.0.10/longcallD-v0.0.10_x64-linux.tar.gz
-tar -zxvf longcallD-v0.0.10_x64-linux.tar.gz && cd longcallD-v0.0.10_x64-linux
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.11/longcallD-v0.0.11_x64-linux.tar.gz
+tar -zxvf longcallD-v0.0.11_x64-linux.tar.gz && cd longcallD-v0.0.11_x64-linux
 # MacOS-arm64
-wget https://github.com/yangao07/longcallD/releases/download/v0.0.10/longcallD-v0.0.10_arm64-macos.tar.gz
-tar -zxvf longcallD-v0.0.10_arm64-macos.tar.gz && cd longcallD-v0.0.10_arm64-macos
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.11/longcallD-v0.0.11_arm64-macos.tar.gz
+tar -zxvf longcallD-v0.0.11_arm64-macos.tar.gz && cd longcallD-v0.0.11_arm64-macos
 
 # PacBio HiFi reads
 ./longcallD call ./test_data/chr11_2M.fa ./test_data/HG002_chr11_hifi_test.bam --hifi > HG002_hifi_test.vcf
@@ -37,7 +38,7 @@ man ./longcallD.1
 ``` -->
 
 ## Table of Contents
-- [Updates (release v0.0.10)](#updates-release-v0010)
+- [Updates (release v0.0.11)](#updates-release-v0011)
 - [Getting Started](#getting-started)
 - [Table of Contents](#table-of-contents)
 - [Introduction](#introduction)
@@ -46,6 +47,7 @@ man ./longcallD.1
   - [Pre-built executables (recommended)](#pre-built-executables-recommended)
   - [Bioconda](#bioconda)
   - [Build from source](#build-from-source)
+  - [Build from repository](#build-from-repository)
 - [Usage](#usage)
   - [Variant calling with PacBio HiFi/Nanopore long reads](#variant-calling-with-pacbio-hifinanopore-long-reads)
   - [Multiple input BAM/CRAM files of the same sample](#multiple-input-bamcram-files-of-the-same-sample)
@@ -112,11 +114,10 @@ cd longcallD-v0.0.10; make
 ```
 
 ### Build from repository
-To compile longcallD from the repository, run:
+To compile longcallD with the latest code from the repository, run:
 ```
-git clone https://github.com/yangao07/longcallD.git
+git clone --recursive https://github.com/yangao07/longcallD.git
 cd longcallD
-git submodule update --init --recursive
 make
 ```
 

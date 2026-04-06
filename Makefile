@@ -14,7 +14,7 @@ endif
 EXTRA_FLAGS = -Wall -Wno-misleading-indentation -Wno-unused-function #-Wno-unused-variable -Wno-alloc-size-larger-than
 
 # Define the version number
-VERSION=0.0.10
+VERSION=0.0.11
 # Get the Git commit hash
 GIT_COMMIT := $(shell git rev-parse --short HEAD 2> /dev/null)
 ifneq ($(GIT_COMMIT),)
