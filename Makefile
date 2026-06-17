@@ -2,6 +2,7 @@ GCC_CHECK := $(shell gcc --version | head -n 1 | grep -i "clang")
 
 # Check if the OS is macOS or linux
 UNAME_S := $(shell uname -s)
+UNAME_M := $(shell uname -m)
 
 ifeq ($(GCC_CHECK),) # gcc
 	CXXFLAGS = -std=c++11
@@ -51,10 +52,10 @@ ifeq ($(UNAME_S),Linux) # Linux
 	ifneq ($(portable),)
 		LIB += -static-libgcc -static-libstdc++
 		ifneq ($(opt_lib),)
-			LIB = $(HTSLIB) $(ABPOA_LIB) $(WFA2_LIB) -static-libgcc -static-libstdc++ -L${opt_lib} -lm -lz -lpthread -llzma -lbz2 -lcurl -lssl -lcrypto -lssh2 -Wl,-Bstatic -ldeflate -Wl,-Bdynamic -lzstd
+			LIB = $(HTSLIB) $(ABPOA_LIB) $(WFA2_LIB) -static-libgcc -static-libstdc++ -L${opt_lib} -lm -lz -lpthread -llzma -lbz2 -lcurl -lssl -lcrypto -lssh2 -ldl -Wl,-Bstatic -ldeflate -Wl,-Bdynamic -lzstd
 		else
 			ifneq ($(OPT_LIB),)
-				LIB = $(HTSLIB) $(ABPOA_LIB) $(WFA2_LIB) -static-libgcc -static-libstdc++ -L${OPT_LIB} -lm -lz -lpthread -llzma -lbz2 -lcurl -lssl -lcrypto -lssh2 -Wl,-Bstatic -ldeflate -Wl,-Bdynamic -lzstd
+				LIB = $(HTSLIB) $(ABPOA_LIB) $(WFA2_LIB) -static-libgcc -static-libstdc++ -L${OPT_LIB} -lm -lz -lpthread -llzma -lbz2 -lcurl -lssl -lcrypto -lssh2 -ldl -Wl,-Bstatic -ldeflate -Wl,-Bdynamic -lzstd
 			endif
 		endif
 	endif
@@ -82,6 +83,20 @@ else
 endif
 
 CFLAGS = $(OPT_FLAGS) $(EXTRA_FLAGS) -DLONGCALLD_VERSION=\"$(LONGCALLD_VERSION)\"
+
+BIN_LDFLAGS =
+
+ifeq ($(UNAME_S),Linux)
+    BIN_LDFLAGS += -no-pie
+endif
+
+
+HTSLIB_CFLAGS = -g -O2
+ifeq ($(UNAME_S),Linux)
+    ifeq ($(UNAME_M),x86_64)
+        HTSLIB_CFLAGS += -mssse3
+    endif
+endif
 
 # for gprof
 ifneq ($(pg),)
@@ -122,7 +137,7 @@ all: $(HTS_ALL) $(EDLIB) $(ABPOA_LIB) $(WFA2_LIB) $(BIN)
 $(HTS_ALL): $(HTSLIB)
 
 $(HTSLIB): $(HTSLIB_DIR)/configure.ac
-	cd $(HTSLIB_DIR); autoreconf -i; ./configure; make CC=${CC}
+	cd $(HTSLIB_DIR); autoreconf -i; ./configure CC=${CC} CFLAGS="$(HTSLIB_CFLAGS)"; make CC=${CC} CFLAGS="$(HTSLIB_CFLAGS)"
 
 $(EDLIB): $(EDLIB_DIR)/src/edlib.cpp $(EDLIB_DIR)/include/edlib.h
 	$(CXX) $(CFLAGS) $(CXXFLAGS) -c $< $(INCLUDE) -o $@
@@ -142,7 +157,7 @@ $(WFA2_ALL): $(WFA2_LIB)
 
 $(BIN): $(OBJS) $(ABPOA_LIB) $(HTSLIB) $(WFA2_LIB)
 	if [ ! -d $(BIN_DIR) ]; then mkdir $(BIN_DIR); fi
-	$(CXX) $(OBJS) -o $@ $(LIB) $(PG_FLAG)
+	$(CXX) $(BIN_LDFLAGS) $(OBJS) -o $@ $(LIB) $(PG_FLAG)
 # 	$(CC) $(OBJS) -o $@ $(LIB) $(PG_FLAG)
 
 $(SRC_DIR)/align.o: $(SRC_DIR)/align.c $(SRC_DIR)/align.h $(SRC_DIR)/utils.h $(SRC_DIR)/bam_utils.h $(SRC_DIR)/seq.h
