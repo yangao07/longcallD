@@ -742,8 +742,8 @@ static void call_var_pl_open_fa_bam(call_var_opt_t *opt, call_var_pl_t *pl, char
     }
     // collect regions
     if (collect_regions(pl, opt, n_regions, regions) <= 0) {
-        if (n_regions > 0) _err_warning("No valid regions found in the alignment file. Processing the whole alignment file.\n");
-        else _err_warning("No autosomes and sex chromosomes (chr{1-22,XY}) found in the alignment file. Processing the whole alignment file.\n");
+        if (n_regions > 0) _err_warning("No valid regions found in the alignment file. Processing the entire alignment file.\n");
+        else _err_warning("No autosomes or sex chromosomes (chr{1-22,XY}) found in the alignment file. Processing the entire alignment file.\n");
         opt->only_autosome = 0, opt->only_autosome_XY=0;
         collect_regions(pl, opt, 0, NULL);
     }
@@ -863,7 +863,7 @@ static void call_var_usage(void) {//main usage
     fprintf(stderr, "    --refine-aln          refine alignment in SAM/BAM/CRAM output\n");
     fprintf(stderr, "                          note: output SAM/BAM/CRAM may be unsorted when --refine-aln is set\n");
     fprintf(stderr, "    --out-var-rnames      output names of supporting reads in VCF FORMAT field for all variants [False]\n");
-    fprintf(stderr, "    --out-som-var-rnames   output names of supporting reads in VCF FORMAT field for somatic variants [False]\n");
+    fprintf(stderr, "    --out-som-var-rnames  output names of supporting reads in VCF FORMAT field for somatic variants [False]\n");
     fprintf(stderr, "    --out-sv-rnames       output names of supporting reads in VCF FORMAT field for SVs [False]\n");
     // fprintf(stderr, "\n");
     fprintf(stderr, "  Variant calling:\n");
