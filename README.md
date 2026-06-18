@@ -204,6 +204,6 @@ LongcallD is dependent on the following libraries, we are grateful to all the de
 
 For any questions or support, please contact:
 
-* Yan Gao yangao@ds.dfci.harvard.edu
+* Yan Gao yangao07@hit.edu.cn
 
 * Heng Li hli@jimmy.harvard.edu
