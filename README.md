@@ -85,13 +85,13 @@ Providing the annotation sequence of common mobile elements, i.e., Alu/L1/SVA, u
 ### Pre-built executables (recommended)
 **Linux-x64**
 ```
-wget https://github.com/yangao07/longcallD/releases/download/v0.0.10/longcallD-v0.0.10_x64-linux.tar.gz
-tar -zxvf longcallD-v0.0.10_x64-linux.tar.gz
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.11/longcallD-v0.0.11_x64-linux.tar.gz
+tar -zxvf longcallD-v0.0.11_x64-linux.tar.gz
 ```
 **MacOS-arm64**
 ```
-wget https://github.com/yangao07/longcallD/releases/download/v0.0.10/longcallD-v0.0.10_arm64-macos.tar.gz
-tar -zxvf longcallD-v0.0.10_arm64-macos.tar.gz
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.11/longcallD-v0.0.11_arm64-macos.tar.gz
+tar -zxvf longcallD-v0.0.11_arm64-macos.tar.gz
 ```
 
 **Linux-arm64/macOS-x64**
@@ -107,9 +107,9 @@ conda install -c bioconda longcalld
 ### Build from source
 To compile longcallD from source, ensure you have **GCC/clang(9.0+)** and **zlib/libbz2/liblzma/libcurl** (for htslib) installed. 
 ```
-wget https://github.com/yangao07/longcallD/releases/download/v0.0.10/longcallD-v0.0.10.tar.gz
-tar -zxvf longcallD-v0.0.10.tar.gz
-cd longcallD-v0.0.10; make
+wget https://github.com/yangao07/longcallD/releases/download/v0.0.11/longcallD-v0.0.11.tar.gz
+tar -zxvf longcallD-v0.0.11.tar.gz
+cd longcallD-v0.0.11; make
 ```
 
 ### Build from repository
